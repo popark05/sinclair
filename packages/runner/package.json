@@ -1,0 +1,13 @@
+{
+  "name": "@sinclair/runner",
+  "version": "0.0.0",
+  "private": true,
+  "description": "테스트 러너: locator/expect, agent, 녹화·재생 캐시, 리포터",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": { "@sinclair/protocol": "workspace:*" }
+}

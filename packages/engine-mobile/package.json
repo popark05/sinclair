@@ -1,0 +1,13 @@
+{
+  "name": "@sinclair/engine-mobile",
+  "version": "0.0.0",
+  "private": true,
+  "description": "러너 엔진 계약의 모바일 구현",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": { "@sinclair/protocol": "workspace:*", "@sinclair/device-layer": "workspace:*" }
+}

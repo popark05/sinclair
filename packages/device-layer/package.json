@@ -1,0 +1,13 @@
+{
+  "name": "@sinclair/device-layer",
+  "version": "0.0.0",
+  "private": true,
+  "description": "디바이스 JSON-RPC 서버 (adb/usbmux + 온디바이스 에이전트)",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": { "@sinclair/protocol": "workspace:*" }
+}

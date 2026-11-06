@@ -1,0 +1,13 @@
+{
+  "name": "@sinclair/runner-agent",
+  "version": "0.0.0",
+  "private": true,
+  "description": "워커 데몬: 기기 노드에서 러너 실행, 이벤트 스트리밍",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": { "@sinclair/protocol": "workspace:*", "@sinclair/runner": "workspace:*" }
+}

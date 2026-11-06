@@ -1,0 +1,13 @@
+{
+  "name": "@sinclair/control-plane",
+  "version": "0.0.0",
+  "private": true,
+  "description": "API 서버: Cycle/Run/Attempt, Ingest, Fleet, 원격 캐시",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": { "@sinclair/protocol": "workspace:*" }
+}

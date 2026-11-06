@@ -1,0 +1,13 @@
+{
+  "name": "@sinclair/console",
+  "version": "0.0.0",
+  "private": true,
+  "description": "웹 대시보드: Cycle 매트릭스, Verdict, 이력",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": { "@sinclair/protocol": "workspace:*", "@sinclair/ui": "workspace:*" }
+}

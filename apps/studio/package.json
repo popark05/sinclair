@@ -1,0 +1,13 @@
+{
+  "name": "@sinclair/studio",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Electron 데스크탑 앱: 테스트 작성·디버깅, 라이브 기기 뷰",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": { "@sinclair/runner": "workspace:*", "@sinclair/ui": "workspace:*" }
+}

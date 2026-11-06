@@ -1,0 +1,12 @@
+# 참고용 외부 소스 (라이선스 상 복사 금지, 읽기 전용)
+reference/
+
+node_modules/
+dist/
+out/
+release/
+.e2e/
+*.log
+.DS_Store
+.env
+.env.*

@@ -1,0 +1,12 @@
+{
+  "name": "@sinclair/protocol",
+  "version": "0.0.0",
+  "private": true,
+  "description": "이벤트 스키마, Run/Attempt 상태, 엔진 계약, 디바이스 JSON-RPC 타입",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}
