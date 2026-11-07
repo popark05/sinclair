@@ -41,6 +41,7 @@ class LoggingFakeBackend implements DeviceBackend {
 
 const backendKind = process.env.SINCLAIR_VERIFY_BACKEND ?? 'fake';
 const backend: DeviceBackend = backendKind === 'android'
+  // authTimeoutMs: 처음 보는 호스트 키면 기기에서 "USB 디버깅 허용"을 눌러야 하므로 60초 준다.
   ? createAndroidBackend({ dadb: { includeEmulators: false, authTimeoutMs: 60_000 } })
   : new LoggingFakeBackend(['VERIFY1', 'VERIFY2']);
 const srv = await serveHttp(createDeviceServer([backend]));

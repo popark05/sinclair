@@ -2,10 +2,10 @@
  * `usb`(node-usb 3.x) 네이티브 바이너리 패키지를 대상 플랫폼별로 node_modules에 배치한다.
  *
  * 배경: node-usb는 플랫폼별 바이너리를 optionalDependencies(@node-usb/usb-<platform>)로 배포하므로
- * npm은 빌드 머신의 것만 설치한다. electron-builder는 node_modules를 그대로 패키징하므로, 한 머신에서
- * 여러 아키텍처(또는 다른 OS) 설치본을 만들려면 대상 바이너리가 모두 있어야 한다(없으면 그 설치본에서
- * USB 직접 연결 불가 → adb server 경유로만 동작). N-API 모듈이라 Electron용 재빌드는 필요 없다.
- * macOS·Windows 빌드 머신 모두에서 실행 가능.
+ * 패키지 매니저는 빌드 머신의 것만 설치한다. 한 머신에서 다른 아키텍처/OS용 배포본(runner-agent, studio)을
+ * 만들려면 대상 바이너리가 모두 있어야 한다(없으면 그 배포본은 USB 직접 연결이 불가해 기기를 찾지 못한다).
+ * N-API 모듈이라 Electron용 재빌드는 필요 없다. macOS·Windows 빌드 머신 모두에서 실행 가능.
+ * 다운로드는 `npm pack`을 쓴다: 레지스트리에서 특정 플랫폼 패키지 하나를 tarball로 받는 데는 pnpm보다 단순하다.
  *
  * 사용:
  *   node scripts/fetch-usb-binaries.mjs                 # 현재 OS용 대상(mac: arm64+x64 / win: x64+arm64)

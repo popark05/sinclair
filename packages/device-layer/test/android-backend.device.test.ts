@@ -11,7 +11,9 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { createAndroidBackend } from '../src/index.ts';
 
 const target = process.env.SINCLAIR_TEST_USB;
-const backend = createAndroidBackend({ dadb: { includeEmulators: false, authTimeoutMs: 60_000 }, probeWaitMs: 60_000 });
+/** 처음 보는 호스트 키면 기기의 "USB 디버깅 허용" 팝업을 사람이 눌러야 하므로 승인 대기를 60초 준다. */
+const APPROVAL_WAIT_MS = 60_000;
+const backend = createAndroidBackend({ dadb: { includeEmulators: false, authTimeoutMs: APPROVAL_WAIT_MS }, probeWaitMs: APPROVAL_WAIT_MS });
 afterAll(() => backend.close());
 
 describe.skipIf(!target)('AndroidBackend 실기기', () => {
@@ -23,5 +25,5 @@ describe.skipIf(!target)('AndroidBackend 실기기', () => {
     expect(picked!.model).not.toBe('');
     expect(picked!.osVersion).toMatch(/^\d/);
     expect((await backend.info(picked!.id)).id).toBe(picked!.id);
-  }, 70_000);
+  }, APPROVAL_WAIT_MS + 10_000);
 });

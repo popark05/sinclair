@@ -115,3 +115,27 @@ describe('AndroidBackend 과 JSON-RPC 서버', () => {
     expect(r.error?.code).toBe(RPC_ERRORS.deviceNotFound);
   });
 });
+
+describe('AndroidBackend 목록 캐시', () => {
+  it('캐시 시간이 지나면 다음 listDevices 가 USB 를 다시 열거한다', async () => {
+    const phone = new FakeAndroid();
+    class CountingUsbBackend extends FakeUsbBackend {
+      enumerations = 0;
+      override async getDevices() { this.enumerations++; return super.getDevices(); }
+    }
+    const usb = new CountingUsbBackend([new FakeUsbDevice(phone.services, 'PHONE1')]);
+    const backend = createAndroidBackend({
+      usbBackend: usb,
+      listCacheMs: 30,
+      dadb: { keyPair: null, includeEmulators: false, usb: { idlePollMs: 20, claimRetries: 0 } },
+    });
+    cleanups.push(() => backend.close());
+    await backend.listDevices();
+    const after = usb.enumerations;
+    await backend.listDevices();
+    expect(usb.enumerations).toBe(after);
+    await new Promise((r) => setTimeout(r, 40));
+    await backend.listDevices();
+    expect(usb.enumerations).toBe(after + 1);
+  });
+});

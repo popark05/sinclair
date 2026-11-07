@@ -1,6 +1,6 @@
 // Android DeviceBackend: adb 바이너리 없이 직접 USB(src/adb)로 기기를 찾고 상태를 판정한다.
 // 상태 판정 패턴은 EverMock의 direct-adb-adapter를 따른다.
-import type { DeviceBackend, DeviceInfo, Point } from '../backend.ts';
+import type { DeviceBackend, DeviceInfo } from '../backend.ts';
 import { Dadb, type DadbListOptions } from '../adb/dadb.ts';
 import { AdbAuthException, AdbUsbAccessException } from '../adb/errors.ts';
 import type { UsbBackend } from '../adb/transport/usb-discovery.ts';
@@ -17,15 +17,14 @@ export interface AndroidBackendOptions {
   dadb?: DadbListOptions;
   /** USB 백엔드(테스트용). */
   usbBackend?: UsbBackend;
-  /** 직접 USB/에뮬레이터 탐색을 건너뛰고 실행 중인 adb server만 쓴다(`SINCLAIR_ADB=server`, 진단용). */
-  adbServerOnly?: boolean;
   /** 목록 캐시 유효 시간(ms). 기본 2초. */
   listCacheMs?: number;
   /** 첫 목록 응답에서 연결 판정을 기다리는 시간(ms). */
   probeWaitMs?: number;
 }
 
-interface Entry {
+/** 발견한 기기 하나의 연결과 판정 상태. */
+interface TrackedDevice {
   dadb: Dadb;
   state: DeviceInfo['state'];
   detail?: string | undefined;
@@ -42,13 +41,14 @@ export interface AndroidBackend extends DeviceBackend {
 }
 
 export function createAndroidBackend(options: AndroidBackendOptions = {}): AndroidBackend {
-  const entries = new Map<string, Entry>();
+  const entries = new Map<string, TrackedDevice>();
   const dadbOptions: DadbListOptions = { authTimeoutMs: AUTH_TIMEOUT_MS, ...options.dadb };
+  const usbBackendOption = options.usbBackend ? { usbBackend: options.usbBackend } : {};
   const listCacheMs = options.listCacheMs ?? LIST_CACHE_MS;
   const probeWaitMs = options.probeWaitMs ?? FIRST_PROBE_WAIT_MS;
   let lastList: { at: number; devices: DeviceInfo[] } | undefined;
 
-  function classify(entry: Entry, error: unknown): void {
+  function classify(entry: TrackedDevice, error: unknown): void {
     const message = error instanceof Error ? error.message : String(error);
     if (error instanceof AdbAuthException) {
       entry.state = 'unauthorized';
@@ -59,7 +59,7 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
     }
   }
 
-  async function readProps(entry: Entry): Promise<void> {
+  async function readProps(entry: TrackedDevice): Promise<void> {
     if (entry.model !== undefined) return;
     const prop = async (key: string) => (await entry.dadb.shell(`getprop ${key}`)).output.trim();
     entry.model = await prop('ro.product.model');
@@ -67,7 +67,7 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
   }
 
   /** 연결 시도를 시작한다(이미 진행 중이면 그 시도를 반환). */
-  function probe(entry: Entry): Promise<void> {
+  function probe(entry: TrackedDevice): Promise<void> {
     if (!entry.probe) {
       entry.probe = entry.dadb
         .connect()
@@ -84,17 +84,15 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
     return entry.probe;
   }
 
-  function entryFor(serial: string, dadb?: Dadb): Entry {
+  function entryFor(serial: string, dadb?: Dadb): TrackedDevice {
     let entry = entries.get(serial);
     if (!entry) {
       const emulator = /^emulator-(\d+)$/.exec(serial);
       const created =
         dadb ??
-        (options.adbServerOnly
-          ? Dadb.fromAdbServer(serial, dadbOptions)
-          : emulator
-            ? Dadb.fromEmulator(Number(emulator[1]) + 1, dadbOptions)
-            : Dadb.fromUsb(serial, { ...dadbOptions, ...(options.usbBackend ? { usbBackend: options.usbBackend } : {}) }));
+        (emulator
+          ? Dadb.fromEmulator(Number(emulator[1]) + 1, dadbOptions)
+          : Dadb.fromUsb(serial, { ...dadbOptions, ...usbBackendOption }));
       // 첫 판정 전에는 승인 대기로 본다(곧 연결 결과로 갱신된다).
       entry = { dadb: created, state: 'unauthorized' };
       entries.set(serial, entry);
@@ -102,7 +100,7 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
     return entry;
   }
 
-  function toInfo(id: string, entry: Entry): DeviceInfo {
+  function toInfo(id: string, entry: TrackedDevice): DeviceInfo {
     return {
       id,
       platform: 'android',
@@ -114,11 +112,7 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
   }
 
   async function refresh(): Promise<DeviceInfo[]> {
-    const found = await Dadb.list({
-      ...dadbOptions,
-      ...(options.usbBackend ? { usbBackend: options.usbBackend } : {}),
-      ...(options.adbServerOnly ? { includeUsb: false, includeEmulators: false, includeAdbServer: true } : {}),
-    });
+    const found = await Dadb.list({ ...dadbOptions, ...usbBackendOption });
     const serials = new Set(found.map((d) => d.serial));
     for (const [serial, entry] of entries) {
       if (!serials.has(serial)) {
@@ -145,7 +139,7 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
     return devices;
   }
 
-  const notImplemented = (name: string) => async (): Promise<never> => {
+  const notImplemented = (name: string) => async (..._args: unknown[]): Promise<never> => {
     throw new Error(`AndroidBackend.${name} 은 아직 구현되지 않았습니다`);
   };
 
@@ -164,7 +158,7 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
     },
     screenshot: notImplemented('screenshot'),
     dumpUi: notImplemented('dumpUi'),
-    tap: notImplemented('tap') as (deviceId: string, p: Point) => Promise<void>,
+    tap: notImplemented('tap'),
     longPress: notImplemented('longPress'),
     swipe: notImplemented('swipe'),
     text: notImplemented('text'),
