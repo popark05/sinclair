@@ -1,0 +1,31 @@
+{
+  "device": "SM-N981N (R3CR10LXLZW) Android 13",
+  "helper": {
+    "state": "ready",
+    "version": "0.1.0"
+  },
+  "at": "2026-11-07T03:52:03.133Z",
+  "helperRoute": {
+    "target": "밀리의서재",
+    "events": [
+      {
+        "deviceId": "R3CR10LXLZW",
+        "action": "tap",
+        "route": "helper"
+      }
+    ],
+    "screenChanged": true
+  },
+  "shellRoute": {
+    "target": "밀리의서재",
+    "events": [
+      {
+        "deviceId": "R3CR10LXLZW",
+        "action": "tap",
+        "route": "shell",
+        "fallbackReason": "preferShellInput 옵션"
+      }
+    ],
+    "screenChanged": true
+  }
+}

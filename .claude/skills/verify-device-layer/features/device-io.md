@@ -15,7 +15,7 @@
 ## How to get to it (user POV)
 
 - 러너의 `agent.act` / locator 클릭이 `device.io.*` 로 변환되어 호출된다.
-- 실기기 모드(`SINCLAIR_VERIFY_BACKEND=android`)에서는 각 호출이 `adb shell input ...` 으로 간다: tap → `input tap x y`, longpress/swipe → `input swipe`, text → `input text '<공백은 %s>'`, keys/button → `input keyevent`. 증거는 호출 전후 `device.screenshot` 두 장.
+- 실기기 모드(`SINCLAIR_VERIFY_BACKEND=android`)에서 tap/longpress/swipe/text 는 **헬퍼가 ready 면 접근성 제스처·setText**(`POST /action`)로, 아니면 `adb shell input ...` 으로 간다(tap → `input tap x y`, longpress/swipe → `input swipe`, text → `input text '<공백은 %s>'`). keys/button 은 항상 `input keyevent`. 헬퍼가 거부하면(제스처 취소, 포커스된 입력 필드 없음) 같은 호출을 shell 로 한 번 재시도한다. 어느 경로를 탔는지는 `SINCLAIR_ADB_TRACE=1` 의 `input <id> <action> via helper|shell (<이유>)` 줄로 본다. 증거는 호출 전후 `device.screenshot` 두 장.
 
 ## Driving it with rpc.sh
 
@@ -34,7 +34,8 @@ Preconditions:
 
 ## Gotchas
 
-- 실기기 `device.io.text` 는 ASCII 만 받는다. 한글 등 비ASCII 는 `-32602 input text 는 ASCII 만 지원합니다` 로 거부된다(조용히 깨지지 않음). 접근성 헬퍼 경로(티켓 06)가 맡는다.
+- 실기기 `device.io.text`: 헬퍼 경로(setText)는 한글·이모지를 포커스된 입력 필드 뒤에 덧붙인다(IME 불필요). 헬퍼가 없거나 포커스된 필드가 없으면 shell 경로인데 `input text` 는 ASCII 만 받아 비ASCII 는 `-32602` 로 거부된다(조용히 깨지지 않음).
+- 진단: `createAndroidBackend({ preferShellInput: true })` 로 헬퍼가 있어도 shell 경로를 강제할 수 있다(두 경로 비교). 실기기 증거: `.scratch/android-backend/evidence/06-input-route-latest.json`.
 - 실기기 `input` 은 종료 코드가 0 이 아니면 `-32603` 에 stderr 가 담긴다.
 - `device.io.keys` 는 `KEYCODE_*` 또는 숫자 키코드만 받는다(그 외 `-32602`). `device.io.text` 의 리터럴 `%s` 는 `input text` 가 공백으로 바꾼다.
 

@@ -22,6 +22,7 @@ import java.nio.charset.StandardCharsets;
  *   GET /ping  → {"ok":true,"version":"<versionName>","sdk":<API>,"service":"ready"}
  *   GET /dump  → 활성 창의 접근성 트리(SemanticNode JSON, 루트 객체)
  *   GET /snapshot → {"root":…, "atomic":true, "screenshot":{"format":"png","base64":…}} 또는 {"root":…, "atomic":false, "detail":…}
+ *   POST /action  → {"ok":true,"via":"gesture"|"set_text"} 또는 409 {"ok":false,"detail":…}
  */
 final class HelperServer extends Thread {
     /** 호스트는 adb forward 를 거쳐 요청 하나씩 보내므로 동시 연결은 몇 개면 충분하다. 넘치면 커널이 거절한다. */
@@ -31,6 +32,8 @@ final class HelperServer extends Thread {
     /** 요청 줄·헤더 한 줄의 최대 길이와 헤더 수. 넘기면 400. 메모리 소진 방지. */
     private static final int MAX_LINE_BYTES = 8 * 1024;
     private static final int MAX_HEADERS = 64;
+    /** POST 본문 상한. /action 의 JSON 은 수백 바이트이며, 긴 텍스트 입력도 이 안에 든다. */
+    private static final int MAX_BODY_BYTES = 64 * 1024;
 
     private final AccessibilityService service;
     private final int port;
@@ -85,6 +88,7 @@ final class HelperServer extends Thread {
             if (q >= 0) path = path.substring(0, q);
 
             String authorization = null;
+            int contentLength = 0;
             for (int n = 0; ; n++) {
                 String line = readLine(in);
                 if (line == null || line.isEmpty()) break;
@@ -96,14 +100,35 @@ final class HelperServer extends Thread {
                 if (colon > 0 && line.substring(0, colon).trim().equalsIgnoreCase("Authorization")) {
                     authorization = line.substring(colon + 1).trim();
                 }
+                if (colon > 0 && line.substring(0, colon).trim().equalsIgnoreCase("Content-Length")) {
+                    try { contentLength = Integer.parseInt(line.substring(colon + 1).trim()); } catch (NumberFormatException ignored) {}
+                }
             }
 
             if (!HelperAuth.accepts(authorization)) {
                 respond(out, 401, "Unauthorized", errorBody(HelperAuth.locked() ? "세션 토큰이 설정되지 않음" : "토큰 불일치"));
                 return;
             }
+            if (method.equals("POST") && path.equals("/action")) {
+                if (contentLength <= 0 || contentLength > MAX_BODY_BYTES) {
+                    respond(out, 400, "Bad Request", errorBody("본문이 없거나 너무 큽니다"));
+                    return;
+                }
+                byte[] body = new byte[contentLength];
+                int got = 0;
+                while (got < contentLength) {
+                    int r = in.read(body, got, contentLength - got);
+                    if (r < 0) break;
+                    got += r;
+                }
+                GestureController.Outcome outcome = action(new JSONObject(new String(body, 0, got, StandardCharsets.UTF_8)));
+                JSONObject o = new JSONObject().put("ok", outcome.ok);
+                if (outcome.ok) o.put("via", outcome.via); else o.put("detail", outcome.detail);
+                respond(out, outcome.ok ? 200 : 409, outcome.ok ? "OK" : "Conflict", o.toString());
+                return;
+            }
             if (!method.equals("GET")) {
-                respond(out, 405, "Method Not Allowed", errorBody("GET 만 지원"));
+                respond(out, 405, "Method Not Allowed", errorBody("GET/POST 만 지원"));
                 return;
             }
             switch (path) {
@@ -153,6 +178,24 @@ final class HelperServer extends Thread {
             o.put("detail", shot.detail);
         }
         return o.toString();
+    }
+
+    /** POST /action: {"action":"tap","x":..,"y":..} | long_press(+durationMs) | swipe(fromX,fromY,toX,toY,durationMs) | type(text) */
+    private GestureController.Outcome action(JSONObject a) throws Exception {
+        String action = a.optString("action", "");
+        switch (action) {
+            case "tap":
+                return GestureController.tap(service, (float) a.getDouble("x"), (float) a.getDouble("y"));
+            case "long_press":
+                return GestureController.longPress(service, (float) a.getDouble("x"), (float) a.getDouble("y"), a.optLong("durationMs", 800L));
+            case "swipe":
+                return GestureController.swipe(service, (float) a.getDouble("fromX"), (float) a.getDouble("fromY"),
+                        (float) a.getDouble("toX"), (float) a.getDouble("toY"), a.optLong("durationMs", 300L));
+            case "type":
+                return GestureController.type(service, a.getString("text"));
+            default:
+                return GestureController.Outcome.refused("알 수 없는 action: " + action);
+        }
     }
 
     private String ping() throws JSONException {

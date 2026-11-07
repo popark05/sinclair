@@ -475,3 +475,81 @@ describe('AndroidBackend 스냅샷 (device.snapshot) 과 screenshot 의 헬퍼 �
     expect(r.result).toMatchObject({ atomic: true, screenshot: { format: 'png' }, root: { ref: '@e0' } });
   });
 });
+
+describe('AndroidBackend 입력 경로 선택 (접근성 제스처 우선, shell fallback)', () => {
+  const apkPath = path.join(os.tmpdir(), `sinclair-fake-helper-input-${process.pid}.apk`);
+  beforeAll(() => fs.writeFileSync(apkPath, Buffer.concat([Buffer.from('PK'), Buffer.alloc(64, 1)])));
+  afterAll(() => fs.rmSync(apkPath, { force: true }));
+
+  type InputEvent = { deviceId: string; action: string; route: 'helper' | 'shell'; fallbackReason?: string };
+  async function inputSetup(prepare?: (phone: FakeAndroid) => void, opts: { helper?: boolean; preferShellInput?: boolean } = {}) {
+    const phone = new FakeAndroid();
+    phone.installPackageName = phone.helper.pkg;
+    prepare?.(phone);
+    const usb = new FakeUsbBackend([new FakeUsbDevice(phone.services, 'PHONE1')]);
+    const events: InputEvent[] = [];
+    const backend = createAndroidBackend({
+      usbBackend: usb,
+      helperApkPath: opts.helper === false ? MISSING_HELPER_APK : apkPath,
+      helperRetryBackoffMs: 0, probeWaitMs: 5_000,
+      ...(opts.preferShellInput ? { preferShellInput: true } : {}),
+      onInput: (e) => events.push(e),
+      dadb: { keyPair: null, includeEmulators: false, usb: { idlePollMs: 20, claimRetries: 0 } },
+    });
+    cleanups.push(() => backend.close());
+    await backend.listDevices();
+    phone.shellCommands.length = 0;
+    return { phone, backend, events };
+  }
+
+  it('헬퍼가 ready 면 tap/longPress/swipe 는 접근성 제스처로 가고 shell input 은 호출되지 않는다', async () => {
+    const { phone, backend, events } = await inputSetup();
+    await backend.tap('PHONE1', { x: 10, y: 20 });
+    await backend.longPress('PHONE1', { x: 5, y: 6 }, 800);
+    await backend.swipe('PHONE1', { x: 0, y: 100 }, { x: 0, y: 10 }, 300);
+    expect(phone.helper.gestures).toEqual(['tap 10,20', 'longpress 5,6 800', 'swipe 0,100->0,10 300']);
+    expect(phone.shellCommands.filter((c) => c.startsWith('input '))).toEqual([]);
+    expect(events.map((e) => `${e.action}:${e.route}`)).toEqual(['tap:helper', 'longPress:helper', 'swipe:helper']);
+  });
+
+  it('헬퍼가 제스처를 거부하면(취소) 같은 호출을 shell 로 한 번 재시도하고 이유를 남긴다', async () => {
+    const { phone, backend, events } = await inputSetup((p) => { p.helper.refuseGestures = true; });
+    await backend.tap('PHONE1', { x: 10, y: 20 });
+    expect(phone.shellCommands).toContain('input tap 10 20');
+    expect(events).toEqual([{ deviceId: 'PHONE1', action: 'tap', route: 'shell', fallbackReason: expect.stringContaining('취소') }]);
+  });
+
+  it('헬퍼가 없으면(not-installed) shell 로 바로 가고 이유를 남긴다', async () => {
+    const { phone, backend, events } = await inputSetup(undefined, { helper: false });
+    await backend.tap('PHONE1', { x: 1, y: 2 });
+    expect(phone.shellCommands).toContain('input tap 1 2');
+    expect(events[0]).toMatchObject({ action: 'tap', route: 'shell', fallbackReason: expect.stringContaining('not-installed') });
+  });
+
+  it('text 는 헬퍼 경로에서 setText 로 들어가 한글·이모지가 그대로 덧붙고, 헬퍼 경로가 안 될 때 비ASCII 는 -32602 다', async () => {
+    const { phone, backend, events } = await inputSetup((p) => { p.helper.focusedText = '기존'; });
+    await backend.text('PHONE1', ' 안녕 🙂');
+    expect(phone.helper.focusedText).toBe('기존 안녕 🙂');
+    expect(events[0]).toMatchObject({ action: 'text', route: 'helper' });
+
+    const off = await inputSetup(undefined, { helper: false });
+    await expect(off.backend.text('PHONE1', '안녕')).rejects.toMatchObject({ code: RPC_ERRORS.invalidParams });
+    await off.backend.text('PHONE1', 'ascii only');
+    expect(off.phone.shellCommands).toContain("input text 'ascii%sonly'");
+  });
+
+  it('포커스된 입력 필드가 없으면 헬퍼가 409 를 주고 ASCII 텍스트는 shell 로 떨어진다', async () => {
+    const { phone, backend, events } = await inputSetup((p) => { p.helper.focusedText = null; });
+    await backend.text('PHONE1', 'hi');
+    expect(phone.shellCommands).toContain("input text 'hi'");
+    expect(events[0]).toMatchObject({ action: 'text', route: 'shell', fallbackReason: expect.stringContaining('포커스') });
+  });
+
+  it('preferShellInput 진단 옵션이면 헬퍼가 ready 여도 shell 경로를 쓴다', async () => {
+    const { phone, backend, events } = await inputSetup(undefined, { preferShellInput: true });
+    await backend.tap('PHONE1', { x: 3, y: 4 });
+    expect(phone.helper.gestures).toEqual([]);
+    expect(phone.shellCommands).toContain('input tap 3 4');
+    expect(events[0]).toMatchObject({ action: 'tap', route: 'shell', fallbackReason: expect.stringContaining('preferShellInput') });
+  });
+});

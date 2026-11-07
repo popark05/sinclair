@@ -4,7 +4,8 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { DeviceButton, HelperInfo, SemanticNode, SnapshotResult } from '@sinclair/protocol';
 import type { DeviceBackend, DeviceInfo } from '../backend.ts';
-import { HELPER_PACKAGE, HELPER_SERVICE, HelperHttpError, HelperSession } from './helper-client.ts';
+import { HELPER_PACKAGE, HELPER_SERVICE, HelperHttpError, HelperSession, type HelperAction } from './helper-client.ts';
+import { ADB_TRACE, adbTrace } from '../adb/trace.ts';
 import { Dadb, type DadbListOptions } from '../adb/dadb.ts';
 import { AdbAuthException, AdbUsbAccessException } from '../adb/errors.ts';
 import type { UsbBackend } from '../adb/transport/usb-discovery.ts';
@@ -55,6 +56,18 @@ export interface AndroidBackendOptions {
   helperApkPath?: string;
   /** 온보딩 실패 뒤 재시도 간격(ms). 기본 10초. */
   helperRetryBackoffMs?: number;
+  /** 진단용: 헬퍼가 준비돼 있어도 입력을 `adb shell input` 경로로 보낸다(두 경로 비교·헬퍼 없는 상황 재현). */
+  preferShellInput?: boolean;
+  /** 입력 한 건이 어느 경로로 갔는지 알린다(로그·테스트). */
+  onInput?: (event: InputRouteEvent) => void;
+}
+
+/** 입력이 실제로 탄 경로. shell 이면 fallbackReason 에 헬퍼를 못 쓴 이유가 있다. */
+export interface InputRouteEvent {
+  deviceId: string;
+  action: 'tap' | 'longPress' | 'swipe' | 'text';
+  route: 'helper' | 'shell';
+  fallbackReason?: string;
 }
 
 /** 발견한 기기 하나의 연결과 판정 상태. */
@@ -354,6 +367,36 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
   const runVoid = (deviceId: string, command: string) => run(deviceId, command).then(() => undefined);
   const input = (deviceId: string, args: string) => runVoid(deviceId, `input ${args}`);
 
+  function reportInput(event: InputRouteEvent): void {
+    if (ADB_TRACE) adbTrace(`input ${event.deviceId} ${event.action} via ${event.route}${event.fallbackReason ? ` (${event.fallbackReason})` : ''}`);
+    options.onInput?.(event);
+  }
+
+  /**
+   * 입력 경로 선택(ADR 0003): 헬퍼가 ready 면 접근성 제스처/setText, 아니면 `adb shell input`. 헬퍼가 거부하면(제스처 취소,
+   * 포커스 없음 등) 같은 호출을 shell 로 한 번 재시도한다. shell 경로가 불가한 입력(비ASCII 텍스트)은 shellFallback 이 던진다.
+   */
+  async function routedInput(deviceId: string, action: InputRouteEvent['action'], helperBody: HelperAction, shellFallback: () => Promise<void>): Promise<void> {
+    const entry = await tracked(deviceId);
+    await entry.probe;
+    let reason: string;
+    if (options.preferShellInput) {
+      reason = 'preferShellInput 옵션';
+    } else if (entry.helper?.state === 'ready' && entry.session) {
+      try {
+        await entry.session.action(helperBody);
+        reportInput({ deviceId, action, route: 'helper' });
+        return;
+      } catch (e) {
+        reason = e instanceof HelperHttpError ? `헬퍼 거부(HTTP ${e.status}): ${e.detail}` : `헬퍼 호출 실패: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    } else {
+      reason = `헬퍼 ${entry.helper?.state ?? 'none'}${entry.helper?.detail ? `: ${entry.helper.detail}` : ''}`;
+    }
+    await shellFallback();
+    reportInput({ deviceId, action, route: 'shell', fallbackReason: reason });
+  }
+
   /** am/monkey 는 실패해도 종료 코드 0 으로 "Error: ..." 만 출력하는 경우가 있어 출력으로도 판정한다. */
   async function runActivityManager(deviceId: string, command: string): Promise<void> {
     const out = await run(deviceId, command);
@@ -394,17 +437,19 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
     screenshot,
     dumpUi,
     snapshot,
-    tap: (id, p) => input(id, `tap ${p.x} ${p.y}`),
-    longPress: (id, p, durationMs) => input(id, `swipe ${p.x} ${p.y} ${p.x} ${p.y} ${durationMs}`),
-    swipe: (id, from, to, durationMs) => input(id, `swipe ${from.x} ${from.y} ${to.x} ${to.y} ${durationMs}`),
-    text: async (id, text) => {
+    tap: (id, p) => routedInput(id, 'tap', { action: 'tap', x: p.x, y: p.y }, () => input(id, `tap ${p.x} ${p.y}`)),
+    longPress: (id, p, durationMs) => routedInput(id, 'longPress', { action: 'long_press', x: p.x, y: p.y, durationMs },
+      () => input(id, `swipe ${p.x} ${p.y} ${p.x} ${p.y} ${durationMs}`)),
+    swipe: (id, from, to, durationMs) => routedInput(id, 'swipe', { action: 'swipe', fromX: from.x, fromY: from.y, toX: to.x, toY: to.y, durationMs },
+      () => input(id, `swipe ${from.x} ${from.y} ${to.x} ${to.y} ${durationMs}`)),
+    text: (id, text) => routedInput(id, 'text', { action: 'type', text }, async () => {
       // `input text` 는 ASCII 만 받는다(비ASCII 는 기기에서 무시되거나 깨진다). 한글 등은 접근성 헬퍼 경로(setText)가 맡는다.
       // 알려진 한계: `input text` 는 `%s` 를 공백으로 해석하므로 리터럴 "%s" 는 전달할 수 없다(이스케이프 수단 없음).
       if (!/^[\x20-\x7e]*$/.test(text)) {
         throw new RpcError(RPC_ERRORS.invalidParams, 'input text 는 ASCII 만 지원합니다. 비ASCII 텍스트는 접근성 헬퍼가 필요합니다');
       }
-      return input(id, `text ${shellQuote(text.replace(/ /g, '%s'))}`);
-    },
+      await input(id, `text ${shellQuote(text.replace(/ /g, '%s'))}`);
+    }),
     keys: async (id, keys) => {
       // 키 이름은 인용 없이 보간되므로 화이트리스트로만 허용한다(셸 명령 삽입 방지).
       const bad = keys.find((k) => !KEY_NAME.test(k));

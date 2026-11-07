@@ -18,7 +18,20 @@ export class HelperHttpError extends Error {
   constructor(readonly status: number, readonly body: string) {
     super(`헬퍼 HTTP ${status}: ${body}`);
   }
+  /** 헬퍼가 JSON `{detail}` 로 준 이유. 없으면 본문 그대로. */
+  get detail(): string {
+    try { return String((JSON.parse(this.body) as { detail?: string; error?: string }).detail ?? (JSON.parse(this.body) as { error?: string }).error ?? this.body); } catch { return this.body; }
+  }
 }
+
+/** POST /action 요청. tap/long_press/swipe 는 접근성 제스처, type 은 포커스된 입력 필드에 setText(덧붙임). */
+export type HelperAction =
+  | { action: 'tap'; x: number; y: number }
+  | { action: 'long_press'; x: number; y: number; durationMs: number }
+  | { action: 'swipe'; fromX: number; fromY: number; toX: number; toY: number; durationMs: number }
+  | { action: 'type'; text: string };
+
+export interface HelperActionResult { ok: true; via: 'gesture' | 'set_text' }
 
 export interface HelperPing { ok: boolean; version: string; sdk: number }
 
@@ -55,14 +68,27 @@ export class HelperSession {
     return this.get('/snapshot') as Promise<HelperSnapshot>;
   }
 
+  /** 제스처·입력. 헬퍼가 거부하면(제스처 취소, 포커스 없음 등) HelperHttpError(409) 다. */
+  action(body: HelperAction): Promise<HelperActionResult> {
+    return this.request('POST', '/action', JSON.stringify(body)) as Promise<HelperActionResult>;
+  }
+
   close(): Promise<void> {
     return this.tunnel.close();
   }
 
   private get(path: string): Promise<unknown> {
+    return this.request('GET', path);
+  }
+
+  private request(method: 'GET' | 'POST', path: string, body?: string): Promise<unknown> {
+    const payload = body === undefined ? undefined : Buffer.from(body, 'utf8');
     return new Promise((resolve, reject) => {
       const req = http.request(
-        { host: '127.0.0.1', port: this.tunnel.port, path, method: 'GET', headers: { authorization: `Bearer ${this.token}` }, timeout: REQUEST_TIMEOUT_MS },
+        {
+          host: '127.0.0.1', port: this.tunnel.port, path, method, timeout: REQUEST_TIMEOUT_MS,
+          headers: { authorization: `Bearer ${this.token}`, ...(payload ? { 'content-type': 'application/json', 'content-length': payload.length } : {}) },
+        },
         (res) => {
           const chunks: Buffer[] = [];
           res.on('data', (c: Buffer) => chunks.push(c));
@@ -76,7 +102,7 @@ export class HelperSession {
       );
       req.on('timeout', () => req.destroy(new Error(`헬퍼 응답 시간 초과(${path}, ${REQUEST_TIMEOUT_MS}ms)`)));
       req.on('error', reject);
-      req.end();
+      req.end(payload);
     });
   }
 }

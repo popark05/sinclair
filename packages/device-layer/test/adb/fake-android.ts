@@ -33,6 +33,12 @@ export class FakeAndroid {
     sdk: 33,
     /** true 면 takeScreenshot 이 간격 제한(ERROR 3)으로 실패한 상황: 트리만 돌려준다. */
     screenshotRateLimited: false,
+    /** POST /action 으로 받은 제스처·입력 기록(`tap 10,20` 등). */
+    gestures: [] as string[],
+    /** true 면 dispatchGesture 가 취소된 상황(다른 접근성 서비스가 가로채는 등): 409 를 돌려준다. */
+    refuseGestures: false,
+    /** 포커스된 입력 필드의 내용. type 액션이 뒤에 덧붙인다. null 이면 포커스된 필드가 없다. */
+    focusedText: '' as string | null,
     tree: { ref: '@e0', role: 'group', rect: { x: 0, y: 0, width: 1080, height: 2400 }, children: [{ ref: '@e1', role: 'button', name: '로그인', rect: { x: 10, y: 20, width: 100, height: 40 } }] } as unknown,
     requests: [] as string[],
   };
@@ -335,6 +341,8 @@ export class FakeAndroid {
       raw += b.toString('latin1');
     }
     const [requestLine = '', ...headers] = raw.split('\r\n');
+    const contentLength = Number(headers.find((h) => h.toLowerCase().startsWith('content-length:'))?.split(':')[1]?.trim() ?? 0);
+    const body = contentLength > 0 ? (await s.readBytes(contentLength))?.toString('utf8') ?? '' : '';
     const [method = '', pathWithQuery = '/'] = requestLine.split(' ');
     const path = pathWithQuery.split('?')[0]!;
     this.helper.requests.push(`${method} ${path}`);
@@ -346,7 +354,24 @@ export class FakeAndroid {
       s.close();
     };
     if (!this.helper.token || auth !== `Bearer ${this.helper.token}`) return respond(401, { error: this.helper.token ? '토큰 불일치' : '세션 토큰이 설정되지 않음' });
-    if (method !== 'GET') return respond(405, { error: 'GET 만 지원' });
+    if (method === 'POST' && path === '/action') {
+      const a = JSON.parse(body) as Record<string, unknown>;
+      const line = a['action'] === 'tap' ? `tap ${a['x']},${a['y']}`
+        : a['action'] === 'long_press' ? `longpress ${a['x']},${a['y']} ${a['durationMs']}`
+        : a['action'] === 'swipe' ? `swipe ${a['fromX']},${a['fromY']}->${a['toX']},${a['toY']} ${a['durationMs']}`
+        : a['action'] === 'type' ? `type ${a['text']}` : undefined;
+      if (!line) return respond(400, { ok: false, detail: `알 수 없는 action: ${a['action']}` });
+      if (a['action'] === 'type') {
+        if (this.helper.focusedText === null) return respond(409, { ok: false, detail: '포커스된 입력 필드가 없음' });
+        this.helper.focusedText += String(a['text']);
+        this.helper.gestures.push(line);
+        return respond(200, { ok: true, via: 'set_text' });
+      }
+      if (this.helper.refuseGestures) return respond(409, { ok: false, detail: '제스처가 취소됨(dispatchGesture cancelled)' });
+      this.helper.gestures.push(line);
+      return respond(200, { ok: true, via: 'gesture' });
+    }
+    if (method !== 'GET') return respond(405, { error: 'GET/POST 만 지원' });
     if (path === '/ping') return respond(200, { ok: true, version: this.helper.version, sdk: this.helper.sdk, service: 'ready' });
     if (path === '/dump') return respond(200, this.helper.tree);
     if (path === '/snapshot') {

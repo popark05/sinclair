@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 이벤트는 최소(창 전환)만 받고, 트리는 요청 시 getRootInActiveWindow 로 읽는다.
      flagReportViewIds: resource-id 를 testId 로 쓰기 위해 필요.
-     canTakeScreenshot: /snapshot 의 takeScreenshot(API 30+). canPerformGestures(티켓 06), flagRetrieveInteractiveWindows 는 그 티켓에서 추가한다. -->
+     canTakeScreenshot: /snapshot 의 takeScreenshot(API 30+). canPerformGestures: /action 의 dispatchGesture. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeWindowStateChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
@@ -9,4 +9,5 @@
     android:accessibilityFlags="flagDefault|flagReportViewIds"
     android:canRetrieveWindowContent="true"
     android:canTakeScreenshot="true"
+    android:canPerformGestures="true"
     android:description="@string/accessibility_service_description" />
