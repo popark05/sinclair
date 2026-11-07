@@ -3,4 +3,6 @@ export { projectRun, type RunView, type AttemptView, type StepView } from './pro
 export { createMemoryEventStore, type EventStore, type AppendOutcome } from './store.ts';
 export { ingestBatch, type IngestResponse } from './ingest.ts';
 export { serveControlPlane, summarizeRun, type ControlPlaneOptions, type ControlPlaneServer, type RunSummary } from './http.ts';
-export { createSqliteEventStore, SQLITE_SCHEMA_VERSION } from './sqlite-store.ts';
+export { createSqliteEventStore, createSqliteCycleStore, openSqlite, SQLITE_SCHEMA_VERSION } from './sqlite-store.ts';
+export { createMemoryCycleStore, type CycleStore, type CycleRecord, type RunRegistration } from './cycle-store.ts';
+export { computeCycle, tagsOf, type CycleView, type CaseCell } from './verdict.ts';

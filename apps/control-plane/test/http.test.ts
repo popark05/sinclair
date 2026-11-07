@@ -71,7 +71,7 @@ describe('GET /runs', () => {
 
   it('GET /runs 는 run 목록을 요약으로 돌려준다', async () => {
     await post(RUN);
-    expect(await (await get('/runs')).json()).toEqual([{ runId: 'r1', state: 'finished', targetId: 'android', startedAt: at(0), finishedAt: at(8), attempts: 2 }]);
+    expect(await (await get('/runs')).json()).toEqual([{ runId: 'r1', state: 'finished', cycleId: 'c1', targetId: 'android', startedAt: at(0), finishedAt: at(8), attempts: 2 }]);
   });
 
   it('모르는 경로는 404, GET /health 는 200', async () => {
