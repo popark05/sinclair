@@ -55,3 +55,26 @@ describe.skipIf(!target)('AndroidBackend 실기기 입력·스크린샷 (adb she
     await backend.keys(id, ['KEYCODE_BACK']);
   }, APPROVAL_WAIT_MS + 10_000);
 });
+
+describe.skipIf(!target)('AndroidBackend 실기기 헬퍼 온보딩·dump.ui', () => {
+  it('연결 직후 헬퍼가 ready 이고 device.dump.ui 가 실제 화면 트리(testId 포함)를 돌려준다', async () => {
+    const [device] = await backend.listDevices();
+    const id = target === '1' ? device!.id : target!;
+    let info = await backend.info(id);
+    for (let i = 0; i < 40 && info.helper === undefined; i++) {
+      await new Promise((r) => setTimeout(r, 250));
+      info = await backend.info(id);
+    }
+    expect(info.helper, JSON.stringify(info)).toMatchObject({ state: 'ready' });
+    expect(info.helper?.version).toMatch(/^\d+\.\d+\.\d+$/);
+    await backend.button(id, 'home');
+    await new Promise((r) => setTimeout(r, 500));
+    const tree = await backend.dumpUi(id);
+    let nodes = 0, withId = 0;
+    const walk = (n: typeof tree) => { nodes++; if (n.testId) withId++; for (const c of n.children ?? []) walk(c); };
+    walk(tree);
+    expect(tree.ref).toBe('@e0');
+    expect(nodes).toBeGreaterThan(3);
+    expect(withId).toBeGreaterThan(0);
+  }, APPROVAL_WAIT_MS + 20_000);
+});
