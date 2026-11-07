@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Sinclair Helper</string>
+    <string name="accessibility_service_description">Sinclair QA 자동화용. 화면의 접근성 트리를 읽고 제스처를 보냅니다. USB 로 연결된 호스트만 접근할 수 있습니다.</string>
+</resources>

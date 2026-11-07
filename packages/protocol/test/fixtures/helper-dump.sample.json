@@ -1,0 +1,251 @@
+{
+    "ref": "@e0",
+    "role": "group",
+    "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1080,
+        "height": 2400
+    },
+    "children": [
+        {
+            "ref": "@e1",
+            "role": "group",
+            "testId": "com.android.systemui:id/notification_panel",
+            "rect": {
+                "x": 0,
+                "y": 0,
+                "width": 1080,
+                "height": 2400
+            },
+            "children": [
+                {
+                    "ref": "@e2",
+                    "role": "scrollable",
+                    "testId": "com.android.systemui:id/notification_stack_scroller",
+                    "rect": {
+                        "x": 0,
+                        "y": 0,
+                        "width": 1080,
+                        "height": 2119
+                    }
+                },
+                {
+                    "ref": "@e3",
+                    "role": "text",
+                    "text": "KT",
+                    "testId": "com.android.systemui:id/keyguard_carrier_text",
+                    "rect": {
+                        "x": 72,
+                        "y": 18,
+                        "width": 413,
+                        "height": 74
+                    }
+                },
+                {
+                    "ref": "@e4",
+                    "role": "image",
+                    "name": "알람",
+                    "rect": {
+                        "x": 691,
+                        "y": 35,
+                        "width": 42,
+                        "height": 39
+                    }
+                },
+                {
+                    "ref": "@e5",
+                    "role": "view",
+                    "name": "Wi-Fi 신호가 강합니다.",
+                    "testId": "com.android.systemui:id/wifi_combo",
+                    "rect": {
+                        "x": 736,
+                        "y": 35,
+                        "width": 51,
+                        "height": 39
+                    }
+                },
+                {
+                    "ref": "@e6",
+                    "role": "image",
+                    "name": "VoLTE",
+                    "rect": {
+                        "x": 787,
+                        "y": 35,
+                        "width": 44,
+                        "height": 39
+                    }
+                },
+                {
+                    "ref": "@e7",
+                    "role": "image",
+                    "name": "휴대전화의 신호가 강합니다.",
+                    "testId": "com.android.systemui:id/mobile_signal",
+                    "rect": {
+                        "x": 831,
+                        "y": 35,
+                        "width": 41,
+                        "height": 39
+                    }
+                },
+                {
+                    "ref": "@e8",
+                    "role": "view",
+                    "name": "배터리 충전 중, 100%입니다.",
+                    "testId": "com.android.systemui:id/battery",
+                    "rect": {
+                        "x": 879,
+                        "y": 18,
+                        "width": 129,
+                        "height": 74
+                    }
+                },
+                {
+                    "ref": "@e9",
+                    "role": "button",
+                    "rect": {
+                        "x": 300,
+                        "y": 480,
+                        "width": 480,
+                        "height": 290
+                    },
+                    "children": [
+                        {
+                            "ref": "@e10",
+                            "role": "view",
+                            "name": "오전11:37",
+                            "testId": "com.samsung.android.app.aodservice:id/common_time_area",
+                            "rect": {
+                                "x": 300,
+                                "y": 542,
+                                "width": 480,
+                                "height": 139
+                            }
+                        },
+                        {
+                            "ref": "@e11",
+                            "role": "text",
+                            "name": "11월 7일 토요일",
+                            "text": "11월 7일 토요일",
+                            "testId": "com.samsung.android.app.aodservice:id/common_date",
+                            "rect": {
+                                "x": 384,
+                                "y": 712,
+                                "width": 311,
+                                "height": 58
+                            }
+                        }
+                    ]
+                },
+                {
+                    "ref": "@e12",
+                    "role": "text",
+                    "testId": "com.android.systemui:id/keyguard_upper_fingerprint_indication",
+                    "rect": {
+                        "x": 0,
+                        "y": 1589,
+                        "width": 1080,
+                        "height": 107
+                    }
+                },
+                {
+                    "ref": "@e13",
+                    "role": "text",
+                    "testId": "com.android.systemui:id/keyguard_indication_text_bottom",
+                    "rect": {
+                        "x": 68,
+                        "y": 1906,
+                        "width": 944,
+                        "height": 135
+                    }
+                },
+                {
+                    "ref": "@e14",
+                    "role": "text",
+                    "text": "충전을 완료했습니다",
+                    "testId": "com.android.systemui:id/keyguard_indication_text",
+                    "rect": {
+                        "x": 68,
+                        "y": 2132,
+                        "width": 944,
+                        "height": 57
+                    }
+                },
+                {
+                    "ref": "@e15",
+                    "role": "view",
+                    "name": "전화",
+                    "testId": "com.android.systemui:id/left_button",
+                    "rect": {
+                        "x": 68,
+                        "y": 2240,
+                        "width": 107,
+                        "height": 107
+                    }
+                },
+                {
+                    "ref": "@e16",
+                    "role": "view",
+                    "name": "카메라",
+                    "testId": "com.android.systemui:id/camera_button",
+                    "rect": {
+                        "x": 905,
+                        "y": 2240,
+                        "width": 107,
+                        "height": 107
+                    }
+                },
+                {
+                    "ref": "@e17",
+                    "role": "button",
+                    "name": "알림 4개",
+                    "testId": "com.android.systemui:id/notification_icons_only_container_view",
+                    "rect": {
+                        "x": 410,
+                        "y": 815,
+                        "width": 260,
+                        "height": 56
+                    },
+                    "children": [
+                        {
+                            "ref": "@e18",
+                            "role": "text",
+                            "text": "+8",
+                            "rect": {
+                                "x": 614,
+                                "y": 819,
+                                "width": 56,
+                                "height": 48
+                            }
+                        }
+                    ]
+                },
+                {
+                    "ref": "@e19",
+                    "role": "button",
+                    "name": "기기 잠김",
+                    "testId": "com.android.systemui:id/sec_lock_icon_view",
+                    "rect": {
+                        "x": 478,
+                        "y": 109,
+                        "width": 124,
+                        "height": 124
+                    },
+                    "children": [
+                        {
+                            "ref": "@e20",
+                            "role": "text",
+                            "testId": "com.android.systemui:id/keyguard_biometric_error_text_indication",
+                            "rect": {
+                                "x": 482,
+                                "y": 142,
+                                "width": 116,
+                                "height": 57
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
