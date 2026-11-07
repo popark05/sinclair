@@ -27,10 +27,13 @@ Preconditions:
 - **기기 정보.** `$S/rpc.sh $RUN device.info '{"deviceId":"VERIFY2"}' device-info`. `result.id` 가 `VERIFY2`, `model` 이 `VerifyFake`.
 - **스크린샷.** `$S/rpc.sh $RUN device.screenshot '{"deviceId":"VERIFY1"}' screenshot`. `result.format` 이 `png`, `result.base64` 가 `iVBORw0KGgo=` (PNG 시그니처 8바이트).
 - **UI 트리.** `$S/rpc.sh $RUN device.dump.ui '{"deviceId":"VERIFY1"}' dump-ui`. 페이크: `result.ref` 가 `@e0`, `children[0]` 이 `{ref:"@e1", role:"button", name:"로그인"}`, `children[1]` 이 `{ref:"@e2", role:"textbox", name:"아이디"}`. 실기기: 접근성 헬퍼의 `/dump` 가 그대로 온다. 홈 화면이면 런처 아이콘들이 `role: button`, `name: <앱 이름>`, `testId: ...launcher:id/home_icon` 으로 보인다.
+- **원자 스냅샷.** `$S/rpc.sh $RUN device.snapshot '{"deviceId":"VERIFY1"}' snapshot`. `result.atomic` 이 `true` 면 `screenshot.base64` 와 `root` 가 같은 순간의 것이다(헬퍼 `takeScreenshot`, Android 11+). `false` 면 `detail` 에 이유가 있고 스크린샷은 `screencap` 으로 따로 찍은 것이다. 실기기 증거: PNG IHDR 의 폭·높이가 `root.rect` 와 같아야 한다(`android-backend.device.test.ts` 가 `.e2e/device-proof/*-snapshot.{png,json}` 으로 남긴다). `device.screenshot` 도 헬퍼가 ready 면 같은 경로를 쓴다.
 - **헬퍼 상태(실기기).** `device.info` 의 `helper` 가 `{state:"ready", version:"0.1.0"}` 이어야 `device.dump.ui` 가 된다. 연결 직후 온보딩(설치 → `settings put --user 0` → 포워드 → 토큰 → `/ping`)이 자동으로 돌며 보통 1~3초. 그 전에는 `helper` 가 없다. ready 가 아니면 `device.dump.ui` 는 `-32002` 와 `helper.detail` 의 원인을 돌려준다.
 - **증거.** `$RUN/evidence/{server-info,devices-list,device-info,screenshot,dump-ui}.json`. 조회 메서드는 `backend-calls.log` 에 줄을 남기지 않는 것이 정상이다.
 
 ## Gotchas
+
+- `device.snapshot` 은 Android 11(API 30) 미만에서 항상 `atomic:false` 다. 시스템이 `takeScreenshot` 을 약 333ms 간격으로 제한하므로 연속 호출은 헬퍼가 한 번 기다렸다 재시도하고, 그래도 막히면 `atomic:false`(detail "간격 제한"). 응답은 수 MB(base64)라 2초 안팎 걸린다.
 
 - 실기기 헬퍼 상태: `not-installed`(APK 없음·설치 실패, 리포에서 `android-helper` 를 빌드), `disabled`(접근성 설정이 적용되지 않음. Secure Folder 기기에서 `--user 0` 누락 상황이며 백엔드는 항상 `--user 0` 을 쓴다), `unreachable`(서버는 떠 있는데 401. 토큰 재전송 뒤에도 그러면 헬퍼 버전 불일치 의심). 사용자가 설정에서 서비스를 끄면 다음 `device.dump.ui` 가 자동으로 다시 켠다(2026-11-07 실기기 확인).
 

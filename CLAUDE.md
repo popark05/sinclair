@@ -64,6 +64,8 @@ Plan(`intent/`) → Design(`specs/`, `/architect`로 타입 먼저) → Build(`t
 ## 알려진 실수
 
 - **USB IN 엔드포인트의 잔여 데이터를 별도 `transferIn` 으로 비우지 않는다.** 타임아웃으로 취소된 전송이 뒤이어 오는 adbd 응답을 삼켜 핸드셰이크가 영영 멈춘다(실기기에서 확인). 읽기 루프를 그대로 돌리며 잠시 버리는 방식(`UsbTransport.discardStaleInput`)을 쓴다. 2026-11-07.
+- **USB 유휴 읽기를 짧은 timeout 으로 폴링하지 않는다.** node-usb 3(nusb) 는 timeout 취소 순간 도착한 패킷을 버려 스트림이 어긋난다(헬퍼 응답 ~1초와 1초 폴링이 겹쳐 재현). 유휴 timeout 은 60초, 종료는 `UsbTransport.shutdown` 의 wake OPEN 으로 끝낸다. 보류 읽기가 있으면 release/close 가 native borrow 오류로 실패한다. 2026-11-07.
+- **일부 adbd 는 헤더와 본문을 한 USB 전송으로 보낸다.** 헤더 24바이트만 요청하면 node-usb 가 잘라낸 나머지가 사라진다. 헤더 읽기는 패킷 하나를 통째로 요청하고 초과분은 `pending` 으로 넘긴다(`UsbTransport.readExact`). 2026-11-07.
 - **실기기 테스트에서 `settings put` 은 `--user 0`.** Secure Folder 가 있는 Samsung 은 기본 사용자가 150 으로 잡혀 설정이 엉뚱한 사용자에 쓰인다.
 
 ## 참고 프로젝트에서 가져올 것 (2026-11-07 분석 요약)
@@ -83,7 +85,7 @@ Plan(`intent/`) → Design(`specs/`, `/architect`로 타입 먼저) → Build(`t
 - 모노레포 골격, protocol 계약 패키지(계약 테스트 5개), device-layer JSON-RPC 디스패처·HTTP 전송(테스트 6개), ADR 0001~0003.
 - 검증 스킬 2개 추가: `.claude/skills/verify-device-layer`(JSON-RPC 서버를 페이크 백엔드로 띄워 HTTP 로 구동, 증거는 `.e2e/verify-device-layer/`)와 `.claude/skills/verify-rpc-serialization`(`rpc.ts` 직렬화의 제한 범위 전수 검사, `packages/device-layer/test/rpc-serialization.exhaustive.test.ts`). `rpc.ts` 를 바꾸면 후자의 sync commit 을 갱신한다.
 - 결정: `device.io.swipe` 파라미터 키는 `fromX/fromY/toX/toY` camelCase (`durationMs` 와 같은 규칙).
-- android-backend 티켓 01~04 완료(`.scratch/android-backend/`): direct ADB 이식 + AndroidBackend(devices.list, shell 경로 입력·앱·스크린샷), 접근성 헬퍼 APK(`packages/device-layer/android-helper`, `/ping` `/dump`), 헬퍼 온보딩 자동화와 `device.dump.ui`(`device.info.helper` 상태, `-32002`). 발견: Samsung Secure Folder 기기는 `settings put` 에 `--user 0` 필수.
+- android-backend 티켓 01~05 완료(`.scratch/android-backend/`): direct ADB 이식 + AndroidBackend(devices.list, shell 경로 입력·앱·스크린샷), 접근성 헬퍼 APK(`packages/device-layer/android-helper`, `/ping` `/dump`), 헬퍼 온보딩 자동화와 `device.dump.ui`(`device.info.helper` 상태, `-32002`), 원자 스냅샷 `device.snapshot`. 발견: Samsung Secure Folder 기기는 `settings put` 에 `--user 0` 필수.
 - 미결: 배포 환경의 헬퍼 APK 확보(`helperApkPath`, EverMock ApkManager 패턴)는 runner-agent 패키징 티켓에서.
 - 다음 티켓 순서: (1) Android 백엔드 실제 구현. EverMock(`../10.development` 리포의 `src/main/adb`)의 direct ADB 레이어를 `packages/device-layer`로 옮기고 접근성 헬퍼 APK와 통신. (2) `packages/runner`의 locator/expect와 엔진 계약 계약 테스트. (3) control-plane Ingest(이벤트 멱등 저장)와 커스텀 Reporter.
 

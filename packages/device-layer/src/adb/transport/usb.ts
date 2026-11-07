@@ -24,7 +24,8 @@ import {
   AdbTimeoutException,
   AdbUsbAccessException
 } from '../errors.ts';
-import { HEADER_LENGTH } from '../protocol/constants.ts';
+import { CMD_OPEN, HEADER_LENGTH } from '../protocol/constants.ts';
+import { encodeMessage } from '../protocol/message.ts';
 import { ADB_TRACE, adbTrace } from '../trace.ts';
 
 /** ADB 인터페이스 식별자(AOSP adb: ADB_CLASS/ADB_SUBCLASS/ADB_PROTOCOL). */
@@ -161,7 +162,7 @@ function findInConfiguration(configuration: UsbConfigurationLike): Omit<AdbUsbIn
 export interface UsbTransportOptions {
   /** 전송 하나가 끝나기까지의 기한(ms). 기본 10초(TcpTransport와 같은 의도). */
   writeTimeoutMs?: number;
-  /** 유휴 시 헤더 읽기 재시도 주기(ms). close가 읽기 루프를 멈추는 데 걸리는 최대 시간이기도 하다. 기본 1초. */
+  /** 유휴 헤더 읽기 한 번의 timeout(ms). 기본 60초. 취소는 패킷을 잃을 수 있어 테스트 외에는 줄이지 않는다(종료는 wake 메시지로 끝낸다). */
   idlePollMs?: number;
   /** 헤더를 받은 뒤 payload를 모두 받기까지의 기한(ms). 기본 30초. */
   payloadTimeoutMs?: number;
@@ -180,7 +181,15 @@ const DEFAULT_WRITE_TIMEOUT = 10_000;
 const STALE_INPUT_QUIET_MS = 150;
 /** 잔여 입력 버리기의 상한. 스트림당 미확인 WRTE 는 1개(≤1MB)라 실제로는 수백 ms 안에 조용해진다. */
 const STALE_INPUT_MAX_MS = 3_000;
-const DEFAULT_IDLE_POLL = 1_000;
+/**
+ * 유휴 읽기(헤더 대기)의 timeout. node-usb 3(nusb) 는 timeout 으로 전송을 취소할 때 그 순간 도착한 패킷을 버리므로
+ * (실기기: 헬퍼 응답이 ~1초 걸릴 때 1초 폴링의 취소와 겹쳐 WRTE 헤더가 사라지고 스트림이 어긋남), 취소는 가능한 한 일어나지
+ * 않아야 한다. 평소 종료는 wake 메시지로 읽기를 끝내므로(shutdown 참고) 이 값은 "기기가 완전히 침묵할 때의 안전망" 이다.
+ * 보류 중인 읽기가 있으면 인터페이스를 놓을 수 없어(native borrow) 기기가 멈춘 경우 이 시간만큼 재연결이 막힌다.
+ */
+const DEFAULT_IDLE_POLL = 60_000;
+/** shutdown 의 wake 메시지에 기기가 답하기를 기다리는 시간. 살아 있는 adbd 는 수 ms 안에 CLSE 를 보낸다. */
+const WAKE_REPLY_TIMEOUT = 2_000;
 const DEFAULT_PAYLOAD_TIMEOUT = 30_000;
 const CLAIM_RETRY_DELAY = 300;
 
@@ -407,11 +416,17 @@ export class UsbTransport implements AdbTransport {
     if (ADB_TRACE && error) adbTrace(`usb shutdown: ${error.message}${error.cause instanceof Error ? ` <- ${error.cause.message}` : ''}`);
     this.closed = true;
     this.closeError = error;
+    this.discarding = true; // wake 응답 등 이제부터 오는 데이터는 위로 올리지 않는다
     this.releasing = (async () => {
-      // 유휴 읽기는 idlePollMs 안에 끝난다. payload 읽기 중이면 오래 걸릴 수 있어 상한을 둔다.
+      // 보류 중인 유휴 읽기를 취소 없이 끝내기 위해 기기가 반드시 답하는 메시지(모르는 서비스 OPEN → CLSE)를 보낸다.
+      // 취소(timeout)는 도착 중인 패킷을 버릴 수 있고, 읽기가 보류 중이면 인터페이스를 놓을 수도 없다.
+      if (!error) {
+        const wake = encodeMessage({ command: CMD_OPEN, arg0: 0x7fffffff, arg1: 0, payload: Buffer.from('sinclair:wake\0') });
+        await this.transferOut(this.adbInterface.outEndpoint, wake).catch(() => undefined);
+      }
       await Promise.race([
         this.readLoop,
-        new Promise((r) => setTimeout(r, this.options.idlePollMs + 1_000))
+        new Promise((r) => setTimeout(r, Math.min(this.options.idlePollMs, WAKE_REPLY_TIMEOUT) + 1_000))
       ]);
       await this.device.releaseInterface(this.adbInterface.interfaceNumber).catch(() => undefined);
       await this.device.close().catch(() => undefined);
