@@ -181,6 +181,8 @@ const DEFAULT_WRITE_TIMEOUT = 10_000;
 const STALE_INPUT_QUIET_MS = 150;
 /** 잔여 입력 버리기의 상한. 스트림당 미확인 WRTE 는 1개(≤1MB)라 실제로는 수백 ms 안에 조용해진다. */
 const STALE_INPUT_MAX_MS = 3_000;
+/** 조용해졌는지 확인하는 주기. QUIET 판정 해상도이며 연결당 한 번만 돈다. */
+const STALE_INPUT_POLL_MS = 10;
 /**
  * 유휴 읽기(헤더 대기)의 timeout. node-usb 3(nusb) 는 timeout 으로 전송을 취소할 때 그 순간 도착한 패킷을 버리므로
  * (실기기: 헬퍼 응답이 ~1초 걸릴 때 1초 폴링의 취소와 겹쳐 WRTE 헤더가 사라지고 스트림이 어긋남), 취소는 가능한 한 일어나지
@@ -279,7 +281,7 @@ export class UsbTransport implements AdbTransport {
       const quietFor = Date.now() - this.lastDiscardedAt;
       if (this.atPacketBoundary && quietFor >= STALE_INPUT_QUIET_MS) break;
       if (Date.now() - started >= STALE_INPUT_MAX_MS && this.atPacketBoundary) break;
-      await new Promise((r) => setTimeout(r, 10));
+      await new Promise((r) => setTimeout(r, STALE_INPUT_POLL_MS));
     }
     if (ADB_TRACE && this.discardedBytes > 0) adbTrace(`usb open: 이전 세션 잔여 ${this.discardedBytes} bytes 버림 (${Date.now() - started}ms)`);
     this.discarding = false;
@@ -420,10 +422,11 @@ export class UsbTransport implements AdbTransport {
     this.releasing = (async () => {
       // 보류 중인 유휴 읽기를 취소 없이 끝내기 위해 기기가 반드시 답하는 메시지(모르는 서비스 OPEN → CLSE)를 보낸다.
       // 취소(timeout)는 도착 중인 패킷을 버릴 수 있고, 읽기가 보류 중이면 인터페이스를 놓을 수도 없다.
-      if (!error) {
-        const wake = encodeMessage({ command: CMD_OPEN, arg0: 0x7fffffff, arg1: 0, payload: Buffer.from('sinclair:wake\0') });
-        await this.transferOut(this.adbInterface.outEndpoint, wake).catch(() => undefined);
-      }
+      // 오류 경로에서도 보낸다: 기기가 사라졌으면 쓰기가 실패할 뿐이고, 살아 있으면(쓰기 timeout 등) 보류 읽기를 끝내 준다.
+      // 로컬 스트림 id 0x7fffffff 는 연결이 쓰는 id(1부터 증가)와 겹치지 않는다.
+      const wake = encodeMessage({ command: CMD_OPEN, arg0: 0x7fffffff, arg1: 0, payload: Buffer.from('sinclair:wake\0') });
+      await this.transferOut(this.adbInterface.outEndpoint, wake).catch(() => undefined);
+      // 응답 대기 상한 + 읽기 루프가 그 응답을 처리하고 빠져나올 여유 1초.
       await Promise.race([
         this.readLoop,
         new Promise((r) => setTimeout(r, Math.min(this.options.idlePollMs, WAKE_REPLY_TIMEOUT) + 1_000))

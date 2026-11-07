@@ -36,7 +36,7 @@ describe.skipIf(!target)('AndroidBackend 실기기 입력·스크린샷 (adb she
     const id = target === '1' ? device!.id : target!;
     const dir = path.resolve(import.meta.dirname, '../../../.e2e/device-proof');
     await fs.mkdir(dir, { recursive: true });
-    await backend.keys(id, ['KEYCODE_WAKEUP']); // 화면이 꺼지는 순간에는 screencap 이 실패할 수 있다
+    await backend.keys(id, ['KEYCODE_WAKEUP', 'KEYCODE_MENU']); // 깨우고 잠금화면(비보안)을 넘긴다. 잠금화면의 스크린샷은 검게 나온다
     await backend.button(id, 'home');
     await new Promise((r) => setTimeout(r, 500));
     const before = await backend.screenshot(id);
@@ -93,7 +93,7 @@ describe.skipIf(!target)('AndroidBackend 실기기 원자 스냅샷 (device.snap
       info = await backend.info(id);
     }
     expect(info.helper?.state, JSON.stringify(info.helper)).toBe('ready');
-    await backend.keys(id, ['KEYCODE_WAKEUP']);
+    await backend.keys(id, ['KEYCODE_WAKEUP', 'KEYCODE_MENU']); // 잠금화면(keyguard)에서는 takeScreenshot 이 검은 화면을 준다
     await backend.button(id, 'home');
     await new Promise((r) => setTimeout(r, 400));
     await backend.keys(id, ['KEYCODE_APP_SWITCH']); // 전환 애니메이션이 도는 동안 찍는다
@@ -105,11 +105,27 @@ describe.skipIf(!target)('AndroidBackend 실기기 원자 스냅샷 (device.snap
     const width = png.readUInt32BE(16), height = png.readUInt32BE(20); // IHDR
     expect(snap.atomic, snap.detail).toBe(true);
     expect(snap.root.rect).toEqual({ x: 0, y: 0, width, height });
+    // 화면이 꺼져 검은 PNG(~16KB)가 트리와 함께 "원자" 로 통과하는 일을 막는다: 실제 화면은 수백 KB 이상이고,
+    // 트리에는 화면 안에 놓인 이름 있는 리프가 여럿 있어야 한다.
+    expect(png.length, '거의 검은 스크린샷(화면 꺼짐?)').toBeGreaterThan(300_000);
+    const leaves: Array<{ name?: string; text?: string; rect?: { x: number; y: number; width: number; height: number } }> = [];
+    const collect = (n: typeof snap.root) => { if (!n.children?.length) leaves.push(n); for (const c of n.children ?? []) collect(c); };
+    collect(snap.root);
+    const named = leaves.filter((l) => (l.name || l.text) && l.rect && l.rect.width > 0 && l.rect.x + l.rect.width <= width && l.rect.y + l.rect.height <= height);
+    expect(named.length).toBeGreaterThanOrEqual(3);
 
     const dir = path.resolve(import.meta.dirname, '../../../.e2e/device-proof');
     await fs.mkdir(dir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     await fs.writeFile(path.join(dir, `${stamp}-snapshot.png`), png);
     await fs.writeFile(path.join(dir, `${stamp}-snapshot.json`), JSON.stringify({ ...snap, screenshot: { format: 'png', bytes: png.length } }, null, 2));
+    // 리포에 남는 요약(.e2e 는 git-ignore). 마지막 실행 하나만 유지한다.
+    const summaryDir = path.resolve(import.meta.dirname, '../../../.scratch/android-backend/evidence');
+    await fs.mkdir(summaryDir, { recursive: true });
+    await fs.writeFile(path.join(summaryDir, '05-snapshot-latest.json'), JSON.stringify({
+      device: `${info.model} (${id}) Android ${info.osVersion}`, helper: info.helper, capturedAt: snap.capturedAt, atomic: snap.atomic,
+      png: { bytes: png.length, width, height }, rootRect: snap.root.rect, leaves: leaves.length, namedLeavesInScreen: named.length,
+      sampleLeaves: named.slice(0, 5).map((l) => ({ label: l.name ?? l.text, rect: l.rect })),
+    }, null, 2) + '\n');
   }, APPROVAL_WAIT_MS + 20_000);
 });

@@ -284,21 +284,26 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
     return entry;
   }
 
-  /** 헬퍼가 준비된 세션으로 요청을 보낸다. 실패하면 온보딩을 다시 돌려 상태를 갱신하고 한 번 더 시도한다(서비스 꺼짐·토큰 소실 복구). */
-  async function withHelper<T>(deviceId: string, call: (session: HelperSession) => Promise<T>): Promise<T> {
+  /**
+   * 헬퍼가 준비된 세션으로 요청을 보낸다. 실패하면 온보딩을 다시 돌려 상태를 갱신하고 한 번 더 시도한다(서비스 꺼짐·토큰 소실 복구).
+   * fallback 을 주면 헬퍼 경로가 안 될 때 던지는 대신 그것을 쓴다(screencap 등 대체 경로가 있는 호출용).
+   */
+  async function withHelper<T>(deviceId: string, call: (session: HelperSession) => Promise<T>, fallback?: () => Promise<T>): Promise<T> {
     const entry = await tracked(deviceId);
     await entry.probe; // 연결 판정(과 그에 딸린 온보딩)이 진행 중이면 끝날 때까지
-    if (entry.helper?.state !== 'ready') await ensureHelper(entry);
+    if (entry.helper?.state !== 'ready' && !fallback) await ensureHelper(entry);
     let firstError: unknown;
     if (entry.helper?.state === 'ready' && entry.session) {
       try {
         return await call(entry.session);
       } catch (e) {
         firstError = e;
+        if (fallback) return fallback();
         await ensureHelper(entry);
         if (entry.helper?.state === 'ready' && entry.session) return call(entry.session);
       }
     }
+    if (fallback) return fallback();
     const cause = firstError instanceof Error ? ` (첫 시도: ${firstError.message})` : '';
     throw new RpcError(RPC_ERRORS.helperUnavailable, `헬퍼 사용 불가(${entry.helper?.state}): ${entry.helper?.detail ?? ''}${cause}`);
   }
@@ -320,19 +325,13 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
     };
   }
 
-  /** 헬퍼가 준비돼 있으면 헬퍼 경로(원자 캡처의 스크린샷)를 쓰고, 아니면 screencap. */
-  async function screenshot(deviceId: string): Promise<Uint8Array> {
-    const entry = await tracked(deviceId);
-    await entry.probe;
-    if (entry.helper?.state === 'ready' && entry.session) {
-      try {
-        const r = await entry.session.snapshot();
-        if (r.screenshot) return Buffer.from(r.screenshot.base64, 'base64');
-      } catch {
-        // 헬퍼 쪽 문제는 screencap 으로 덮는다. 상태 갱신은 다음 info/dump 에서.
-      }
-    }
-    return runBinary(deviceId, 'screencap -p');
+  /** 헬퍼가 준비돼 있으면 헬퍼 경로(원자 캡처의 스크린샷)를 쓰고, 아니면 screencap. 헬퍼 상태 갱신은 다음 info/dump 에서. */
+  function screenshot(deviceId: string): Promise<Uint8Array> {
+    const screencap = () => runBinary(deviceId, 'screencap -p');
+    return withHelper(deviceId, async (s) => {
+      const r = await s.snapshot();
+      return r.screenshot ? Buffer.from(r.screenshot.base64, 'base64') : screencap();
+    }, screencap);
   }
 
   const notImplemented = (name: string) => async (..._args: unknown[]): Promise<never> => {

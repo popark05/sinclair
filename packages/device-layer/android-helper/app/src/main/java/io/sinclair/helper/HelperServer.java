@@ -140,15 +140,11 @@ final class HelperServer extends Thread {
         return b < 0 && sb.length() == 0 ? null : sb.toString();
     }
 
-    /**
-     * 같은 순간의 스크린샷과 트리. takeScreenshot 은 호출 즉시 시스템이 프레임을 잡으므로, 그 직후(콜백 대기 전이 아닌
-     * 호출 직후) 트리를 읽어 둘을 같은 순간에 맞춘다. 스크린샷이 실패하면 트리만 atomic:false 로 돌려준다.
-     */
-    private String snapshot() throws JSONException {
-        ScreenCapture.Result shot = ScreenCapture.capture(service);
-        JSONObject root = new TreeDumper(service).dumpActiveWindow();
+    /** 같은 순간의 스크린샷과 트리(ScreenCapture 가 takeScreenshot 직후 트리를 읽는다). 스크린샷이 실패하면 트리만 atomic:false 로. */
+    private String snapshot() throws Exception {
+        ScreenCapture.Result shot = ScreenCapture.capture(service, () -> new TreeDumper(service).dumpActiveWindow());
         JSONObject o = new JSONObject();
-        o.put("root", root);
+        o.put("root", shot.tree);
         if (shot.pngBase64 != null) {
             o.put("atomic", true);
             o.put("screenshot", new JSONObject().put("format", "png").put("base64", shot.pngBase64));
