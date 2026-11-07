@@ -36,7 +36,7 @@ describe.skipIf(!target)('실기기 runTests', () => {
         at: new Date().toISOString(), device: `${info.model} (…${deviceId.slice(-4)}) Android ${info.osVersion}`, summary: report.summary,
         tests: report.tests.map((t) => ({ name: t.name, result: t.result, durationMs: t.durationMs, steps: t.steps.map((s) => ({ kind: s.kind, instruction: s.instruction, durationMs: s.durationMs })), error: t.error })),
       }, null, 2) + '\n');
-      vexpect(report.summary).toEqual({ passed: 1, failed: 0, skipped: 0 });
+      vexpect(report.summary).toEqual({ passed: 1, failed: 0, blocked: 0, skipped: 0 });
       await engine.session!.restart().catch(() => undefined);
       await backend.terminateApp(deviceId, 'com.android.settings').catch(() => undefined);
       await backend.button(deviceId, 'home').catch(() => undefined);
