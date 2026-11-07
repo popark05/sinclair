@@ -5,7 +5,7 @@
 ## Sub-features
 
 - `spool-written` 서버가 없어도 run 은 끝나고(exit 는 테스트 결과대로) 스풀에 `.jsonl`/`.meta.json` 이 남으며 출력에 "미전송 N건 … resume" 경고.
-- `spool-resume` 서버를 올린 뒤 `resume` 이 "완료 (ack 0 → N)" 를 찍고 exit 0, 스풀 비움, `GET /runs/:id` 가 finished.
+- `spool-resume` 서버를 올린 뒤 `resume` 이 "완료 (ack 0 → N)" 를 찍고 exit 0(미완 run 이 남으면 4), 스풀 비움, `GET /runs/:id` 가 finished.
 - `spool-partial` 깨진 마지막 줄은 건너뛰고 경고(단위 테스트 `spool.test.ts` 로 증명).
 
 ## How to get to it (user POV)

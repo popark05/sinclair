@@ -23,11 +23,12 @@ let dir: string;
 let cp: RunningControlPlane | undefined;
 beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sinclair-spool-')); });
 afterEach(async () => { await cp?.close(); cp = undefined; fs.rmSync(dir, { recursive: true, force: true }); });
-const startCp = async () => { cp = await startControlPlane({ host: '127.0.0.1', port: 0, store: 'memory', db: '(무시)' }); return `http://127.0.0.1:${cp.server.port}`; };
+const MEMORY = { host: '127.0.0.1', port: 0, store: 'memory', db: 'unused-in-memory-mode' } as const;
+const startCp = async () => { cp = await startControlPlane(MEMORY); return `http://127.0.0.1:${cp.server.port}`; };
 const viewOf = async (url: string, runId = 'r1') => (await fetch(`${url}/runs/${runId}`)).text();
 /** 같은 이벤트를 한 번만 직접 넣은 별도 Ingest 의 투영(비교 기준) */
 const directView = async (events: RunEvent[], runId = 'r1') => {
-  const once = await startControlPlane({ host: '127.0.0.1', port: 0, store: 'memory', db: '(무시)' });
+  const once = await startControlPlane(MEMORY);
   try { await fetch(`http://127.0.0.1:${once.server.port}/ingest`, { method: 'POST', body: JSON.stringify(events) }); return await viewOf(`http://127.0.0.1:${once.server.port}`, runId); }
   finally { await once.close(); }
 };
@@ -45,6 +46,22 @@ describe('createSpoolReporter', () => {
     expect(r.warnings).toEqual([]);
     expect(await viewOf(url)).toBe(await directView(RUN));
     expect(fs.readdirSync(dir)).toEqual([]); // 다 보낸 스풀은 close 가 치운다
+  });
+
+  it('같은 runId 로 다시 열면(크래시 후 재실행) 기존 미ack 줄을 보존하고, 서버가 없으면 close 가 스풀을 지우지 않는다', async () => {
+    const dead = await startCp(); await cp!.close(); cp = undefined;
+    const first = createSpoolReporter({ dir, runId: 'r1', controlPlane: dead, ...fast });
+    for (const e of RUN.slice(0, 3)) first.onEvent(e);
+    await first.flush(); // 서버 없음 → 3줄 미ack 로 남음(close 없이 죽었다고 치자)
+    const again = createSpoolReporter({ dir, runId: 'r1', controlPlane: dead, ...fast });
+    expect(again.stats).toMatchObject({ written: 3, acked: 0 });
+    for (const e of RUN.slice(3)) again.onEvent(e);
+    await again.flush(); await again.close();
+    expect(again.warnings).toEqual([expect.stringMatching(/미전송 5건/)]);
+    expect(fs.readdirSync(dir).sort()).toEqual(['r1.jsonl', 'r1.meta.json']); // 지워지지 않았다
+    const url = await startCp();
+    expect((await resumeSpool({ dir, controlPlane: url, maxRetryMs: 500, backoffMs: 5 })).resumed).toEqual(['r1']);
+    expect(await viewOf(url)).toBe(await directView(RUN));
   });
 
   it('meta 에 control-plane 주소가 남는다', async () => {
@@ -103,12 +120,12 @@ describe('createSpoolReporter', () => {
     const port = cp!.server.port;
     const r = createSpoolReporter({ dir, runId: 'r1', controlPlane: url, ...fast, maxRetryMs: 5_000 });
     r.onEvent(RUN[0]!); r.onEvent(RUN[1]!);
-    for (let i = 0; i < 200 && r.stats.acked < 2; i++) await new Promise((x) => setTimeout(x, 10)); // 첫 배치 ack
+    for (let i = 0; i < 200 && r.stats.acked < 2; i++) await new Promise((x) => setTimeout(x, 10)); // 첫 배치 ack (폴링 10ms × 최대 200 = 2초: 전체 스위트 병렬 실행 중에도 넉넉히)
     expect(r.stats.acked).toBe(2);
     await cp!.close(); cp = undefined;
     r.onEvent(RUN[2]!); r.onEvent(RUN[3]!); r.onEvent(RUN[4]!);
     for (let i = 0; i < 200 && r.stats.retries === 0; i++) await new Promise((x) => setTimeout(x, 10)); // 연결 거부를 겪는다
-    cp = await startControlPlane({ host: '127.0.0.1', port, store: 'memory', db: '(무시)' });
+    cp = await startControlPlane({ ...MEMORY, port });
     await r.flush();
     expect(r.warnings).toEqual([]);
     expect(readAck(r.files.ack)).toBe(5);

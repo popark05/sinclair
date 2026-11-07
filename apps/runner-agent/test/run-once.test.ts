@@ -6,13 +6,19 @@ import { FakeEngine, LOGIN_SCREEN, withDeviceUnavailable } from '@sinclair/proto
 import { startControlPlane, type RunningControlPlane, type CycleView } from '@sinclair/control-plane';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
-import { runOnce, executeRun, collectTestFiles, main, EXIT, type RunOnceDeps } from '../src/index.ts';
+import { runOnce, executeRun, collectTestFiles, main, createSpoolReporter, EXIT, type RunOnceDeps, type RunArgs } from '../src/index.ts';
+
+/** 메모리 저장소 설정. db 는 memory 모드에서 쓰이지 않지만 타입상 필수 */
+const MEMORY = { host: '127.0.0.1', port: 0, store: 'memory', db: 'unused-in-memory-mode' } as const;
+/** 테스트용 스풀 Reporter: 재시도 예산을 짧게 */
+const createSpoolReporterForTest = (a: RunArgs, r: { runId: string; cycleId: string; targetId: string }) =>
+  createSpoolReporter({ dir: a.spool, runId: r.runId, controlPlane: a.controlPlane, cycleId: r.cycleId, targetId: r.targetId, backoffMs: 5, maxBackoffMs: 20, maxRetryMs: 200, flushIntervalMs: 20 });
 
 let cp: RunningControlPlane;
 let url: string;
 const logs: string[] = [];
 const deps = (): RunOnceDeps => ({ log: (line) => logs.push(line) });
-beforeEach(async () => { cp = await startControlPlane({ host: '127.0.0.1', port: 0, store: 'memory', db: '(memory 모드에서는 무시)' }); url = `http://127.0.0.1:${cp.server.port}`; logs.length = 0; });
+beforeEach(async () => { cp = await startControlPlane(MEMORY); url = `http://127.0.0.1:${cp.server.port}`; logs.length = 0; });
 afterEach(async () => { await cp.close(); });
 
 const fixtures = path.resolve(import.meta.dirname, 'fixtures');
@@ -88,7 +94,7 @@ describe('runOnce', () => {
     expect(code).toBe(EXIT.ok);
     expect(logs.join('\n')).toMatch(/닿지 않아 지정된 run r-offline 으로 진행/);
     expect(fs.readdirSync(spool).sort()).toEqual(['r-offline.jsonl', 'r-offline.meta.json']);
-    cp = await startControlPlane({ host: '127.0.0.1', port: 0, store: 'memory', db: '(무시)' }); // afterEach 의 close 용
+    cp = await startControlPlane(MEMORY); // afterEach 의 close 용
     expect(await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake', spool }, deps())).toBe(EXIT.config); // --run 없이는 등록이 필요하다
   });
 
@@ -115,7 +121,7 @@ describe('runOnce', () => {
     expect(fs.readdirSync(spool).sort()).toEqual(['r-spool.jsonl', 'r-spool.meta.json']); // ack 는 하나도 못 보냈으니 아직 없다
 
     // 같은 포트로 서버를 올리고 resume (memory 라 등록은 사라졌지만 Ingest 는 runId 를 검사하지 않는다)
-    cp = await startControlPlane({ host: '127.0.0.1', port, store: 'memory', db: '(무시)' });
+    cp = await startControlPlane({ ...MEMORY, port });
     const out: string[] = [];
     const origLog = console.log; console.log = (l: string) => { out.push(String(l)); };
     try { expect(await main(['resume', '--spool', spool], {})).toBe(EXIT.ok); } finally { console.log = origLog; }
@@ -126,10 +132,3 @@ describe('runOnce', () => {
     expect(runView.attempts).toHaveLength(1);
   });
 });
-
-import { createSpoolReporter } from '../src/index.ts';
-import type { RunArgs } from '../src/index.ts';
-/** 테스트용: 재시도 예산을 짧게 */
-function createSpoolReporterForTest(a: RunArgs, r: { runId: string; cycleId: string; targetId: string }) {
-  return createSpoolReporter({ dir: a.spool, runId: r.runId, controlPlane: a.controlPlane, cycleId: r.cycleId, targetId: r.targetId, backoffMs: 5, maxBackoffMs: 20, maxRetryMs: 200, flushIntervalMs: 20 });
-}

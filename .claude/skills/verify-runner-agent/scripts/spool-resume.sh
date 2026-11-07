@@ -13,12 +13,8 @@ curl -s -X POST "$URL/cycles/$CYCLE/runs" -H 'content-type: application/json' --
 "$I/stop.sh" "$RUN_DIR" >/dev/null   # 서버 다운
 RUN_OUT=$(SINCLAIR_AGENT_SPOOL="$SPOOL" node apps/runner-agent/bin/sinclair-agent.mjs run --control-plane "$URL" --cycle "$CYCLE" --target android --run "$RUNID" --tests apps/runner-agent/test/fixtures/only-login --engine fake 2>&1); RUN_CODE=$?
 FILES_AFTER_RUN=$(ls "$SPOOL" 2>/dev/null | tr '\n' ' ')
-# 같은 포트로 재기동 (memory 저장소라 Cycle/Run 등록은 사라지지만 Ingest 는 runId 를 검사하지 않는다; sqlite 모드면 등록도 남는다)
-KIND=$(node -p "JSON.parse(require('fs').readFileSync('$RUN_DIR/server.json.last','utf8')).store" 2>/dev/null || echo "${SINCLAIR_INGEST_STORE:-memory}")
-node apps/control-plane/bin/sinclair-control-plane.mjs --port "$PORT" --store "$KIND" --db "$RUN_DIR/control-plane.db" >"$RUN_DIR/server.out" 2>&1 &
-echo $! >"$RUN_DIR/server.pid"
-for _ in $(seq 1 50); do grep -q '^READY' "$RUN_DIR/server.out" 2>/dev/null && break; sleep 0.1; done
-node -e 'const [dir,port,pid,kind]=process.argv.slice(1);require("fs").writeFileSync(`${dir}/server.json`,JSON.stringify({port:Number(port),pid:Number(pid),store:kind}))' "$RUN_DIR" "$PORT" "$(cat "$RUN_DIR/server.pid")" "$KIND"
+# 같은 포트로 재기동(start.sh 에 포트를 지정). memory 저장소라 Cycle/Run 등록은 사라지지만 Ingest 는 runId 를 검사하지 않는다; sqlite 모드면 등록도 남는다
+SINCLAIR_INGEST_PORT="$PORT" "$I/start.sh" "$RUN_DIR" >/dev/null
 RESUME_OUT=$(node apps/runner-agent/bin/sinclair-agent.mjs resume --spool "$SPOOL" 2>&1); RESUME_CODE=$?
 FILES_AFTER_RESUME=$(ls "$SPOOL" 2>/dev/null | tr '\n' ' ')
 VIEW=$(curl -s "$URL/runs/$RUNID")

@@ -68,7 +68,7 @@ export const RESUME_HELP = `사용법: sinclair-agent resume [옵션]
   --control-plane <url>   스풀 meta 의 주소 대신 쓸 control-plane [SINCLAIR_AGENT_CONTROL_PLANE]
   --help
 
-스풀에 남은 run 들을 같은 eventId 로 이어 보내고, 다 보낸 run 의 파일은 지운다. 종료 코드: 0 전부 완료, 1 미완 run 있음, 3 설정 오류
+스풀에 남은 run 들을 같은 eventId 로 이어 보내고, 다 보낸 run 의 파일은 지운다. 종료 코드: 0 전부 완료, 4 미완 run 있음, 3 설정 오류
 `;
 
 export interface ResumeArgs { spool: string; controlPlane?: string }

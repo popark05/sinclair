@@ -14,7 +14,7 @@ const target = process.env.SINCLAIR_TEST_USB;
 
 describe.skipIf(!target)('실기기 sinclair-agent run', () => {
   it('설정 앱 샘플이 실기기 → control-plane 까지 흐르고 Cycle 이 verified 다', async () => {
-    const cp = await startControlPlane({ host: '127.0.0.1', port: 0, store: 'memory', db: '(memory 모드에서는 무시)' });
+    const cp = await startControlPlane({ host: '127.0.0.1', port: 0, store: 'memory', db: 'unused-in-memory-mode' });
     const url = `http://127.0.0.1:${cp.server.port}`;
     const logs: string[] = [];
     try {

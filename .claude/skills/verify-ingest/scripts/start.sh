@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # control-plane 를 제품 엔트리(apps/control-plane/bin)로 백그라운드 기동하고 READY 를 기다린다. 사용: scripts/start.sh <RUN_DIR>
 # 저장소: SINCLAIR_INGEST_STORE=memory(기본) | sqlite (파일은 <RUN_DIR>/control-plane.db, SINCLAIR_INGEST_DB 로 바꿀 수 있다)
+# 포트: 기본 0(OS 배정). 같은 포트로 재기동하려면 SINCLAIR_INGEST_PORT=<n>
 set -euo pipefail
 RUN_DIR=${1:?RUN_DIR 필요}
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -8,7 +9,7 @@ BIN="$HERE/../../../../apps/control-plane/bin/sinclair-control-plane.mjs"
 mkdir -p "$RUN_DIR/evidence"
 KIND=${SINCLAIR_INGEST_STORE:-memory}
 DB=${SINCLAIR_INGEST_DB:-$RUN_DIR/control-plane.db}
-node "$BIN" --port 0 --store "$KIND" --db "$DB" >"$RUN_DIR/server.out" 2>&1 &
+node "$BIN" --port "${SINCLAIR_INGEST_PORT:-0}" --store "$KIND" --db "$DB" >"$RUN_DIR/server.out" 2>&1 &
 echo $! >"$RUN_DIR/server.pid"
 for _ in $(seq 1 50); do  # 0.1s × 50 = 5초: 셸 재실행 + TS 변환 로드에 보통 1초 미만
   if grep -q '^READY' "$RUN_DIR/server.out" 2>/dev/null; then

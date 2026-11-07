@@ -1,18 +1,18 @@
 {
-  "at": "2026-11-07T15:53:51.410Z",
+  "at": "2026-11-07T16:34:02.283Z",
   "store": "memory",
   "run": {
     "exitCode": 0,
     "spoolFiles": [
-      "run-spool-1794066819-93053.jsonl",
-      "run-spool-1794066819-93053.meta.json"
+      "run-spool-1794069179-98693.jsonl",
+      "run-spool-1794069179-98693.meta.json"
     ],
-    "warning": "  경고: 재시도 예산 안에 다 보내지 못함: 미전송 6건이 .e2e/verify-runner-agent/20261108-005338-ticket03b/spool/run-spool-1794066819-93053.jsonl 에 남음 (sinclair-agent resume 으로 이어 보냄)"
+    "warning": "  경고: 재시도 예산 안에 다 보내지 못함: 미전송 6건이 .e2e/verify-runner-agent/20261108-013257-ticket03-review/spool/run-spool-1794069179-98693.jsonl 에 남음 (sinclair-agent resume 으로 이어 보냄)"
   },
   "resume": {
     "exitCode": 0,
     "spoolFiles": [],
-    "line": "run-spool-1794066819-93053: 완료 (ack 0 → 6, 전송 6, accepted 6, duplicate 0, retries 0)"
+    "line": "run-spool-1794069179-98693: 완료 (ack 0 → 6, 전송 6, accepted 6, duplicate 0, retries 0)"
   },
   "runView": {
     "state": "finished",

@@ -27,7 +27,7 @@ export async function main(argv = process.argv.slice(2), env = process.env): Pro
     const result = await resumeSpool({ dir: args.spool, ...(args.controlPlane ? { controlPlane: args.controlPlane } : {}), log: (l) => console.log(l) });
     for (const w of result.warnings) console.log(`  경고: ${w}`);
     console.log(`resume: 완료 ${result.resumed.length}, 미완 ${result.pending.length} (${args.spool})`);
-    return result.pending.length ? EXIT.testsFailed : EXIT.ok;
+    return result.pending.length ? EXIT.incomplete : EXIT.ok;
   } catch (err) {
     if (err instanceof AgentConfigError) { console.error(`설정 오류: ${err.message}\n\n${help}`); return EXIT.config; }
     throw err;

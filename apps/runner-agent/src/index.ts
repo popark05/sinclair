@@ -4,4 +4,4 @@ export { main } from './main.ts';
 export { registerRun, ControlPlaneError, type RegisteredRun } from './control-plane-client.ts';
 export { createEngine, type EngineHandle } from './engines.ts';
 export { runOnce, executeRun, collectTestFiles, EXIT, type ExitCode, type RunOnceDeps } from './run-once.ts';
-export { createSpoolReporter, resumeSpool, drainSpool, spoolFiles, readAck, writeAck, readSpoolLines, type SpoolOptions, type SpoolReporter, type SpoolMeta } from './spool.ts';
+export { createSpoolReporter, resumeSpool, drainSpool, spoolFiles, readAck, writeAck, DEFAULT_MAX_RETRY_MS, type SpoolOptions, type SpoolReporter, type SpoolMeta, type IngestRetryOptions } from './spool.ts';

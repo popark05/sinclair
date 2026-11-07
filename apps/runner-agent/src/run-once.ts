@@ -9,8 +9,8 @@ import { ControlPlaneError, registerRun, type RegisteredRun } from './control-pl
 import { createEngine, type EngineHandle } from './engines.ts';
 import { createSpoolReporter } from './spool.ts';
 
-/** 종료 코드. 셸 스크립트·CI 가 분기한다 */
-export const EXIT = { ok: 0, testsFailed: 1, blocked: 2, config: 3 } as const;
+/** 종료 코드. 셸 스크립트·CI 가 분기한다. incomplete 는 resume 전용(미완 run 이 남음) */
+export const EXIT = { ok: 0, testsFailed: 1, blocked: 2, config: 3, incomplete: 4 } as const;
 export type ExitCode = (typeof EXIT)[keyof typeof EXIT];
 
 export interface RunOnceDeps {
@@ -76,15 +76,16 @@ export async function executeRun(args: RunArgs, run: RegisteredRun, files: strin
   }
 
   try {
+    // Reporter 가 재시도 예산을 알려 주면 러너의 flush 기한을 그에 맞춘다(기본 10초면 스풀의 60초 예산이 무의미해진다)
+    const flushBudgetMs = (reporter as { flushBudgetMs?: number }).flushBudgetMs;
     const report = await runTests(files, {
       engine: handle.engine, reporter, runId: run.runId, cycleId: run.cycleId, targetId: run.targetId, agentId,
+      ...(flushBudgetMs !== undefined ? { reporterFlushTimeoutMs: flushBudgetMs } : {}),
       ...(handle.deviceId ? { deviceId: handle.deviceId } : {}), ...(args.artifacts ? { artifactsDir: args.artifacts } : {}), ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}),
     });
     const s = report.summary;
-    const st = (reporter as { stats?: { sent: number; accepted: number; duplicate: number; rejected: number; retries: number } }).stats;
-    const rw = (reporter as { warnings?: readonly string[] }).warnings ?? [];
-    if (report.warnings === undefined && rw.length) (report as { warnings?: string[] }).warnings = [...rw];
-    log(`결과: passed ${s.passed}, failed ${s.failed}, blocked ${s.blocked}, skipped ${s.skipped}${st ? ` / 전송 ${st.sent}건(accepted ${st.accepted}, duplicate ${st.duplicate}, rejected ${st.rejected}, retries ${st.retries})` : ''}`);
+    const stats = (reporter as { stats?: { sent: number; accepted: number; duplicate: number; rejected: number; retries: number } }).stats;
+    log(`결과: passed ${s.passed}, failed ${s.failed}, blocked ${s.blocked}, skipped ${s.skipped}${stats ? ` / 전송 ${stats.sent}건(accepted ${stats.accepted}, duplicate ${stats.duplicate}, rejected ${stats.rejected}, retries ${stats.retries})` : ''}`);
     for (const t of report.tests) if (t.result !== 'passed') log(`  ${t.result}: ${t.name}${t.error ? ` — ${t.error}` : ''}`);
     for (const w of report.warnings ?? []) log(`  경고: ${w}`);
     if (s.blocked > 0) return EXIT.blocked;
