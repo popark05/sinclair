@@ -85,5 +85,5 @@ $S/stop.sh $RUN
 
 ## 검증 이력
 
-- 2026-11-07: 실기기 모드 추가(`SINCLAIR_VERIFY_BACKEND=android`). 기기 없이 기동·doctor·`devices.list`(빈 목록)까지 확인. 실기기로는 아직 미검증.
+- 2026-11-07: 실기기 모드 추가(`SINCLAIR_VERIFY_BACKEND=android`). 기기 없이 기동·doctor·`devices.list`(빈 목록)까지 확인. 같은 날 실기기 USB 로 `android-backend.device.test.ts` 통과(`devices.list` 에 device 상태·모델·OS). 실기기 모드의 HTTP 레시피 완주는 아직.
 - 2026-11-07: 커밋 `0afc66c` 기준으로 Launch → Doctor → `rpc-methods` 기능 드라이브 → 증거 확인 → Cleanup 을 1회 완주. 정지 후 doctor 가 FAIL 로 바뀌는 것도 확인.
