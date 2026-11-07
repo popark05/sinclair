@@ -63,7 +63,8 @@ Plan(`intent/`) → Design(`specs/`, `/architect`로 타입 먼저) → Build(`t
 
 ## 알려진 실수
 
-(아직 없음)
+- **USB IN 엔드포인트의 잔여 데이터를 별도 `transferIn` 으로 비우지 않는다.** 타임아웃으로 취소된 전송이 뒤이어 오는 adbd 응답을 삼켜 핸드셰이크가 영영 멈춘다(실기기에서 확인). 읽기 루프를 그대로 돌리며 잠시 버리는 방식(`UsbTransport.discardStaleInput`)을 쓴다. 2026-11-07.
+- **실기기 테스트에서 `settings put` 은 `--user 0`.** Secure Folder 가 있는 Samsung 은 기본 사용자가 150 으로 잡혀 설정이 엉뚱한 사용자에 쓰인다.
 
 ## 참고 프로젝트에서 가져올 것 (2026-11-07 분석 요약)
 

@@ -36,6 +36,7 @@ describe.skipIf(!target)('AndroidBackend 실기기 입력·스크린샷 (adb she
     const id = target === '1' ? device!.id : target!;
     const dir = path.resolve(import.meta.dirname, '../../../.e2e/device-proof');
     await fs.mkdir(dir, { recursive: true });
+    await backend.keys(id, ['KEYCODE_WAKEUP']); // 화면이 꺼지는 순간에는 screencap 이 실패할 수 있다
     await backend.button(id, 'home');
     await new Promise((r) => setTimeout(r, 500));
     const before = await backend.screenshot(id);
@@ -61,7 +62,7 @@ describe.skipIf(!target)('AndroidBackend 실기기 헬퍼 온보딩·dump.ui', (
     const [device] = await backend.listDevices();
     const id = target === '1' ? device!.id : target!;
     let info = await backend.info(id);
-    for (let i = 0; i < 40 && info.helper === undefined; i++) {
+    for (let i = 0; i < 40 && (info.helper === undefined || info.helper.state === 'pending'); i++) {
       await new Promise((r) => setTimeout(r, 250));
       info = await backend.info(id);
     }

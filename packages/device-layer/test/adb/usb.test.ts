@@ -12,6 +12,8 @@ import {
 } from '../../src/adb/errors.ts';
 import { FakeAndroid } from './fake-android.ts';
 import { FakeUsbBackend, FakeUsbDevice } from './fake-usb.ts';
+import { msg } from './fake-adbd.ts';
+import { CMD_CLSE } from '../../src/adb/protocol/constants.ts';
 
 const cleanups: Array<() => Promise<unknown>> = [];
 afterEach(async () => {
@@ -261,5 +263,17 @@ describe('UsbTransport + Dadb.fromUsb', () => {
     const app = (await phone.connectReverse(8080))!;
     await app.send('via usb');
     expect((await app.readBytes(7))?.toString()).toBe('VIA USB');
+  });
+});
+
+describe('UsbTransport.open: 이전 세션 잔여 데이터', () => {
+  it('IN 엔드포인트에 이전 세션의 패킷(CLSE 등)이 남아 있어도 비우고 정상 연결한다', async () => {
+    const { phone, usbDevice, dadb } = setup({ idlePollMs: 20 });
+    // 이전 프로세스가 닫히며 adbd 가 보낸 CLSE 가 아직 파이프에 남아 있는 상황
+    usbDevice.adb.send(msg(CMD_CLSE, 0x5b, 0x0b));
+    usbDevice.adb.send(msg(CMD_CLSE, 0x5c, 0x0c));
+    const r = await dadb.shell('echo hi');
+    expect(r.output).toBe('hi\n');
+    expect(phone.shellCommands).toEqual(['echo hi']);
   });
 });

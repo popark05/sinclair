@@ -172,12 +172,18 @@ export interface UsbTransportOptions {
 }
 
 const DEFAULT_WRITE_TIMEOUT = 10_000;
+/** open 직후 잔여 입력을 버리는 시간. 잔여 패킷은 즉시 읽히므로 짧아도 되고, 연결마다 한 번 치르는 비용이다. */
+const STALE_INPUT_SETTLE_MS = 100;
 const DEFAULT_IDLE_POLL = 1_000;
 const DEFAULT_PAYLOAD_TIMEOUT = 30_000;
 const CLAIM_RETRY_DELAY = 300;
 
 export class UsbTransport implements AdbTransport {
   private readonly dataListeners: Array<(chunk: Uint8Array) => void> = [];
+  /** open 직후 잔여 데이터를 버리는 동안 true. */
+  private discarding = true;
+  /** 읽기 루프가 헤더의 첫 바이트를 기다리는 중(= 패킷 경계)이면 true. */
+  private atPacketBoundary = true;
   private readonly closeListeners: Array<(error?: Error) => void> = [];
   private closed = false;
   private closeError: Error | undefined;
@@ -234,7 +240,24 @@ export class UsbTransport implements AdbTransport {
       claimRetries: retries
     });
     transport.readLoop = transport.runReadLoop();
+    await transport.discardStaleInput();
     return transport;
+  }
+
+  /**
+   * 이전 프로세스가 스트림을 열어 둔 채 끝나면 adbd 가 보낸 CLSE/WRTE 가 IN 엔드포인트에 남아 있다가 새 세션의
+   * CNXN 응답 앞에 끼어들어 핸드셰이크를 깨뜨린다(실기기에서 "예상치 못한 응답 CLSE", 헤더 magic 오류로 관찰).
+   * 호스트가 CNXN 을 보내기 전에는 adbd 가 먼저 말하지 않으므로, 잠시 동안 읽히는 것은 모두 버린다.
+   * 별도 transferIn 으로 비우면 안 된다: 타임아웃으로 취소된 전송이 뒤이어 오는 응답을 삼켜 핸드셰이크가 멈춘다(실기기 확인).
+   * 그래서 평소 읽기 루프를 그대로 돌리되 리스너에 전달하지 않고, 패킷 경계에서 넘긴다.
+   */
+  private async discardStaleInput(): Promise<void> {
+    const until = Date.now() + STALE_INPUT_SETTLE_MS;
+    while (Date.now() < until || !this.atPacketBoundary) {
+      if (this.closed) break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    this.discarding = false;
   }
 
   async write(data: Uint8Array): Promise<void> {
@@ -282,8 +305,10 @@ export class UsbTransport implements AdbTransport {
   private async runReadLoop(): Promise<void> {
     try {
       while (!this.closed) {
+        this.atPacketBoundary = true;
         const header = await this.readExact(HEADER_LENGTH, true);
         if (!header) return; // 유휴 대기 중 close
+        this.atPacketBoundary = false;
         this.emit(header);
         const payloadLength = header.readUInt32LE(12);
         if (payloadLength > 0) {
@@ -332,6 +357,7 @@ export class UsbTransport implements AdbTransport {
   }
 
   private emit(chunk: Buffer): void {
+    if (this.discarding) return;
     for (const listener of this.dataListeners) listener(chunk);
   }
 
