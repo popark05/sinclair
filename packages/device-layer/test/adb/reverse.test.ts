@@ -197,13 +197,22 @@ describe('Dadb.reverse', () => {
       const app = (await phone.connectReverse(8080))!;
       app.device.autoAck = false;
       await wait(150); // 프록시가 두 조각을 쓰고 닫을 때까지. 기기는 아직 아무것도 ack하지 않았다.
-      expect(app.received.map((b) => b.length)).toEqual([1870]);
+      // TCP 가 두 쓰기를 한 세그먼트로 합칠 수 있다(부하가 걸린 전체 스위트에서 실제로 그렇다). 지키려는 성질은
+      // "ack 전에는 WRTE 하나만, 모든 바이트가 순서대로 도착한 뒤에야 CLSE" 이지 조각 경계가 아니다.
+      const total = () => app.received.reduce((n, b) => n + b.length, 0);
+      expect(app.received).toHaveLength(1);
+      expect([1870, 1897]).toContain(total());
       expect(app.hostClosed).toBe(false);
 
-      app.ackOne(); // 첫 조각 ack → 두 번째(27바이트)가 이어서 전달돼야 한다.
-      await wait(60);
-      expect(app.received.map((b) => b.length)).toEqual([1870, 27]);
-      expect(app.hostClosed).toBe(false);
+      // WRTE 를 하나씩 ack 하며 전부 도착할 때까지. 마지막 바이트가 오기 전에는 닫히면 안 된다.
+      for (let guard = 0; total() < 1897 && guard < 5; guard++) {
+        app.ackOne();
+        await wait(60);
+        expect(app.hostClosed).toBe(false);
+      }
+      const all = Buffer.concat(app.received);
+      expect(all.length).toBe(1897);
+      expect(all.subarray(0, 1870).every((x) => x === 1) && all.subarray(1870).every((x) => x === 2)).toBe(true); // 순서 보존
 
       app.ackOne(); // 마지막 ack → 이제 CLSE.
       await wait(60);
