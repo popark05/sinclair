@@ -50,12 +50,20 @@ export interface SpoolReporter extends Reporter {
   readonly stats: Readonly<{ written: number; acked: number; sent: number; accepted: number; duplicate: number; rejected: number; retries: number }>;
   flush(): Promise<void>;
   close(): Promise<void>;
-  readonly files: { events: string; ack: string; meta: string };
+  readonly files: { events: string; ack: string; meta: string; lock: string };
   /** 러너가 flush 를 기다려야 하는 시간. 재시도 예산보다 짧으면 러너가 먼저 끊어 예산이 무의미해진다 */
   readonly flushBudgetMs: number;
 }
 
-export const spoolFiles = (dir: string, runId: string) => ({ events: path.join(dir, `${runId}.jsonl`), ack: path.join(dir, `${runId}.ack`), meta: path.join(dir, `${runId}.meta.json`) });
+export const spoolFiles = (dir: string, runId: string) => ({ events: path.join(dir, `${runId}.jsonl`), ack: path.join(dir, `${runId}.ack`), meta: path.join(dir, `${runId}.meta.json`), lock: path.join(dir, `${runId}.lock`) });
+
+/** lock 파일의 pid 가 살아 있으면 다른 프로세스(같은 머신의 다른 데몬·run)가 이 스풀을 쓰고 있는 것이다 */
+export function spoolOwnerAlive(lockFile: string): boolean {
+  let pid: number;
+  try { pid = Number(fs.readFileSync(lockFile, 'utf8').trim()); } catch { return false; }
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
 
 export function readAck(ackFile: string): number {
   try { const n = Number(fs.readFileSync(ackFile, 'utf8').trim()); return Number.isInteger(n) && n >= 0 ? n : 0; } catch { return 0; }
@@ -149,6 +157,7 @@ export function createSpoolReporter(options: SpoolOptions): SpoolReporter {
   const files = spoolFiles(options.dir, options.runId);
   fs.mkdirSync(options.dir, { recursive: true });
   const meta: SpoolMeta = { runId: options.runId, controlPlane: options.controlPlane, ...(options.cycleId ? { cycleId: options.cycleId } : {}), ...(options.targetId ? { targetId: options.targetId } : {}), createdAt: new Date().toISOString() };
+  fs.writeFileSync(files.lock, String(process.pid)); // 먼저 잠근다: 열려 있는 동안 resume 이 건드리지 못하게
   fs.writeFileSync(files.meta, JSON.stringify(meta));
   if (!fs.existsSync(files.events)) fs.writeFileSync(files.events, '');
 
@@ -197,8 +206,9 @@ export function createSpoolReporter(options: SpoolOptions): SpoolReporter {
       if (timer) { clearTimeout(timer); timer = undefined; }
       aborter.abort();
       await draining?.catch(() => undefined);
-      // 파일 기준으로 전부 ack 됐을 때만 스풀을 치운다. 남아 있으면 resume 의 몫
+      // 파일 기준으로 전부 ack 됐을 때만 스풀을 치운다. 남아 있으면 resume 의 몫(lock 은 항상 푼다)
       if (readAck(files.ack) >= countLines(files.events)) for (const f of Object.values(files)) fs.rmSync(f, { force: true });
+      else fs.rmSync(files.lock, { force: true });
     },
   };
 }
@@ -212,6 +222,7 @@ export async function resumeSpool(opts: IngestRetryOptions & { dir: string; cont
   for (const name of names.filter((n) => n.endsWith('.jsonl')).sort()) {
     const runId = name.slice(0, -'.jsonl'.length);
     const files = spoolFiles(opts.dir, runId);
+    if (spoolOwnerAlive(files.lock)) { log(`${runId}: 다른 프로세스가 쓰는 중(lock), 건너뜀`); continue; }
     let meta: SpoolMeta | undefined;
     try { meta = JSON.parse(fs.readFileSync(files.meta, 'utf8')) as SpoolMeta; } catch { meta = undefined; }
     const controlPlane = opts.controlPlane ?? meta?.controlPlane;
@@ -220,7 +231,7 @@ export async function resumeSpool(opts: IngestRetryOptions & { dir: string; cont
     const before = stats.acked;
     const result = await drainSpool({ files, controlPlane, stats, ...retryOptions(opts), onWarning: (w) => warnings.push(w) });
     log(`${runId}: ${result.complete ? '완료' : '미완'} (ack ${before} → ${stats.acked}, 전송 ${stats.sent}, accepted ${stats.accepted}, duplicate ${stats.duplicate}, retries ${stats.retries})`);
-    if (result.complete) { resumed.push(runId); for (const f of Object.values(files)) fs.rmSync(f, { force: true }); }
+    if (result.complete) { resumed.push(runId); for (const f of Object.values(files)) fs.rmSync(f, { force: true }); } // 죽은 프로세스의 lock 도 함께
     else pending.push(runId);
   }
   return { resumed, pending, warnings };

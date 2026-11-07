@@ -27,7 +27,23 @@ JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ANDROID_
 
 Gradle 9.5 + AGP 9.3 (래퍼 포함). 처음 한 번은 `aapt2` 등을 받기 위해 네트워크가 필요하고, 그 뒤로는 `--offline` 으로 빌드된다. 사내망이면 JVM 트러스트스토어가 사내 CA 를 신뢰해야 한다(Android Studio 의 JBR 은 보통 된다).
 
-## 설치·활성화·확인 (수동, 티켓 04 에서 자동화)
+## 릴리스 (runner-agent 가 내려받는 산출물)
+
+runner-agent 는 헬퍼 APK 를 `--helper-apk` → `SINCLAIR_AGENT_HELPER_APK` → 번들(`apps/runner-agent/resources/helper/`) → 리포 디버그 빌드 → `SINCLAIR_AGENT_HELPER_URL` 다운로드 순으로 찾는다. 다운로드는 sha256 사이드카가 있어야만 받는다(없으면 거부). 사내망 SSL 인터셉션에서는 `NODE_EXTRA_CA_CERTS` 를 그대로 따른다.
+
+1. `versionName` 을 올리고(`app/build.gradle.kts`) `./gradlew assembleDebug` (또는 서명된 release 빌드).
+2. 파일 이름과 체크섬:
+   ```bash
+   V=0.1.0   # versionName 과 같게
+   cp app/build/outputs/apk/debug/app-debug.apk sinclair-helper-$V.apk
+   shasum -a 256 sinclair-helper-$V.apk > sinclair-helper-$V.apk.sha256   # "<hex>  <파일명>" 한 줄
+   ```
+3. 두 파일을 릴리스 저장소(GitLab Release 또는 사내 아티팩트 서버)의 한 디렉터리에 올린다. 에이전트의 `SINCLAIR_AGENT_HELPER_URL` 은 그 디렉터리 URL 이다(파일명은 에이전트가 붙인다).
+4. 에이전트의 고정 버전 `HELPER_APK_VERSION`(`apps/runner-agent/src/helper-apk.ts`)을 같은 값으로 올린다. 에이전트는 자기 버전의 파일만 찾는다.
+
+캐시: `OS 데이터 디렉터리/sinclair/cache/helper/sinclair-helper-<V>.apk` + `.sha256`. 둘이 맞으면 네트워크 없이 쓴다.
+
+## 설치·활성화·확인 (수동; 에이전트가 자동으로 한다)
 
 ```bash
 ADB=$HOME/Library/Android/sdk/platform-tools/adb

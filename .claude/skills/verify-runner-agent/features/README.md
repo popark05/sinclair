@@ -27,3 +27,4 @@
 - `run-once.md` — run 하나 실행: 등록, 실행, 보고, 종료 코드.
 - `spool-resume.md` — 서버 없이 run → 스풀 → resume.
 - `daemon.md` — 데몬 2개가 Run 을 클레임해 Cycle 을 채움, SIGTERM 종료.
+- `helper-apk.md` — 헬퍼 APK 해석 순서·다운로드 검증·실기기 재설치.

@@ -64,6 +64,27 @@ describe('createSpoolReporter', () => {
     expect(await viewOf(url)).toBe(await directView(RUN));
   });
 
+  it('열려 있는 스풀(lock 의 pid 가 살아 있음)은 resume 이 건너뛰고, 죽은 pid 의 lock 은 무시한다', async () => {
+    const url = await startCp();
+    const r = createSpoolReporter({ dir, runId: 'r1', controlPlane: url, ...fast });
+    r.onEvent(RUN[0]!);
+    expect(fs.readFileSync(r.files.lock, 'utf8')).toBe(String(process.pid));
+    const log: string[] = [];
+    const skipped = await resumeSpool({ dir, maxRetryMs: 500, backoffMs: 5, log: (l) => log.push(l) });
+    expect(skipped).toEqual({ resumed: [], pending: [], warnings: [] });
+    expect(log[0]).toMatch(/r1: 다른 프로세스가 쓰는 중/);
+    await r.flush(); await r.close();
+    expect(fs.readdirSync(dir)).toEqual([]);
+
+    // 죽은 프로세스가 남긴 lock: 아주 큰 pid 는 없다고 본다
+    const files = spoolFiles(dir, 'r2');
+    fs.writeFileSync(files.events, JSON.stringify({ ...RUN[0]!, runId: 'r2' }) + '\n');
+    fs.writeFileSync(files.meta, JSON.stringify({ runId: 'r2', controlPlane: url, createdAt: at(0) }));
+    fs.writeFileSync(files.lock, '999999');
+    expect((await resumeSpool({ dir, maxRetryMs: 500, backoffMs: 5 })).resumed).toEqual(['r2']);
+    expect(fs.readdirSync(dir)).toEqual([]);
+  });
+
   it('meta 에 control-plane 주소가 남는다', async () => {
     const dead = await startCp(); await cp!.close(); cp = undefined;
     const r = createSpoolReporter({ dir, runId: 'r1', controlPlane: dead, cycleId: 'c1', targetId: 'android', ...fast });
@@ -98,6 +119,7 @@ describe('createSpoolReporter', () => {
     for (const e of RUN) r.onEvent(e);
     await r.flush(); // close 없이 프로세스가 죽은 상황(close 는 다 보낸 스풀을 치운다)
     writeAck(r.files.ack, 2); // 전송 중 죽어 ack 가 못 따라온 상황
+    fs.writeFileSync(r.files.lock, '999999'); // 죽은 프로세스의 lock
     const result = await resumeSpool({ dir, maxRetryMs: 500, backoffMs: 5 });
     expect(result.resumed).toEqual(['r1']);
     expect(await viewOf(url)).toBe(await directView(RUN));

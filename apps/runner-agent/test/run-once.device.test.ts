@@ -21,7 +21,7 @@ describe.skipIf(!target)('실기기 sinclair-agent run', () => {
       await fetch(`${url}/cycles`, { method: 'POST', body: JSON.stringify({ cycleId: 'device', build: 'b', targets: ['android'] }) });
       const code = await runOnce({
         controlPlane: url, cycle: 'device', target: 'android', engine: 'mobile', app: 'com.android.settings',
-        tests: path.resolve(import.meta.dirname, 'fixtures/device'), spool: path.resolve(import.meta.dirname, '../../../.e2e/agent-spool'), ...(target !== '1' ? { device: target! } : {}),
+        tests: path.resolve(import.meta.dirname, 'fixtures/device'), spool: path.resolve(import.meta.dirname, '../../../.e2e/agent-spool'), helperCache: path.resolve(import.meta.dirname, '../../../.e2e/helper-cache'), ...(target !== '1' ? { device: target! } : {}),
       }, { log: (l) => logs.push(l) });
       const view = (await (await fetch(`${url}/cycles/device`)).json()) as CycleView & { runs: Array<{ runId: string }> };
       const runView = await (await fetch(`${url}/runs/${view.runs[0]!.runId}`)).json() as { deviceId?: string; agentId?: string; attempts: Array<{ testId?: string; result?: string; steps: unknown[] }> };

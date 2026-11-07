@@ -24,6 +24,15 @@ export interface RunArgs {
   agent?: string;
   /** 스풀 디렉터리(이벤트를 먼저 쓰는 곳). 기본 OS 데이터 디렉터리/sinclair/spool */
   spool: string;
+  /** mobile: 헬퍼 APK 파일. 없으면 env → 번들 → 리포 빌드 → 릴리스 다운로드 순으로 찾는다 */
+  helperApk?: string;
+  /** 헬퍼 APK 다운로드 캐시. 기본 OS 데이터 디렉터리/sinclair/cache/helper */
+  helperCache: string;
+}
+
+/** OS 데이터 디렉터리/sinclair/cache/helper */
+export function defaultHelperCacheDir(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): string {
+  return path.join(path.dirname(defaultSpoolDir(env, platform)), 'cache', 'helper');
 }
 
 /** OS 관례의 사용자 데이터 디렉터리 아래 sinclair/spool (control-plane 의 defaultDataDir 와 같은 규칙) */
@@ -88,6 +97,8 @@ const OPTIONS = [
   { name: 'timeout', key: 'timeoutMs', env: 'SINCLAIR_AGENT_TIMEOUT', required: false, help: 'locator 액션 기한 ms (기본 10000)' },
   { name: 'agent', key: 'agent', env: 'SINCLAIR_AGENT_ID', required: false, help: '이 노드의 id (기본 호스트명; 한 머신에 에이전트를 여럿 띄우면 서로 다르게 줘야 lease 가 구분된다). run.started.agentId' },
   { name: 'spool', key: 'spool', env: 'SINCLAIR_AGENT_SPOOL', required: false, help: '스풀 디렉터리 (기본 OS 데이터 디렉터리/sinclair/spool). 서버가 없어도 이벤트가 여기 남는다' },
+  { name: 'helper-apk', key: 'helperApk', env: 'SINCLAIR_AGENT_HELPER_APK', required: false, help: 'mobile: 헬퍼 APK 파일. 없으면 번들 → 리포 빌드 → SINCLAIR_AGENT_HELPER_URL 다운로드(sha256 검증) 순' },
+  { name: 'helper-cache', key: 'helperCache', env: 'SINCLAIR_AGENT_HELPER_CACHE', required: false, help: '헬퍼 APK 다운로드 캐시 (기본 OS 데이터 디렉터리/sinclair/cache/helper)' },
 ] as const;
 
 export const RUN_HELP = `사용법: sinclair-agent run [옵션]
@@ -133,7 +144,7 @@ export function parseRunArgs(argv: string[], env: NodeJS.ProcessEnv, platform: N
   if (!(ENGINES as readonly string[]).includes(engine)) throw new AgentConfigError(`--engine 은 ${ENGINES.join('|')} 중 하나여야 함: ${engine}`);
   const { timeoutMs: timeoutText, ...rest } = out;
   const timeoutMs = positiveInt('timeout', timeoutText);
-  return { ...rest, engine, spool: out.spool ?? defaultSpoolDir(env, platform), ...(timeoutMs !== undefined ? { timeoutMs } : {}) } as unknown as RunArgs;
+  return { ...rest, engine, spool: out.spool ?? defaultSpoolDir(env, platform), helperCache: out.helperCache ?? defaultHelperCacheDir(env, platform), ...(timeoutMs !== undefined ? { timeoutMs } : {}) } as unknown as RunArgs;
 }
 
 /** daemon 옵션: run 의 표에서 cycle/target/run 을 빼고 targets/poll 을 더한다 */
@@ -141,7 +152,7 @@ const DAEMON_OPTIONS: readonly OptionSpec[] = [
   OPTIONS.find((o) => o.name === 'control-plane')!,
   { name: 'targets', key: 'targets', env: 'SINCLAIR_AGENT_TARGETS', required: true, help: '이 노드가 맡는 타깃 id 들, 쉼표 구분' },
   { ...OPTIONS.find((o) => o.name === 'tests')!, help: 'Cycle 에 suite 가 없을 때 쓸 기본 테스트 디렉터리' },
-  ...OPTIONS.filter((o) => ['engine', 'device', 'app', 'artifacts', 'timeout', 'agent', 'spool'].includes(o.name)),
+  ...OPTIONS.filter((o) => ['engine', 'device', 'app', 'artifacts', 'timeout', 'agent', 'spool', 'helper-apk', 'helper-cache'].includes(o.name)),
   { name: 'poll', key: 'pollMs', env: 'SINCLAIR_AGENT_POLL', required: false, help: '대기 중인 Run 이 없을 때 다시 묻는 간격 ms (기본 5000, 최소 100)' },
 ];
 
@@ -168,5 +179,5 @@ export function parseDaemonArgs(argv: string[], env: NodeJS.ProcessEnv, platform
   const timeoutMs = positiveInt('timeout', out.timeoutMs);
   const pollMs = positiveInt('poll', out.pollMs, 100); // 100ms 미만은 서버를 두드리기만 한다
   const { targets: _t, pollMs: _p, timeoutMs: _m, ...rest } = out;
-  return { ...rest, targets, engine, spool: out.spool ?? defaultSpoolDir(env, platform), ...(timeoutMs !== undefined ? { timeoutMs } : {}), ...(pollMs !== undefined ? { pollMs } : {}) } as unknown as DaemonCliArgs;
+  return { ...rest, targets, engine, spool: out.spool ?? defaultSpoolDir(env, platform), helperCache: out.helperCache ?? defaultHelperCacheDir(env, platform), ...(timeoutMs !== undefined ? { timeoutMs } : {}), ...(pollMs !== undefined ? { pollMs } : {}) } as unknown as DaemonCliArgs;
 }

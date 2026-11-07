@@ -31,8 +31,8 @@ describe('runDaemon', () => {
     await post('/cycles/c1/runs', { targetId: 'android' });
     await post('/cycles/c1/runs', { targetId: 'ios' });
     const [a, b] = await Promise.all([
-      runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, agent: 'node-a', pollMs: 10 }, deps({ maxRuns: 1 })),
-      runDaemon({ controlPlane: url, targets: ['ios'], tests: fixtures, engine: 'fake', spool, agent: 'node-b', pollMs: 10 }, deps({ maxRuns: 1 })),
+      runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'node-a', pollMs: 10 }, deps({ maxRuns: 1 })),
+      runDaemon({ controlPlane: url, targets: ['ios'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'node-b', pollMs: 10 }, deps({ maxRuns: 1 })),
     ]);
     expect(a.runs).toEqual([{ runId: expect.any(String), targetId: 'android', exitCode: EXIT.ok }]);
     expect(b.runs).toEqual([{ runId: expect.any(String), targetId: 'ios', exitCode: EXIT.ok }]);
@@ -48,7 +48,7 @@ describe('runDaemon', () => {
     await post('/cycles/c2/runs', { targetId: 'android', runId: 'r-first' });
     await post('/cycles/c2/runs', { targetId: 'android', runId: 'r-second' });
     const aborter = new AbortController();
-    const p = runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, agent: 'n', pollMs: 10, timeoutMs: 100 }, deps({ signal: aborter.signal }));
+    const p = runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'n', pollMs: 10, timeoutMs: 100 }, deps({ signal: aborter.signal }));
     await until(async () => (await view('c2')).runs.every((r) => r.state === 'finished'));
     await new Promise((r) => setTimeout(r, 60)); // 폴링(20ms 로 눌림) 한두 번 돌 시간
     aborter.abort();
@@ -70,18 +70,18 @@ describe('runDaemon', () => {
       const dead = new AbortController();
       let release!: () => void;
       const deadFetch: typeof fetch = (input, init) => (String(input).endsWith('/heartbeat') ? Promise.reject(new Error('네트워크 끊김')) : fetch(input, init));
-      const stuck = runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, agent: 'dead-agent', pollMs: 10 }, deps({
+      const stuck = runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'dead-agent', pollMs: 10 }, deps({
         signal: dead.signal, fetch: deadFetch,
         createEngine: () => new Promise((_, reject) => { release = () => reject(new Error('에이전트 종료')); }), // abort 때 풀어 준다
       }));
       await until(async () => !!(await view('c3')).runs[0]!.lease);
       expect((await view('c3')).runs[0]!.lease?.agentId).toBe('dead-agent');
       // 만료 전에는 못 가져간다: 짧은 TTL 안에서 몇 번 폴링하고 신호로 멈춘다
-      const early = await runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, agent: 'live-agent', pollMs: 10 }, deps({ maxRuns: 1, signal: AbortSignal.timeout(150) }));
+      const early = await runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'live-agent', pollMs: 10 }, deps({ maxRuns: 1, signal: AbortSignal.timeout(150) }));
       expect(early.runs).toEqual([]);
       expect(logs.filter((l) => /클레임 \(/.test(l))).toHaveLength(1); // dead-agent 의 클레임뿐
       now += 3_000; // 만료
-      const late = await runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, agent: 'live-agent', pollMs: 10 }, deps({ maxRuns: 1 }));
+      const late = await runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'live-agent', pollMs: 10 }, deps({ maxRuns: 1 }));
       expect(late.runs).toEqual([{ runId: 'r-lease', targetId: 'android', exitCode: EXIT.ok }]);
       expect((await view('c3'))).toMatchObject({ state: 'finished', verdict: 'verified', runs: [{ lease: { agentId: 'live-agent' } }] });
       // 죽은 에이전트를 깨우면 엔진 실패 → infra-failed 보고 시도(blocked) 로 끝나고 루프를 나온다
@@ -98,7 +98,7 @@ describe('runDaemon', () => {
 
 describe('parseDaemonArgs', () => {
   it('필수값·타깃 목록·기본값, 잘못된 값', () => {
-    expect(parseDaemonArgs(['--control-plane', 'http://x', '--targets', 'android, ios', '--tests', 'd', '--poll', '100'], { HOME: '/h' }, 'linux')).toEqual({ controlPlane: 'http://x', targets: ['android', 'ios'], tests: 'd', engine: 'mobile', spool: '/h/.local/share/sinclair/spool', pollMs: 100 });
+    expect(parseDaemonArgs(['--control-plane', 'http://x', '--targets', 'android, ios', '--tests', 'd', '--poll', '100'], { HOME: '/h' }, 'linux')).toEqual({ controlPlane: 'http://x', targets: ['android', 'ios'], tests: 'd', engine: 'mobile', spool: '/h/.local/share/sinclair/spool', helperCache: '/h/.local/share/sinclair/cache/helper', pollMs: 100 });
     expect(() => parseDaemonArgs(['--control-plane', 'http://x', '--targets', 'a', '--tests', 'd', '--poll', '50'], {})).toThrow(/100 이상/);
     expect(() => parseDaemonArgs(['--control-plane', 'http://x', '--tests', 'd'], {})).toThrow(/targets/);
     expect(() => parseDaemonArgs(['--control-plane', 'http://x', '--targets', 'a', '--tests', 'd', '--poll', 'x'], {})).toThrow(AgentConfigError);

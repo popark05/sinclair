@@ -23,6 +23,10 @@ const HELPER_START_TIMEOUT_MS = 8_000;
 const HELPER_POLL_MS = 250;
 /** 온보딩이 실패한 뒤 같은 기기에 다시 시도하기까지의 간격. 영구 실패(저장소 부족 등)로 호출마다 8초씩 막히는 것을 막는다. */
 const HELPER_RETRY_BACKOFF_MS = 10_000;
+/** 막 설치한 직후에는 접근성 관리자가 아직 모르는 서비스를 enabled 목록에서 지워 버려 첫 `settings put` 이 무시된다(실기기 SM-N981N 에서 확인).
+ *  1초 간격으로 몇 번 다시 쓴다. */
+const ACTIVATE_RETRY_MS = 1_000;
+const ACTIVATE_RETRIES = 5;
 /** 리포 안에서 빌드한 헬퍼 APK(android-helper README 의 빌드 절차). 배포 시에는 helperApkPath 로 넘긴다. */
 const DEFAULT_HELPER_APK = fileURLToPath(new URL('../../android-helper/app/build/outputs/apk/debug/app-debug.apk', import.meta.url));
 
@@ -248,13 +252,18 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
       }
 
       // Secure Folder 가 있는 Samsung 은 --user 0 이 없으면 다른 사용자에 쓰여 서비스가 켜지지 않는다.
-      const current = (await sh('settings get --user 0 secure enabled_accessibility_services')).trim();
-      if (!current.includes(HELPER_SERVICE)) {
-        const list = current && current !== 'null' ? `${current}:${HELPER_SERVICE}` : HELPER_SERVICE;
-        await sh(`settings put --user 0 secure enabled_accessibility_services ${shellQuote(list)}`);
+      let activated = false;
+      for (let attempt = 0; attempt < ACTIVATE_RETRIES && !activated; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, ACTIVATE_RETRY_MS));
+        const current = (await sh('settings get --user 0 secure enabled_accessibility_services')).trim();
+        if (!current.includes(HELPER_SERVICE)) {
+          const list = current && current !== 'null' ? `${current}:${HELPER_SERVICE}` : HELPER_SERVICE;
+          await sh(`settings put --user 0 secure enabled_accessibility_services ${shellQuote(list)}`);
+        }
+        await sh('settings put --user 0 secure accessibility_enabled 1');
+        activated = (await sh('settings get --user 0 secure enabled_accessibility_services')).includes(HELPER_SERVICE);
       }
-      await sh('settings put --user 0 secure accessibility_enabled 1');
-      if (!(await sh('settings get --user 0 secure enabled_accessibility_services')).includes(HELPER_SERVICE)) {
+      if (!activated) {
         return fail('disabled', '접근성 서비스 활성화 설정이 적용되지 않음(settings put --user 0 거부). 기기의 접근성 설정에서 Sinclair Helper 를 켜세요');
       }
 

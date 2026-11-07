@@ -67,6 +67,7 @@ Plan(`intent/`) → Design(`specs/`, `/architect`로 타입 먼저) → Build(`t
 - **USB 유휴 읽기를 짧은 timeout 으로 폴링하지 않는다.** node-usb 3(nusb) 는 timeout 취소 순간 도착한 패킷을 버려 스트림이 어긋난다(헬퍼 응답 ~1초와 1초 폴링이 겹쳐 재현). 유휴 timeout 은 60초, 종료는 `UsbTransport.shutdown` 의 wake OPEN 으로 끝낸다. 보류 읽기가 있으면 release/close 가 native borrow 오류로 실패한다. 2026-11-07.
 - **일부 adbd 는 헤더와 본문을 한 USB 전송으로 보낸다.** 헤더 24바이트만 요청하면 node-usb 가 잘라낸 나머지가 사라진다. 헤더 읽기는 패킷 하나를 통째로 요청하고 초과분은 `pending` 으로 넘긴다(`UsbTransport.readExact`). 2026-11-07.
 - **실기기 테스트에서 `settings put` 은 `--user 0`.** Secure Folder 가 있는 Samsung 은 기본 사용자가 150 으로 잡혀 설정이 엉뚱한 사용자에 쓰인다.
+- **막 설치한 접근성 서비스는 첫 `settings put … enabled_accessibility_services` 가 무시된다.** 접근성 관리자가 아직 모르는 컴포넌트를 목록에서 지운다(SM-N981N, Android 13). 1초 간격으로 몇 번 다시 쓴다(`android-backend.ts` `ACTIVATE_RETRIES`). 2026-11-08.
 
 ## 참고 프로젝트에서 가져올 것 (2026-11-07 분석 요약)
 

@@ -31,7 +31,7 @@ const view = async (cycleId = 'c1') => (await (await fetch(`${url}/cycles/${cycl
 describe('runOnce', () => {
   it('Run 을 발급받아 테스트를 돌리고 보고하면 Cycle 이 finished/verified 이고 종료 코드 0', async () => {
     await createCycle();
-    const code = await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake', spool }, deps());
+    const code = await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache') }, deps());
     expect(code).toBe(EXIT.ok);
     const v = await view();
     expect(v).toMatchObject({ state: 'finished', verdict: 'verified' });
@@ -42,7 +42,7 @@ describe('runOnce', () => {
 
   it('실패한 테스트가 있으면 1, 테스트 파일은 이름순이고 *.sinclair.ts 만 모은다', async () => {
     await createCycle();
-    const code = await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: fixtures, engine: 'fake', timeoutMs: 200, spool }, deps());
+    const code = await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: fixtures, engine: 'fake', timeoutMs: 200, spool, helperCache: path.join(spool, 'helper-cache') }, deps());
     expect(code).toBe(EXIT.testsFailed);
     const v = await view();
     expect(Object.keys(v.matrix)).toEqual(['없는 문구를 찾다 실패한다', '로그인 버튼을 누르면 환영 문구가 보인다']); // failing.sinclair.ts 가 login 보다 앞
@@ -52,17 +52,17 @@ describe('runOnce', () => {
   it('--run 으로 지정한 Run 을 쓰고, 끝난 Cycle 이나 모르는 Cycle 은 설정 오류 3', async () => {
     await createCycle();
     await fetch(`${url}/cycles/c1/runs`, { method: 'POST', body: JSON.stringify({ targetId: 'android', runId: 'r-given' }) });
-    expect(await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake', run: 'r-given', spool }, deps())).toBe(EXIT.ok);
+    expect(await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake', run: 'r-given', spool, helperCache: path.join(spool, 'helper-cache') }, deps())).toBe(EXIT.ok);
     expect((await view()).runs.map((r) => r.runId)).toEqual(['r-given']);
-    expect(await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: fixtures, engine: 'fake', timeoutMs: 200, spool }, deps())).toBe(EXIT.config); // 끝난 Cycle: 409
-    expect(await runOnce({ controlPlane: url, cycle: '없음', target: 'android', tests: fixtures, engine: 'fake', spool }, deps())).toBe(EXIT.config);
+    expect(await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: fixtures, engine: 'fake', timeoutMs: 200, spool, helperCache: path.join(spool, 'helper-cache') }, deps())).toBe(EXIT.config); // 끝난 Cycle: 409
+    expect(await runOnce({ controlPlane: url, cycle: '없음', target: 'android', tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache') }, deps())).toBe(EXIT.config);
     expect(logs.join('\n')).toMatch(/409|이미/);
   });
 
   it('기기 불가(device-unavailable)면 blocked 로 보고하고 2', async () => {
     await createCycle();
     const broken = withDeviceUnavailable(new FakeEngine({ root: LOGIN_SCREEN }));
-    const code = await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake', agent: 'node-7', spool }, { ...deps(), createEngine: async () => ({ engine: broken, dispose: async () => {} }) });
+    const code = await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake', agent: 'node-7', spool, helperCache: path.join(spool, 'helper-cache') }, { ...deps(), createEngine: async () => ({ engine: broken, dispose: async () => {} }) });
     expect(code).toBe(EXIT.blocked);
     const v = await view();
     expect(v).toMatchObject({ verdict: 'blocked', runs: [{ state: 'infra-failed' }] });
@@ -72,7 +72,7 @@ describe('runOnce', () => {
 
   it('엔진을 못 만들면(기기 없음) run.started + infra-failed 만 보고하고 2 — Cycle 에 blocked 가 드러난다', async () => {
     await createCycle();
-    const code = await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake', spool }, { ...deps(), createEngine: async () => { throw new Error('꽂힌 Android 기기가 없음'); } });
+    const code = await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache') }, { ...deps(), createEngine: async () => { throw new Error('꽂힌 Android 기기가 없음'); } });
     expect(code).toBe(EXIT.blocked);
     expect(await view()).toMatchObject({ state: 'finished', verdict: 'blocked', runs: [{ state: 'infra-failed' }] });
     expect(logs.join('\n')).toMatch(/기기 불가.*꽂힌 Android 기기가 없음/);
@@ -81,26 +81,26 @@ describe('runOnce', () => {
   it('--run 을 주고 끝난 Cycle 에 실행하면 재사용이 아니라 설정 오류 3 이고 이벤트를 보내지 않는다', async () => {
     await createCycle();
     await fetch(`${url}/cycles/c1/runs`, { method: 'POST', body: JSON.stringify({ targetId: 'android', runId: 'r-done' }) });
-    expect(await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake', run: 'r-done', spool }, deps())).toBe(EXIT.ok);
+    expect(await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake', run: 'r-done', spool, helperCache: path.join(spool, 'helper-cache') }, deps())).toBe(EXIT.ok);
     const before = await (await fetch(`${url}/runs/r-done`)).text();
-    expect(await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake', run: 'r-done', spool }, deps())).toBe(EXIT.config);
+    expect(await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake', run: 'r-done', spool, helperCache: path.join(spool, 'helper-cache') }, deps())).toBe(EXIT.config);
     expect(logs.join('\n')).toMatch(/cycle-finished/);
     expect(await (await fetch(`${url}/runs/r-done`)).text()).toBe(before);
   });
 
   it('--run 이 있고 서버에 닿지 않으면 등록 없이 진행해 스풀에 남긴다(서버가 거부하면 3)', async () => {
     await cp.close();
-    const code = await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake', run: 'r-offline', spool }, { ...deps(), createReporter: (a, r) => createSpoolReporterForTest(a, r) });
+    const code = await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake', run: 'r-offline', spool, helperCache: path.join(spool, 'helper-cache') }, { ...deps(), createReporter: (a, r) => createSpoolReporterForTest(a, r) });
     expect(code).toBe(EXIT.ok);
     expect(logs.join('\n')).toMatch(/닿지 않아 지정된 run r-offline 으로 진행/);
     expect(fs.readdirSync(spool).sort()).toEqual(['r-offline.jsonl', 'r-offline.meta.json']);
     cp = await startControlPlane(MEMORY); // afterEach 의 close 용
-    expect(await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake', spool }, deps())).toBe(EXIT.config); // --run 없이는 등록이 필요하다
+    expect(await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache') }, deps())).toBe(EXIT.config); // --run 없이는 등록이 필요하다
   });
 
   it('테스트 디렉터리가 없거나 비어 있으면 설정 오류 3 이고 Run 을 등록하지 않는다', async () => {
     await createCycle();
-    expect(await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, '없음'), engine: 'fake', spool }, deps())).toBe(EXIT.config);
+    expect(await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, '없음'), engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache') }, deps())).toBe(EXIT.config);
     expect((await view()).runs).toEqual([]);
   });
 
@@ -113,7 +113,7 @@ describe('runOnce', () => {
     await cp.close();
     // 등록은 끝났고 실행 중 서버가 없는 상황 = 데몬이 클레임한 Run 을 executeRun 으로 돌리는 경로
     const files = await collectTestFiles(path.join(fixtures, 'only-login'));
-    const code = await executeRun({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake', spool }, { runId: 'r-spool', cycleId: 'c1', targetId: 'android' }, files, {
+    const code = await executeRun({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache') }, { runId: 'r-spool', cycleId: 'c1', targetId: 'android' }, files, {
       ...deps(), createReporter: (a, r) => createSpoolReporterForTest(a, r),
     });
     expect(code).toBe(EXIT.ok); // 테스트는 통과했고 전송만 못 했다

@@ -6,6 +6,7 @@ import { HOME_SCREEN, LOGIN_SCREEN } from '@sinclair/protocol/testing/login-scen
 import { createAndroidBackend, createDeviceServer } from '@sinclair/device-layer';
 import { createMobileEngine, rpcOverDispatcher } from '@sinclair/engine-mobile';
 import type { RunArgs } from './args.ts';
+import { resolveHelperApk } from './helper-apk.ts';
 // 기기 준비(깨우기)·정리(앱 종료, 홈) 시퀀스는 packages/runner/test/runner.device.test.ts 와 같다. device-layer 에 prepare/cleanup 헬퍼로 올리는 것은 05(헬퍼 APK) 에서.
 
 export interface EngineHandle {
@@ -22,15 +23,27 @@ const APPROVAL_WAIT_MS = 60_000;
 /** 헬퍼 온보딩(설치·접근성 활성화) 대기: 250ms × 40 = 10초 */
 const PENDING_POLL_MS = 250;
 const PENDING_POLLS = 40;
+/** 기기 목록 재시도: 다른 프로세스가 USB 인터페이스를 막 놓았거나 기기가 방금 꽂힌 직후에는 목록이 잠깐 비어 있다. 500ms × 6 = 3초 */
+const LIST_RETRY_MS = 500;
+const LIST_RETRIES = 6;
 
-export async function createEngine(args: RunArgs, log: (line: string) => void): Promise<EngineHandle> {
+/** 테스트용: APK 해석 단계의 번들·리포 빌드 위치를 바꿔 끼운다 */
+export interface EngineOverrides { bundledDir?: string; repoBuild?: string }
+
+export async function createEngine(args: RunArgs, log: (line: string) => void, overrides: EngineOverrides = {}): Promise<EngineHandle> {
   if (args.engine === 'fake') {
     const engine = new FakeEngine({ root: LOGIN_SCREEN, onTap: (n) => (n.name === '로그인' ? HOME_SCREEN : undefined) });
     return { engine, dispose: () => engine.dispose(), deviceId: 'fake', deviceLabel: 'fake' };
   }
-  const backend = createAndroidBackend({ dadb: { includeEmulators: false, authTimeoutMs: APPROVAL_WAIT_MS }, probeWaitMs: APPROVAL_WAIT_MS });
+  // USB 를 건드리기 전에 APK 부터: 없으면 기기 상태와 무관하게 "헬퍼 APK 없음" 으로 빨리 실패한다
+  const helperApk = await resolveHelperApk({ ...(args.helperApk ? { flag: args.helperApk } : {}), env: process.env, cacheDir: args.helperCache, log, ...overrides });
+  const backend = createAndroidBackend({ dadb: { includeEmulators: false, authTimeoutMs: APPROVAL_WAIT_MS }, probeWaitMs: APPROVAL_WAIT_MS, helperApkPath: helperApk.path });
   try {
-    const devices = await backend.listDevices();
+    let devices = await backend.listDevices();
+    for (let i = 0; i < LIST_RETRIES && !devices.some((d) => (args.device ? d.id === args.device : true)); i++) {
+      await new Promise((r) => setTimeout(r, LIST_RETRY_MS));
+      devices = await backend.listDevices();
+    }
     const deviceId = args.device ?? devices[0]?.id;
     if (!deviceId) throw new Error('꽂힌 Android 기기가 없음');
     if (!devices.some((d) => d.id === deviceId)) throw new Error(`기기 ${deviceId} 가 목록에 없음(${devices.map((d) => d.id).join(', ') || '없음'})`);
