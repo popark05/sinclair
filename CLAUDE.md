@@ -83,6 +83,7 @@ Plan(`intent/`) → Design(`specs/`, `/architect`로 타입 먼저) → Build(`t
 - 검증 스킬 2개 추가: `.claude/skills/verify-device-layer`(JSON-RPC 서버를 페이크 백엔드로 띄워 HTTP 로 구동, 증거는 `.e2e/verify-device-layer/`)와 `.claude/skills/verify-rpc-serialization`(`rpc.ts` 직렬화의 제한 범위 전수 검사, `packages/device-layer/test/rpc-serialization.exhaustive.test.ts`). `rpc.ts` 를 바꾸면 후자의 sync commit 을 갱신한다.
 - 결정: `device.io.swipe` 파라미터 키는 `fromX/fromY/toX/toY` camelCase (`durationMs` 와 같은 규칙).
 - android-backend 티켓 01~04 완료(`.scratch/android-backend/`): direct ADB 이식 + AndroidBackend(devices.list, shell 경로 입력·앱·스크린샷), 접근성 헬퍼 APK(`packages/device-layer/android-helper`, `/ping` `/dump`), 헬퍼 온보딩 자동화와 `device.dump.ui`(`device.info.helper` 상태, `-32002`). 발견: Samsung Secure Folder 기기는 `settings put` 에 `--user 0` 필수.
+- 미결: 배포 환경의 헬퍼 APK 확보(`helperApkPath`, EverMock ApkManager 패턴)는 runner-agent 패키징 티켓에서.
 - 다음 티켓 순서: (1) Android 백엔드 실제 구현. EverMock(`../10.development` 리포의 `src/main/adb`)의 direct ADB 레이어를 `packages/device-layer`로 옮기고 접근성 헬퍼 APK와 통신. (2) `packages/runner`의 locator/expect와 엔진 계약 계약 테스트. (3) control-plane Ingest(이벤트 멱등 저장)와 커스텀 Reporter.
 
 ## Agent skills

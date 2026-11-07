@@ -16,3 +16,5 @@
 ## Comments
 
 - 2026-11-07: 완료. 결정: 온보딩은 연결 판정 직후 자동(설치 → `settings put --user 0` → forward → 토큰 → `/ping`), 실패는 `device.info.helper` 상태로만 드러내고 연결 상태에는 영향 없음. `device.dump.ui` 는 미준비면 재온보딩 후 시도, 불가면 `-32002 helperUnavailable`. 실기기 SM-N981N: 온보딩 ready + dump(홈 화면) 통과, adb 로 서비스를 끈 뒤에도 다음 호출에서 자동 재활성화·dump 성공(1.8s). 페이크 테스트 8개(전체 성공, 재설치 안 함, 설치 실패, 설정 거부, 토큰 누락→복구, 끔→켬, RPC -32002).
+- 2026-11-07 리뷰 반영: (1) 온보딩·USB 열거를 기기당/백엔드당 한 번에 한 개로 합쳐 probe 와 dump.ui 가 겹쳐도 설치·터널이 중복되지 않음(테스트 추가). (2) `device.info` 가 ready 를 캐시로만 돌려주지 않고 `/ping` 으로 재검사해, 서비스가 꺼지고 재활성화도 거부되면 dump.ui 없이도 `disabled` 가 드러남(ADR 0003). (3) `HELPER_STATES` 에 `pending` 추가: 온보딩 전/중에는 `helper: {state:'pending'}`, 러너는 ready 외 전부 사용 불가로 본다. (4) 토큰이 다른 값으로 심긴 경우(헬퍼 재시작·다른 세션) 테스트 추가. (5) 영구 실패(설치 실패 등) 뒤 10초 백오프(`helperRetryBackoffMs`). (6) 사라진 기기의 터널 닫기, 첫 dump 실패 원인을 오류 메시지에 포함. 실기기 dump 증거는 `.e2e/device-proof/*-dump-ui.json` 로 저장하도록 테스트 보강.
+- 남은 일(별도 티켓): 배포 환경(runner-agent 패키징)에서는 `DEFAULT_HELPER_APK` 가 리포 상대 경로라 `not-installed` 로 끝난다. EverMock 의 `ApkManager.ensureApk()` 처럼 APK 를 확보하는 경로와 `helperApkPath` 강제를 runner-agent 티켓에서 정한다.

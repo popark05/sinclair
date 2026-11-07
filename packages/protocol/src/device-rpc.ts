@@ -54,9 +54,10 @@ export type DeviceConnectionState = (typeof DEVICE_CONNECTION_STATES)[number];
 
 /**
  * 온디바이스 헬퍼(접근성 서비스) 상태. ready 가 아니면 UI 트리·제스처를 쓸 수 없어 러너는 Run 을 blocked 처리한다.
- * not-installed: APK 없음 / disabled: 설치됐지만 접근성 서비스 꺼짐 / unreachable: 켜졌지만 응답 없음 / ready
+ * pending: 온보딩 진행 중(판정 전) / not-installed: APK 없음·설치 실패 / disabled: 설치됐지만 접근성 서비스 꺼짐 /
+ * unreachable: 켜졌지만 요청 거부 / ready. 필드 자체가 없으면 그 플랫폼에 헬퍼 개념이 없는 것이며 ready 로 취급하지 않는다.
  */
-export const HELPER_STATES = ['not-installed', 'disabled', 'unreachable', 'ready'] as const;
+export const HELPER_STATES = ['pending', 'not-installed', 'disabled', 'unreachable', 'ready'] as const;
 export type HelperState = (typeof HELPER_STATES)[number];
 
 export interface HelperInfo {

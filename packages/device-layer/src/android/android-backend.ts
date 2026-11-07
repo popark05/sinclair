@@ -18,7 +18,10 @@ const AUTH_TIMEOUT_MS = 15_000;
 const LIST_CACHE_MS = 2_000;
 /** 접근성 서비스를 켠 뒤 헬퍼 HTTP 서버가 뜨기까지 기다리는 상한. 실기기에서 보통 1~3초. */
 const HELPER_START_TIMEOUT_MS = 8_000;
+/** /ping 재시도 간격. 서비스 기동(1~3초)을 놓치지 않을 만큼 짧고 기기를 괴롭히지 않을 만큼 길다. */
 const HELPER_POLL_MS = 250;
+/** 온보딩이 실패한 뒤 같은 기기에 다시 시도하기까지의 간격. 영구 실패(저장소 부족 등)로 호출마다 8초씩 막히는 것을 막는다. */
+const HELPER_RETRY_BACKOFF_MS = 10_000;
 /** 리포 안에서 빌드한 헬퍼 APK(android-helper README 의 빌드 절차). 배포 시에는 helperApkPath 로 넘긴다. */
 const DEFAULT_HELPER_APK = fileURLToPath(new URL('../../android-helper/app/build/outputs/apk/debug/app-debug.apk', import.meta.url));
 
@@ -50,6 +53,8 @@ export interface AndroidBackendOptions {
   probeWaitMs?: number;
   /** 기기에 설치할 헬퍼 APK 경로. 기본은 리포 안 디버그 빌드. */
   helperApkPath?: string;
+  /** 온보딩 실패 뒤 재시도 간격(ms). 기본 10초. */
+  helperRetryBackoffMs?: number;
 }
 
 /** 발견한 기기 하나의 연결과 판정 상태. */
@@ -62,6 +67,10 @@ interface TrackedDevice {
   probe?: Promise<void> | undefined;
   helper?: HelperInfo | undefined;
   session?: HelperSession | undefined;
+  /** 진행 중인 온보딩(중복 실행 방지: probe 와 dumpUi 가 동시에 부를 수 있다). */
+  onboarding?: Promise<void> | undefined;
+  /** 마지막 온보딩 실패 시각(백오프 기준). */
+  helperFailedAt?: number | undefined;
 }
 
 export interface AndroidBackend extends DeviceBackend {
@@ -77,7 +86,10 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
   const usbBackendOption = options.usbBackend ? { usbBackend: options.usbBackend } : {};
   const listCacheMs = options.listCacheMs ?? LIST_CACHE_MS;
   const probeWaitMs = options.probeWaitMs ?? FIRST_PROBE_WAIT_MS;
+  const helperRetryBackoffMs = options.helperRetryBackoffMs ?? HELPER_RETRY_BACKOFF_MS;
   let lastList: { at: number; devices: DeviceInfo[] } | undefined;
+  /** 진행 중인 USB 열거(동시 listDevices/dumpUi 가 열거를 겹치지 않게). */
+  let refreshing: Promise<DeviceInfo[]> | undefined;
 
   function classify(entry: TrackedDevice, error: unknown): void {
     const message = error instanceof Error ? error.message : String(error);
@@ -108,7 +120,7 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
           entry.detail = undefined;
         })
         // 연결 판정 직후 헬퍼 온보딩. 실패는 helper 상태로 드러내고 연결 상태에는 영향을 주지 않는다.
-        .then(() => onboardHelper(entry))
+        .then(() => ensureHelper(entry))
         .catch((e) => classify(entry, e))
         .finally(() => {
           entry.probe = undefined;
@@ -126,8 +138,8 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
         (emulator
           ? Dadb.fromEmulator(Number(emulator[1]) + 1, dadbOptions)
           : Dadb.fromUsb(serial, { ...dadbOptions, ...usbBackendOption }));
-      // 첫 판정 전에는 승인 대기로 본다(곧 연결 결과로 갱신된다).
-      entry = { dadb: created, state: 'unauthorized' };
+      // 첫 판정 전에는 승인 대기로 본다(곧 연결 결과로 갱신된다). 헬퍼는 온보딩 전이므로 pending.
+      entry = { dadb: created, state: 'unauthorized', helper: { state: 'pending' } };
       entries.set(serial, entry);
     }
     return entry;
@@ -145,16 +157,25 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
     };
   }
 
-  async function refresh(): Promise<DeviceInfo[]> {
+  function refresh(): Promise<DeviceInfo[]> {
+    refreshing ??= refreshNow().finally(() => { refreshing = undefined; });
+    return refreshing;
+  }
+
+  async function refreshNow(): Promise<DeviceInfo[]> {
     const found = await Dadb.list({ ...dadbOptions, ...usbBackendOption });
     const serials = new Set(found.map((d) => d.serial));
     for (const [serial, entry] of entries) {
       if (!serials.has(serial)) {
         entries.delete(serial);
+        void entry.session?.close();
         void entry.dadb.close();
       }
     }
-    for (const dadb of found) entryFor(dadb.serial, dadb);
+    for (const dadb of found) {
+      if (entries.has(dadb.serial)) void dadb.close(); // 이미 추적 중이면 새로 만든 핸들은 버린다
+      else entryFor(dadb.serial, dadb);
+    }
 
     const pending: Promise<void>[] = [];
     for (const entry of entries.values()) {
@@ -173,9 +194,31 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
     return devices;
   }
 
+  /** 온보딩을 한 기기당 하나만 돌린다. 진행 중이면 그 결과를 기다리고, 방금 실패했으면 백오프 동안 다시 돌리지 않는다. */
+  function ensureHelper(entry: TrackedDevice): Promise<void> {
+    if (!entry.onboarding && entry.helperFailedAt !== undefined && Date.now() - entry.helperFailedAt < helperRetryBackoffMs) {
+      return Promise.resolve();
+    }
+    entry.onboarding ??= onboardHelper(entry)
+      .then(() => { entry.helperFailedAt = entry.helper?.state === 'ready' ? undefined : Date.now(); })
+      .finally(() => { entry.onboarding = undefined; });
+    return entry.onboarding;
+  }
+
+  /** ready 로 기록된 헬퍼가 지금도 응답하는지 가볍게 확인하고, 아니면 온보딩으로 상태를 갱신한다(device.info 가 stale 하지 않도록). */
+  async function recheckHelper(entry: TrackedDevice): Promise<void> {
+    if (entry.helper?.state !== 'ready' || !entry.session) return;
+    try {
+      await entry.session.ping();
+    } catch {
+      entry.helper = { state: 'pending' };
+      await ensureHelper(entry);
+    }
+  }
+
   /**
    * 헬퍼 온보딩: 설치 → 접근성 서비스 활성화(--user 0) → 포워드 → 토큰 → /ping. 결과는 entry.helper 에 남는다.
-   * 어느 단계가 실패해도 던지지 않고 상태(not-installed/disabled/unreachable)로 기록한다.
+   * 어느 단계가 실패해도 던지지 않고 상태(not-installed/disabled/unreachable)로 기록한다. ensureHelper 를 통해서만 부른다.
    */
   async function onboardHelper(entry: TrackedDevice): Promise<void> {
     const sh = async (command: string) => (await entry.dadb.shell(command)).output;
@@ -213,8 +256,9 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
         } catch (e) {
           last = e;
           // 서버는 떠 있다(HTTP 응답). 401 이면 토큰이 사라진 것일 수 있어 한 번 다시 보내고, 그래도 401 이면 기다릴 이유가 없다.
-          if (e instanceof HelperHttpError) {
-            if (e.status !== 401 || tokenResent) break;
+          // 그 밖의 HTTP 오류는 기동 중 일시 오류일 수 있어 기한까지 다시 묻는다.
+          if (e instanceof HelperHttpError && e.status === 401) {
+            if (tokenResent) break;
             tokenResent = true;
             await entry.session.sendToken();
           }
@@ -229,21 +273,34 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
     }
   }
 
-  async function dumpUi(deviceId: string): Promise<SemanticNode> {
-    const entry = entries.get(deviceId);
+  /** 추적 중인 기기를 돌려준다. 모르는 id 면 한 번 열거한다(디스패처의 find 가 먼저 listDevices 를 부르지만 직접 호출도 지원). */
+  async function tracked(deviceId: string): Promise<TrackedDevice> {
+    let entry = entries.get(deviceId);
+    if (!entry) {
+      await refresh();
+      entry = entries.get(deviceId);
+    }
     if (!entry) throw new RpcError(RPC_ERRORS.deviceNotFound, `기기를 찾을 수 없음: ${deviceId}`);
-    if (entry.helper?.state !== 'ready') await onboardHelper(entry);
+    return entry;
+  }
+
+  async function dumpUi(deviceId: string): Promise<SemanticNode> {
+    const entry = await tracked(deviceId);
+    await entry.probe; // 연결 판정(과 그에 딸린 온보딩)이 진행 중이면 끝날 때까지
+    if (entry.helper?.state !== 'ready') await ensureHelper(entry);
+    let firstError: unknown;
     if (entry.helper?.state === 'ready' && entry.session) {
       try {
         return await entry.session.dump();
       } catch (e) {
         // 서비스가 꺼졌거나 토큰이 사라진 경우: 온보딩을 다시 돌려 상태를 갱신하고 한 번 더 시도한다.
-        await onboardHelper(entry);
+        firstError = e;
+        await ensureHelper(entry);
         if (entry.helper?.state === 'ready' && entry.session) return entry.session.dump();
-        void e;
       }
     }
-    throw new RpcError(RPC_ERRORS.helperUnavailable, `헬퍼 사용 불가(${entry.helper?.state}): ${entry.helper?.detail ?? ''}`);
+    const cause = firstError instanceof Error ? ` (첫 시도: ${firstError.message})` : '';
+    throw new RpcError(RPC_ERRORS.helperUnavailable, `헬퍼 사용 불가(${entry.helper?.state}): ${entry.helper?.detail ?? ''}${cause}`);
   }
 
   const notImplemented = (name: string) => async (..._args: unknown[]): Promise<never> => {
@@ -299,11 +356,9 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
       return refresh();
     },
     async info(deviceId: string): Promise<DeviceInfo> {
-      const entry = entries.get(deviceId);
-      if (entry) return toInfo(deviceId, entry);
-      const found = (await refresh()).find((d) => d.id === deviceId);
-      if (!found) throw new RpcError(RPC_ERRORS.deviceNotFound, `기기를 찾을 수 없음: ${deviceId}`);
-      return found;
+      const entry = await tracked(deviceId);
+      await recheckHelper(entry);
+      return toInfo(deviceId, entry);
     },
     screenshot: (id) => runBinary(id, 'screencap -p'),
     dumpUi,

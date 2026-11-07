@@ -35,7 +35,7 @@ export class HelperSession {
     readonly token: string
   ) {}
 
-  /** WRITE_SECURE_SETTINGS 로 보호된 브로드캐스트로 토큰을 심는다(adb shell 만 가능). */
+  /** WRITE_SECURE_SETTINGS 로 보호된 브로드캐스트로 토큰을 심는다(adb shell 만 가능). 토큰은 hex 라 따옴표 안에 안전하다. */
   async sendToken(): Promise<void> {
     await this.dadb.shell(`am broadcast -a ${TOKEN_ACTION} -n ${TOKEN_RECEIVER} --es token '${this.token}'`);
   }

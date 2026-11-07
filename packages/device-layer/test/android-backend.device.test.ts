@@ -73,6 +73,9 @@ describe.skipIf(!target)('AndroidBackend 실기기 헬퍼 온보딩·dump.ui', (
     let nodes = 0, withId = 0;
     const walk = (n: typeof tree) => { nodes++; if (n.testId) withId++; for (const c of n.children ?? []) walk(c); };
     walk(tree);
+    const dir = path.resolve(import.meta.dirname, '../../../.e2e/device-proof');
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, `${new Date().toISOString().replace(/[:.]/g, '-')}-dump-ui.json`), JSON.stringify(tree, null, 2));
     expect(tree.ref).toBe('@e0');
     expect(nodes).toBeGreaterThan(3);
     expect(withId).toBeGreaterThan(0);

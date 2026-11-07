@@ -79,7 +79,8 @@ describe('디바이스 RPC 파라미터 계약', () => {
 
 describe('DeviceInfo.helper 계약 (온디바이스 헬퍼 상태)', () => {
   it('헬퍼 상태는 not-installed/disabled/unreachable/ready 이고 ready 가 아니면 detail 로 원인을 준다', () => {
-    expect(HELPER_STATES).toEqual(['not-installed', 'disabled', 'unreachable', 'ready']);
+    // pending: 온보딩이 아직 끝나지 않음. 러너는 ready 외의 모든 값(없음 포함)을 "사용 불가" 로 본다.
+    expect(HELPER_STATES).toEqual(['pending', 'not-installed', 'disabled', 'unreachable', 'ready']);
     const ready: DeviceInfo = { id: 'D', platform: 'android', model: 'M', osVersion: '14', state: 'device', helper: { state: 'ready', version: '0.1.0' } };
     const off: DeviceInfo = { ...ready, helper: { state: 'disabled', detail: '접근성 서비스가 꺼져 있음' } };
     expect(ready.helper?.state).toBe('ready');

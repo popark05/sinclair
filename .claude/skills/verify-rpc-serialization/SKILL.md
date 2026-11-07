@@ -62,7 +62,7 @@ npx vitest run packages/device-layer/test/rpc-serialization.exhaustive.test.ts
 | `RpcDispatcher.serialized` (체인, catch, 잠금 정리) | `packages/device-layer/src/rpc.ts` |
 | `RPC_ERRORS.internal` | `packages/device-layer/src/rpc.ts` |
 
-- **sync commit: `0afc66c`** (2026-11-07). 이 커밋에서 위 코드와 검사가 일치함을 확인했다.
+- **sync commit: `9f506dc`** (2026-11-07). `0afc66c` 이후 `rpc.ts` 변경은 `RPC_ERRORS.helperUnavailable` 상수 추가뿐으로 `handle`/`serialized` 는 그대로다. 검사 재실행 통과 확인 후 옮김.
 - 다음 에이전트: `git diff 0afc66c -- packages/device-layer/src/rpc.ts` 가 비어 있지 않으면 검사가 아직 코드를 설명하는지 다시 읽는다. 검사를 돌려 통과하고 불변식이 여전히 코드의 의도와 같다고 확인한 뒤에만 이 커밋 해시를 앞으로 옮긴다. 통과만으로 옮기지 않는다.
 - `createDeviceServer` (`server.ts`) 는 이 디스패처 위에 핸들러를 등록할 뿐 직렬화 논리가 없어 범위 밖이다. 거기에 자체 큐나 잠금이 생기면 범위에 넣는다.
 

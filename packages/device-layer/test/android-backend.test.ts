@@ -13,14 +13,16 @@ afterEach(async () => {
   for (const c of cleanups.splice(0).reverse()) await c();
 });
 
+/** 헬퍼 온보딩을 다루지 않는 테스트용: APK 가 없어 not-installed 로 끝난다. */
+const MISSING_HELPER_APK = path.join(os.tmpdir(), 'sinclair-missing-helper.apk');
+
 function setup(serial = 'PHONE1') {
   const phone = new FakeAndroid();
   const usbDevice = new FakeUsbDevice(phone.services, serial);
   const usb = new FakeUsbBackend([usbDevice]);
   const backend = createAndroidBackend({
     usbBackend: usb,
-    // 헬퍼 온보딩은 별도 describe 에서 다룬다. 여기서는 APK 가 없어 not-installed 로 끝나게 한다.
-    helperApkPath: path.join(os.tmpdir(), 'sinclair-missing-helper.apk'),
+    helperApkPath: MISSING_HELPER_APK,
     // adb server 대체 경로는 꺼져 있다(기본값). 실제 5037에 닿지 않도록 에뮬레이터 탐색도 끈다.
     dadb: { keyPair: null, includeEmulators: false, usb: { idlePollMs: 20, claimRetries: 0 } },
   });
@@ -34,7 +36,7 @@ describe('AndroidBackend.listDevices', () => {
     const [device, ...rest] = await backend.listDevices();
     expect(rest).toEqual([]);
     expect(device).toMatchObject({ id: 'PHONE1', platform: 'android', model: 'Fake Pixel', osVersion: '14', state: 'device' });
-    expect(device?.helper?.state).toBe('not-installed');
+    expect(['pending', 'not-installed']).toContain(device?.helper?.state);
   });
 });
 
@@ -90,7 +92,7 @@ describe('AndroidBackend 과 JSON-RPC 서버', () => {
     const usb = new CountingUsbBackend([new FakeUsbDevice(phone.services, 'PHONE1')]);
     const backend = createAndroidBackend({
       usbBackend: usb,
-      helperApkPath: path.join(os.tmpdir(), 'sinclair-missing-helper.apk'),
+      helperApkPath: MISSING_HELPER_APK,
       dadb: { keyPair: null, includeEmulators: false, usb: { idlePollMs: 20, claimRetries: 0 } },
     });
     cleanups.push(() => backend.close());
@@ -133,7 +135,7 @@ describe('AndroidBackend 목록 캐시', () => {
     const usb = new CountingUsbBackend([new FakeUsbDevice(phone.services, 'PHONE1')]);
     const backend = createAndroidBackend({
       usbBackend: usb,
-      helperApkPath: path.join(os.tmpdir(), 'sinclair-missing-helper.apk'),
+      helperApkPath: MISSING_HELPER_APK,
       listCacheMs: 30,
       dadb: { keyPair: null, includeEmulators: false, usb: { idlePollMs: 20, claimRetries: 0 } },
     });
@@ -262,7 +264,7 @@ describe('AndroidBackend 헬퍼 온보딩과 device.dump.ui', () => {
   beforeAll(() => fs.writeFileSync(apkPath, Buffer.concat([Buffer.from('PK'), Buffer.alloc(64, 1)])));
   afterAll(() => fs.rmSync(apkPath, { force: true }));
 
-  function helperSetup(prepare?: (phone: FakeAndroid, usb: FakeUsbDevice) => void) {
+  function helperSetup(prepare?: (phone: FakeAndroid, usb: FakeUsbDevice) => void, backoffMs = 0) {
     const phone = new FakeAndroid();
     phone.installPackageName = phone.helper.pkg;
     const usbDevice = new FakeUsbDevice(phone.services, 'PHONE1');
@@ -271,6 +273,7 @@ describe('AndroidBackend 헬퍼 온보딩과 device.dump.ui', () => {
     const backend = createAndroidBackend({
       usbBackend: usb,
       helperApkPath: apkPath,
+      helperRetryBackoffMs: backoffMs, // 복구 시나리오를 바로 보기 위해 기본 0. 백오프 테스트만 값을 준다
       probeWaitMs: 5_000, // 온보딩이 끝난 뒤의 상태를 보기 위해 첫 판정을 충분히 기다린다
       dadb: { keyPair: null, includeEmulators: false, usb: { idlePollMs: 20, claimRetries: 0 } },
     });
@@ -287,6 +290,41 @@ describe('AndroidBackend 헬퍼 온보딩과 device.dump.ui', () => {
     expect(phone.secureSettings.get('accessibility_enabled')).toBe('1');
     expect(phone.helper.token).toMatch(/^[0-9a-f]{32}$/);
     expect(phone.helper.requests).toContain('GET /ping');
+  });
+
+  it('연결 판정과 dump.ui 가 동시에 와도 온보딩은 한 번만 돈다(설치 1회, 터널 1개)', async () => {
+    const { backend, phone } = helperSetup();
+    const [, tree] = await Promise.all([backend.listDevices(), backend.dumpUi('PHONE1')]);
+    expect(tree).toMatchObject({ ref: '@e0' });
+    expect(phone.installs).toHaveLength(1);
+    expect(phone.helper.requests.filter((r) => r === 'GET /ping')).toHaveLength(1);
+  });
+
+  it('서비스가 꺼지고 재활성화도 거부되면 dump.ui 없이 device.info 만으로도 disabled 가 드러난다(능동 재검사)', async () => {
+    const { backend, phone } = helperSetup();
+    await backend.listDevices();
+    expect((await backend.info('PHONE1')).helper?.state).toBe('ready');
+    phone.secureSettings.set('enabled_accessibility_services', '');
+    phone.ignoreSettingsPut = true;
+    expect((await backend.info('PHONE1')).helper?.state).toBe('disabled');
+  });
+
+  it('기기에 다른 토큰이 심겨 있으면(헬퍼 재시작 등) 재전송으로 복구하고, 재전송도 막히면 unreachable 이다', async () => {
+    const { backend, phone } = helperSetup((p) => { p.helper.token = 'stale-token-from-another-session'; p.helper.dropToken = true; });
+    const [device] = await backend.listDevices();
+    expect(device?.helper?.state).toBe('unreachable');
+    expect(device?.helper?.detail).toContain('401');
+    phone.helper.dropToken = false;
+    expect(await backend.dumpUi('PHONE1')).toMatchObject({ ref: '@e0' });
+  });
+
+  it('복구될 수 없는 상태에서는 매 호출마다 온보딩을 다시 돌리지 않는다(백오프)', async () => {
+    const { backend, phone } = helperSetup((p) => { p.failInstall = 'INSTALL_FAILED_INSUFFICIENT_STORAGE'; }, 10_000);
+    await backend.listDevices();
+    const before = phone.installs.length;
+    await expect(backend.dumpUi('PHONE1')).rejects.toMatchObject({ code: RPC_ERRORS.helperUnavailable });
+    await expect(backend.dumpUi('PHONE1')).rejects.toMatchObject({ code: RPC_ERRORS.helperUnavailable });
+    expect(phone.installs.length).toBe(before);
   });
 
   it('device.dump.ui 는 헬퍼의 /dump 트리(SemanticNode)를 돌려준다', async () => {
@@ -353,7 +391,7 @@ describe('JSON-RPC device.dump.ui', () => {
     const usb = new FakeUsbBackend([new FakeUsbDevice(phone.services, 'PHONE1')]);
     const backend = createAndroidBackend({
       usbBackend: usb,
-      helperApkPath: path.join(os.tmpdir(), 'sinclair-missing-helper.apk'),
+      helperApkPath: MISSING_HELPER_APK,
       dadb: { keyPair: null, includeEmulators: false, usb: { idlePollMs: 20, claimRetries: 0 } },
     });
     cleanups.push(() => backend.close());
