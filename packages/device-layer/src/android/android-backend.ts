@@ -62,12 +62,15 @@ export interface AndroidBackendOptions {
   onInput?: (event: InputRouteEvent) => void;
 }
 
-/** 입력이 실제로 탄 경로. shell 이면 fallbackReason 에 헬퍼를 못 쓴 이유가 있다. */
+/** 입력이 실제로 탄 경로. shell 이면 fallback 에 헬퍼를 못 쓴 이유가 있다. */
 export interface InputRouteEvent {
   deviceId: string;
   action: 'tap' | 'longPress' | 'swipe' | 'text';
   route: 'helper' | 'shell';
-  fallbackReason?: string;
+  /** refused: 헬퍼가 거부(제스처 취소, 포커스 없음) / unavailable: 헬퍼 미준비·호출 실패 / preferred: preferShellInput 옵션 */
+  fallback?: { kind: 'refused' | 'unavailable' | 'preferred'; detail: string };
+  /** shell 경로마저 실패했을 때 그 오류 메시지. 호출자에게는 두 이유를 합친 오류가 던져진다 */
+  failed?: string;
 }
 
 /** 발견한 기기 하나의 연결과 판정 상태. */
@@ -368,33 +371,46 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
   const input = (deviceId: string, args: string) => runVoid(deviceId, `input ${args}`);
 
   function reportInput(event: InputRouteEvent): void {
-    if (ADB_TRACE) adbTrace(`input ${event.deviceId} ${event.action} via ${event.route}${event.fallbackReason ? ` (${event.fallbackReason})` : ''}`);
+    if (ADB_TRACE) adbTrace(`input ${event.deviceId} ${event.action} via ${event.route}${event.fallback ? ` (${event.fallback.kind}: ${event.fallback.detail})` : ''}`);
     options.onInput?.(event);
   }
 
   /**
    * 입력 경로 선택(ADR 0003): 헬퍼가 ready 면 접근성 제스처/setText, 아니면 `adb shell input`. 헬퍼가 거부하면(제스처 취소,
    * 포커스 없음 등) 같은 호출을 shell 로 한 번 재시도한다. shell 경로가 불가한 입력(비ASCII 텍스트)은 shellFallback 이 던진다.
+   * 전제: 같은 기기의 입력은 겹치지 않는다. JSON-RPC 를 거치면 디스패처가 기기별로 직렬화한다. 백엔드를 직접 쓰는 호출자는
+   * 스스로 직렬화해야 한다(진행 중인 제스처가 있으면 dispatchGesture 가 거부해 shell 로 떨어진다).
+   * 지연: 헬퍼 호출이 timeout(5초) 으로 실패하면 shell 재시도까지 그만큼 더 걸린다. 그 사실은 fallback 으로만 드러난다.
    */
   async function routedInput(deviceId: string, action: InputRouteEvent['action'], helperBody: HelperAction, shellFallback: () => Promise<void>): Promise<void> {
     const entry = await tracked(deviceId);
     await entry.probe;
-    let reason: string;
+    let fallback: NonNullable<InputRouteEvent['fallback']>;
     if (options.preferShellInput) {
-      reason = 'preferShellInput 옵션';
+      fallback = { kind: 'preferred', detail: 'preferShellInput 옵션' };
     } else if (entry.helper?.state === 'ready' && entry.session) {
       try {
         await entry.session.action(helperBody);
         reportInput({ deviceId, action, route: 'helper' });
         return;
       } catch (e) {
-        reason = e instanceof HelperHttpError ? `헬퍼 거부(HTTP ${e.status}): ${e.detail}` : `헬퍼 호출 실패: ${e instanceof Error ? e.message : String(e)}`;
+        fallback = e instanceof HelperHttpError && e.status === 409
+          ? { kind: 'refused', detail: e.detail }
+          : { kind: 'unavailable', detail: `헬퍼 호출 실패: ${e instanceof Error ? e.message : String(e)}` };
       }
     } else {
-      reason = `헬퍼 ${entry.helper?.state ?? 'none'}${entry.helper?.detail ? `: ${entry.helper.detail}` : ''}`;
+      fallback = { kind: 'unavailable', detail: `헬퍼 ${entry.helper?.state ?? 'none'}${entry.helper?.detail ? `: ${entry.helper.detail}` : ''}` };
     }
-    await shellFallback();
-    reportInput({ deviceId, action, route: 'shell', fallbackReason: reason });
+    try {
+      await shellFallback();
+    } catch (e) {
+      // 두 경로 모두 실패: 헬퍼를 왜 못 썼는지가 없으면 "헬퍼가 필요합니다" 류 메시지가 오해를 부른다. 두 이유를 함께 던진다.
+      const message = e instanceof Error ? e.message : String(e);
+      reportInput({ deviceId, action, route: 'shell', fallback, failed: message });
+      const combined = `${message} (헬퍼 경로 불가: ${fallback.detail})`;
+      throw e instanceof RpcError ? new RpcError(e.code, combined, e.data) : new Error(combined);
+    }
+    reportInput({ deviceId, action, route: 'shell', fallback });
   }
 
   /** am/monkey 는 실패해도 종료 코드 0 으로 "Error: ..." 만 출력하는 경우가 있어 출력으로도 판정한다. */

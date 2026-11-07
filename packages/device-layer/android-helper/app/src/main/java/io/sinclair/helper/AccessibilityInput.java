@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 접근성 API 로 입력을 넣는다(ADR 0003: 1차 경로). 탭·롱프레스·스와이프는 dispatchGesture, 텍스트는 포커스된 입력 필드에
  * ACTION_SET_TEXT 로 덧붙인다(IME 없이 한글·이모지 가능). 거부(취소·포커스 없음)는 호스트가 adb shell input 으로 대체한다.
  */
-final class GestureController {
+final class AccessibilityInput {
     /** 결과. ok 가 false 면 detail 에 이유. */
     static final class Outcome {
         final boolean ok;
@@ -30,7 +30,7 @@ final class GestureController {
     /** 제스처 완료 콜백을 기다리는 여유. 제스처 자체 시간에 더한다. */
     private static final long GESTURE_GRACE_MS = 2_000L;
 
-    private GestureController() {}
+    private AccessibilityInput() {}
 
     static Outcome tap(AccessibilityService service, float x, float y) throws InterruptedException {
         Path p = new Path();
@@ -66,7 +66,10 @@ final class GestureController {
         return completed.get() ? Outcome.done("gesture") : Outcome.refused("제스처가 취소됨(dispatchGesture cancelled: 다른 접근성 서비스나 사용자 터치가 가로챔)");
     }
 
-    /** 포커스된 편집 가능 노드의 내용 뒤에 text 를 덧붙인다(타이핑 의미). */
+    /**
+     * 포커스된 편집 가능 노드의 내용 뒤에 text 를 덧붙인다(타이핑 의미). 비밀번호 필드는 내용을 읽을 수 없으므로(redaction)
+     * 덧붙이지 못하고 text 로 바꾼다. API 33 미만의 AccessibilityNodeInfo.recycle 은 호출하지 않는다: 호출당 노드 수가 적고 GC 가 회수한다.
+     */
     static Outcome type(AccessibilityService service, String text) {
         AccessibilityNodeInfo root = service.getRootInActiveWindow();
         if (root == null) return Outcome.refused("활성 창 없음");

@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { createAndroidBackend } from '../src/android/android-backend.ts';
-import { createDeviceServer, RPC_ERRORS } from '../src/index.ts';
+import { createDeviceServer, RPC_ERRORS, type InputRouteEvent } from '../src/index.ts';
 import { FakeAndroid } from './adb/fake-android.ts';
 import { FakeUsbBackend, FakeUsbDevice } from './adb/fake-usb.ts';
 
@@ -481,13 +481,12 @@ describe('AndroidBackend 입력 경로 선택 (접근성 제스처 우선, shell
   beforeAll(() => fs.writeFileSync(apkPath, Buffer.concat([Buffer.from('PK'), Buffer.alloc(64, 1)])));
   afterAll(() => fs.rmSync(apkPath, { force: true }));
 
-  type InputEvent = { deviceId: string; action: string; route: 'helper' | 'shell'; fallbackReason?: string };
   async function inputSetup(prepare?: (phone: FakeAndroid) => void, opts: { helper?: boolean; preferShellInput?: boolean } = {}) {
     const phone = new FakeAndroid();
     phone.installPackageName = phone.helper.pkg;
     prepare?.(phone);
     const usb = new FakeUsbBackend([new FakeUsbDevice(phone.services, 'PHONE1')]);
-    const events: InputEvent[] = [];
+    const events: InputRouteEvent[] = [];
     const backend = createAndroidBackend({
       usbBackend: usb,
       helperApkPath: opts.helper === false ? MISSING_HELPER_APK : apkPath,
@@ -516,14 +515,14 @@ describe('AndroidBackend 입력 경로 선택 (접근성 제스처 우선, shell
     const { phone, backend, events } = await inputSetup((p) => { p.helper.refuseGestures = true; });
     await backend.tap('PHONE1', { x: 10, y: 20 });
     expect(phone.shellCommands).toContain('input tap 10 20');
-    expect(events).toEqual([{ deviceId: 'PHONE1', action: 'tap', route: 'shell', fallbackReason: expect.stringContaining('취소') }]);
+    expect(events).toEqual([{ deviceId: 'PHONE1', action: 'tap', route: 'shell', fallback: { kind: 'refused', detail: expect.any(String) } }]);
   });
 
   it('헬퍼가 없으면(not-installed) shell 로 바로 가고 이유를 남긴다', async () => {
     const { phone, backend, events } = await inputSetup(undefined, { helper: false });
     await backend.tap('PHONE1', { x: 1, y: 2 });
     expect(phone.shellCommands).toContain('input tap 1 2');
-    expect(events[0]).toMatchObject({ action: 'tap', route: 'shell', fallbackReason: expect.stringContaining('not-installed') });
+    expect(events[0]).toMatchObject({ action: 'tap', route: 'shell', fallback: { kind: 'unavailable' } });
   });
 
   it('text 는 헬퍼 경로에서 setText 로 들어가 한글·이모지가 그대로 덧붙고, 헬퍼 경로가 안 될 때 비ASCII 는 -32602 다', async () => {
@@ -542,7 +541,7 @@ describe('AndroidBackend 입력 경로 선택 (접근성 제스처 우선, shell
     const { phone, backend, events } = await inputSetup((p) => { p.helper.focusedText = null; });
     await backend.text('PHONE1', 'hi');
     expect(phone.shellCommands).toContain("input text 'hi'");
-    expect(events[0]).toMatchObject({ action: 'text', route: 'shell', fallbackReason: expect.stringContaining('포커스') });
+    expect(events[0]).toMatchObject({ action: 'text', route: 'shell', fallback: { kind: 'refused' } });
   });
 
   it('preferShellInput 진단 옵션이면 헬퍼가 ready 여도 shell 경로를 쓴다', async () => {
@@ -550,6 +549,27 @@ describe('AndroidBackend 입력 경로 선택 (접근성 제스처 우선, shell
     await backend.tap('PHONE1', { x: 3, y: 4 });
     expect(phone.helper.gestures).toEqual([]);
     expect(phone.shellCommands).toContain('input tap 3 4');
-    expect(events[0]).toMatchObject({ action: 'tap', route: 'shell', fallbackReason: expect.stringContaining('preferShellInput') });
+    expect(events[0]).toMatchObject({ action: 'tap', route: 'shell', fallback: { kind: 'preferred' } });
+  });
+});
+
+describe('AndroidBackend 입력: 두 경로 모두 실패', () => {
+  it('헬퍼가 거부한 뒤 shell 도 불가하면 오류에 두 이유가 모두 담기고 이벤트도 남는다', async () => {
+    const apkPath = path.join(os.tmpdir(), `sinclair-fake-helper-both-${process.pid}.apk`);
+    fs.writeFileSync(apkPath, Buffer.concat([Buffer.from('PK'), Buffer.alloc(64, 1)]));
+    cleanups.push(() => fs.rmSync(apkPath, { force: true }));
+    const phone = new FakeAndroid();
+    phone.installPackageName = phone.helper.pkg;
+    phone.helper.focusedText = null; // 포커스된 입력 필드 없음 → 헬퍼 409
+    const usb = new FakeUsbBackend([new FakeUsbDevice(phone.services, 'PHONE1')]);
+    const events: InputRouteEvent[] = [];
+    const backend = createAndroidBackend({
+      usbBackend: usb, helperApkPath: apkPath, helperRetryBackoffMs: 0, probeWaitMs: 5_000, onInput: (e) => events.push(e),
+      dadb: { keyPair: null, includeEmulators: false, usb: { idlePollMs: 20, claimRetries: 0 } },
+    });
+    cleanups.push(() => backend.close());
+    await backend.listDevices();
+    await expect(backend.text('PHONE1', '안녕')).rejects.toMatchObject({ code: RPC_ERRORS.invalidParams, message: expect.stringMatching(/포커스.*ASCII|ASCII.*포커스/s) });
+    expect(events).toEqual([{ deviceId: 'PHONE1', action: 'text', route: 'shell', fallback: { kind: 'refused', detail: expect.stringContaining('포커스') }, failed: expect.any(String) }]);
   });
 });

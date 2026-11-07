@@ -4,9 +4,9 @@
     "state": "ready",
     "version": "0.1.0"
   },
-  "at": "2026-11-07T03:52:03.133Z",
+  "at": "2026-11-07T03:58:22.351Z",
   "helperRoute": {
-    "target": "밀리의서재",
+    "target": "알림 4개",
     "events": [
       {
         "deviceId": "R3CR10LXLZW",
@@ -17,13 +17,16 @@
     "screenChanged": true
   },
   "shellRoute": {
-    "target": "밀리의서재",
+    "target": "알림 4개",
     "events": [
       {
         "deviceId": "R3CR10LXLZW",
         "action": "tap",
         "route": "shell",
-        "fallbackReason": "preferShellInput 옵션"
+        "fallback": {
+          "kind": "preferred",
+          "detail": "preferShellInput 옵션"
+        }
       }
     ],
     "screenChanged": true

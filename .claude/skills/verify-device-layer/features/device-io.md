@@ -34,8 +34,8 @@ Preconditions:
 
 ## Gotchas
 
-- 실기기 `device.io.text`: 헬퍼 경로(setText)는 한글·이모지를 포커스된 입력 필드 뒤에 덧붙인다(IME 불필요). 헬퍼가 없거나 포커스된 필드가 없으면 shell 경로인데 `input text` 는 ASCII 만 받아 비ASCII 는 `-32602` 로 거부된다(조용히 깨지지 않음).
-- 진단: `createAndroidBackend({ preferShellInput: true })` 로 헬퍼가 있어도 shell 경로를 강제할 수 있다(두 경로 비교). 실기기 증거: `.scratch/android-backend/evidence/06-input-route-latest.json`.
+- 실기기 `device.io.text`: 헬퍼 경로(setText)는 한글·이모지를 포커스된 입력 필드의 **끝에** 덧붙인다(IME 불필요). shell 경로는 커서 위치에 키 이벤트로 넣으므로 커서가 중간이면 두 경로의 결과가 다르다. 비밀번호 필드는 내용을 읽을 수 없어 헬퍼 경로가 통째로 바꾼다. 헬퍼가 없거나 포커스된 필드가 없으면 shell 경로인데 `input text` 는 ASCII 만 받아 비ASCII 는 `-32602` 로 거부된다(조용히 깨지지 않음).
+- 진단: `createAndroidBackend({ preferShellInput: true })` 로 헬퍼가 있어도 shell 경로를 강제할 수 있다(두 경로 비교). 두 경로 모두 실패하면 오류 메시지에 "(헬퍼 경로 불가: …)" 가 덧붙는다. RPC 응답 자체에는 경로가 없고 `onInput`/트레이스로만 드러난다. 실기기 증거: `.scratch/android-backend/evidence/06-input-route-latest.json`.
 - 실기기 `input` 은 종료 코드가 0 이 아니면 `-32603` 에 stderr 가 담긴다.
 - `device.io.keys` 는 `KEYCODE_*` 또는 숫자 키코드만 받는다(그 외 `-32602`). `device.io.text` 의 리터럴 `%s` 는 `input text` 가 공백으로 바꾼다.
 

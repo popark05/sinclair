@@ -360,7 +360,7 @@ export class FakeAndroid {
         : a['action'] === 'long_press' ? `longpress ${a['x']},${a['y']} ${a['durationMs']}`
         : a['action'] === 'swipe' ? `swipe ${a['fromX']},${a['fromY']}->${a['toX']},${a['toY']} ${a['durationMs']}`
         : a['action'] === 'type' ? `type ${a['text']}` : undefined;
-      if (!line) return respond(400, { ok: false, detail: `알 수 없는 action: ${a['action']}` });
+      if (!line) return respond(400, { error: `action 본문 오류: 알 수 없는 action: ${a['action']}` }); // 실제 헬퍼와 같은 400
       if (a['action'] === 'type') {
         if (this.helper.focusedText === null) return respond(409, { ok: false, detail: '포커스된 입력 필드가 없음' });
         this.helper.focusedText += String(a['text']);

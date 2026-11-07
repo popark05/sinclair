@@ -121,7 +121,14 @@ final class HelperServer extends Thread {
                     if (r < 0) break;
                     got += r;
                 }
-                GestureController.Outcome outcome = action(new JSONObject(new String(body, 0, got, StandardCharsets.UTF_8)));
+                AccessibilityInput.Outcome outcome;
+                try {
+                    outcome = action(new JSONObject(new String(body, 0, got, StandardCharsets.UTF_8)));
+                } catch (JSONException e) {
+                    // 본문이 JSON 이 아니거나 필수 키(x, y, durationMs, text …)가 빠진 것: 호출자 잘못이므로 400.
+                    respond(out, 400, "Bad Request", errorBody("action 본문 오류: " + e.getMessage()));
+                    return;
+                }
                 JSONObject o = new JSONObject().put("ok", outcome.ok);
                 if (outcome.ok) o.put("via", outcome.via); else o.put("detail", outcome.detail);
                 respond(out, outcome.ok ? 200 : 409, outcome.ok ? "OK" : "Conflict", o.toString());
@@ -181,20 +188,20 @@ final class HelperServer extends Thread {
     }
 
     /** POST /action: {"action":"tap","x":..,"y":..} | long_press(+durationMs) | swipe(fromX,fromY,toX,toY,durationMs) | type(text) */
-    private GestureController.Outcome action(JSONObject a) throws Exception {
+    private AccessibilityInput.Outcome action(JSONObject a) throws Exception {
         String action = a.optString("action", "");
         switch (action) {
             case "tap":
-                return GestureController.tap(service, (float) a.getDouble("x"), (float) a.getDouble("y"));
+                return AccessibilityInput.tap(service, (float) a.getDouble("x"), (float) a.getDouble("y"));
             case "long_press":
-                return GestureController.longPress(service, (float) a.getDouble("x"), (float) a.getDouble("y"), a.optLong("durationMs", 800L));
+                return AccessibilityInput.longPress(service, (float) a.getDouble("x"), (float) a.getDouble("y"), a.getLong("durationMs"));
             case "swipe":
-                return GestureController.swipe(service, (float) a.getDouble("fromX"), (float) a.getDouble("fromY"),
-                        (float) a.getDouble("toX"), (float) a.getDouble("toY"), a.optLong("durationMs", 300L));
+                return AccessibilityInput.swipe(service, (float) a.getDouble("fromX"), (float) a.getDouble("fromY"),
+                        (float) a.getDouble("toX"), (float) a.getDouble("toY"), a.getLong("durationMs"));
             case "type":
-                return GestureController.type(service, a.getString("text"));
+                return AccessibilityInput.type(service, a.getString("text"));
             default:
-                return GestureController.Outcome.refused("알 수 없는 action: " + action);
+                throw new JSONException("알 수 없는 action: " + action);
         }
     }
 

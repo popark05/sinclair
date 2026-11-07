@@ -20,7 +20,12 @@ export class HelperHttpError extends Error {
   }
   /** 헬퍼가 JSON `{detail}` 로 준 이유. 없으면 본문 그대로. */
   get detail(): string {
-    try { return String((JSON.parse(this.body) as { detail?: string; error?: string }).detail ?? (JSON.parse(this.body) as { error?: string }).error ?? this.body); } catch { return this.body; }
+    try {
+      const o = JSON.parse(this.body) as { detail?: string; error?: string };
+      return o.detail ?? o.error ?? this.body;
+    } catch {
+      return this.body;
+    }
   }
 }
 
