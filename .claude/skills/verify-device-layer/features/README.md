@@ -35,3 +35,4 @@
 - [앱·URL 제어](./apps-and-url.md): `device.apps.launch/terminate`, `device.url`.
 - [인증과 오류 응답](./auth-and-errors.md): 토큰, 404/401, 파싱 실패, 미지·미구현 메서드, 없는 기기.
 - [기기별 직렬화](./serialization.md): 같은 기기의 동시 호출은 도착 순서대로 하나씩, 다른 기기는 서로 막지 않음.
+- [접근성 헬퍼 (수동)](../../../../packages/device-layer/android-helper/README.md): 기기 위 `/ping`, `/dump` 는 아직 JSON-RPC 에 연결되지 않았다(티켓 04). 지금은 헬퍼 README 의 curl 절차로 검증한다.

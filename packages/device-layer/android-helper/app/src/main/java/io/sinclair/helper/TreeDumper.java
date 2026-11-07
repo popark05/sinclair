@@ -14,6 +14,7 @@ import org.json.JSONObject;
  * ref 는 이 dump 안에서만 유효한 DFS 순번(@e0, @e1, …)이다.
  */
 final class TreeDumper {
+    /** 재귀 깊이 상한. 실제 앱 트리는 30 안팎이고, 순환이나 비정상 트리에서 스택 오버플로를 막는다. */
     private static final int MAX_DEPTH = 64;
     private final AccessibilityService service;
     private int nextRef = 0;
@@ -25,10 +26,12 @@ final class TreeDumper {
     JSONObject dumpActiveWindow() throws JSONException {
         AccessibilityNodeInfo root = service.getRootInActiveWindow();
         if (root == null) {
+            // 활성 창이 없을 때(잠금 전환 중 등)도 계약을 지키는 빈 노드를 돌려준다.
             JSONObject empty = new JSONObject();
             empty.put("ref", "@e0");
-            empty.put("role", "root");
+            empty.put("role", "view");
             empty.put("name", "(활성 창 없음)");
+            empty.put("rect", new JSONObject().put("x", 0).put("y", 0).put("width", 0).put("height", 0));
             return empty;
         }
         try {
@@ -41,15 +44,20 @@ final class TreeDumper {
     private JSONObject toNode(AccessibilityNodeInfo node, int depth) throws JSONException {
         JSONObject o = new JSONObject();
         o.put("ref", "@e" + (nextRef++));
-        o.put("role", roleOf(node));
+        String role = roleOf(node);
+        o.put("role", role);
 
         CharSequence desc = node.getContentDescription();
         if (desc != null && desc.length() > 0) o.put("name", desc.toString());
         CharSequence text = node.getText();
         if (text != null && text.length() > 0) {
+            // 입력 필드의 내용은 value, 그 외 보이는 글자는 text (e2e locator/expect 관례).
             // 비밀번호 필드의 내용은 에이전트에게 노출하지 않는다(REVIEW.md: secure 필드 redaction).
-            o.put("text", node.isPassword() ? "" : text.toString());
+            String content = node.isPassword() ? "" : text.toString();
+            o.put(role.equals("textbox") ? "value" : "text", content);
         }
+        AccessibilityNodeInfo.RangeInfo range = node.getRangeInfo();
+        if (range != null) o.put("value", String.valueOf(range.getCurrent()));
         String id = node.getViewIdResourceName();
         if (id != null && !id.isEmpty()) o.put("testId", id);
         CharSequence hint = node.getHintText();
@@ -106,7 +114,7 @@ final class TreeDumper {
         if (simple.contains("WebView")) return "webview";
         if (simple.contains("SeekBar") || simple.contains("ProgressBar")) return "slider";
         if (simple.contains("Spinner")) return "combobox";
-        if (simple.contains("Tab")) return "tab";
+        if (simple.contains("TabLayout") || simple.endsWith("TabView") || simple.endsWith("Tab")) return "tab";
         if (node.isClickable()) return "button";
         return node.getChildCount() > 0 ? "group" : "view";
     }

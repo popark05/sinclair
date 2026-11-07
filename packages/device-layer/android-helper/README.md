@@ -14,7 +14,7 @@
 | `GET /dump` | 활성 창의 접근성 트리. `packages/protocol` 의 `SemanticNode`(루트 객체). `ref` 는 이 dump 안에서만 유효한 DFS 순번 `@e0…` |
 | 그 외 | 404. 토큰 없음/불일치 401, GET 외 405 |
 
-`/dump` 의 노드: `ref`, `role`(className 과 clickable 로 결정: button/textbox/checkbox/switch/radio/image/text/list/scrollable/webview/slider/combobox/tab/group/view), `name`(contentDescription), `text`, `testId`(resource-id), `placeholder`(hint), `rect`(화면 좌표, 정수), `states`(true 인 것만: focused/selected/checked/disabled/secure), `children`(화면에 보이는 자식만). 비밀번호 필드의 `text` 는 비운다. 계약 테스트: `packages/protocol/test/helper-dump.contract.test.ts` (실기기 샘플 `fixtures/helper-dump.sample.json`).
+`/dump` 의 노드: `ref`, `role`(className 과 clickable 로 결정: button/textbox/checkbox/switch/radio/image/text/list/scrollable/webview/slider/combobox/tab/group/view), `name`(contentDescription), `text`(보이는 글자) 또는 `value`(textbox 의 입력 내용, slider 의 현재값), `testId`(resource-id), `placeholder`(hint), `rect`(화면 좌표, 정수), `states`(true 인 것만: focused/selected/checked/disabled/secure), `children`(화면에 보이는 자식만). 비밀번호 필드의 `value` 는 비운다. 활성 창이 없으면 `role: view`, 크기 0 인 노드 하나를 돌려준다. 계약 테스트: `packages/protocol/test/helper-dump.contract.test.ts` (실기기 샘플 `fixtures/helper-dump.sample.json`).
 
 ## 빌드
 
@@ -52,5 +52,5 @@ curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:38300/dump | python3 -m 
 ## 주의
 
 - `adb` 를 쓰면 adb server 가 USB 인터페이스를 점유한다. 디바이스 레이어의 직접 USB 경로(`SINCLAIR_TEST_USB`, `SINCLAIR_VERIFY_BACKEND=android`)를 쓰려면 `adb kill-server` 를 먼저 한다.
-- 접근성 서비스는 기기가 재부팅돼도 설정이 유지되지만, 앱을 재설치하면 꺼진다(다시 `settings put`).
+- 접근성 서비스는 기기가 재부팅돼도 설정이 유지되지만, 앱을 재설치하면 꺼진다(다시 `settings put`). 세션 토큰은 메모리에만 있어 서비스 재시작·재부팅 때 사라진다. 호스트(티켓 04)는 `/ping` 이 401 이면 토큰을 다시 보낸다.
 - Android 13+ 에서 사이드로드 앱의 접근성 서비스는 설정 화면에서 "제한된 설정" 으로 막히지만 `settings put` 경로는 영향이 없다.

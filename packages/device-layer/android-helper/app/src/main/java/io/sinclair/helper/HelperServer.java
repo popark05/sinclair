@@ -7,15 +7,13 @@ import android.util.Log;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.util.Locale;
 
 /**
  * 최소 HTTP/1.1 서버(GET 만, 연결마다 닫음). 127.0.0.1 에만 바인딩하고 Bearer 토큰을 요구한다.
@@ -25,6 +23,14 @@ import java.util.Locale;
  *   GET /dump  → 활성 창의 접근성 트리(SemanticNode JSON, 루트 객체)
  */
 final class HelperServer extends Thread {
+    /** 호스트는 adb forward 를 거쳐 요청 하나씩 보내므로 동시 연결은 몇 개면 충분하다. 넘치면 커널이 거절한다. */
+    private static final int BACKLOG = 8;
+    /** 느린 클라이언트가 워커 스레드를 붙들지 못하게 한다. 루프백 + adb forward 에서 정상 요청은 수 ms 안에 끝난다. */
+    private static final int SOCKET_TIMEOUT_MS = 5_000;
+    /** 요청 줄·헤더 한 줄의 최대 길이와 헤더 수. 넘기면 400. 메모리 소진 방지. */
+    private static final int MAX_LINE_BYTES = 8 * 1024;
+    private static final int MAX_HEADERS = 64;
+
     private final AccessibilityService service;
     private final int port;
     private volatile ServerSocket socket;
@@ -39,7 +45,7 @@ final class HelperServer extends Thread {
     @Override
     public void run() {
         try {
-            socket = new ServerSocket(port, 8, InetAddress.getLoopbackAddress());
+            socket = new ServerSocket(port, BACKLOG, InetAddress.getLoopbackAddress());
             while (!isInterrupted()) {
                 Socket client = socket.accept();
                 Thread worker = new Thread(() -> handle(client), "SinclairHelperConn");
@@ -61,32 +67,42 @@ final class HelperServer extends Thread {
 
     private void handle(Socket client) {
         try (Socket c = client) {
-            c.setSoTimeout(5000);
-            BufferedReader in = new BufferedReader(new InputStreamReader(c.getInputStream(), StandardCharsets.ISO_8859_1));
-            String requestLine = in.readLine();
+            c.setSoTimeout(SOCKET_TIMEOUT_MS);
+            InputStream in = c.getInputStream();
+            OutputStream out = c.getOutputStream();
+
+            String requestLine = readLine(in);
             if (requestLine == null) return;
+            if (requestLine.length() >= MAX_LINE_BYTES) {
+                respond(out, 400, "Bad Request", errorBody("요청 줄이 너무 깁니다"));
+                return;
+            }
             String[] parts = requestLine.split(" ");
             String method = parts.length > 0 ? parts[0] : "";
             String path = parts.length > 1 ? parts[1] : "/";
             int q = path.indexOf('?');
             if (q >= 0) path = path.substring(0, q);
 
-            String bearer = null;
-            for (String line = in.readLine(); line != null && !line.isEmpty(); line = in.readLine()) {
+            String authorization = null;
+            for (int n = 0; ; n++) {
+                String line = readLine(in);
+                if (line == null || line.isEmpty()) break;
+                if (n >= MAX_HEADERS || line.length() >= MAX_LINE_BYTES) {
+                    respond(out, 400, "Bad Request", errorBody("헤더가 너무 많거나 깁니다"));
+                    return;
+                }
                 int colon = line.indexOf(':');
-                if (colon < 0) continue;
-                String name = line.substring(0, colon).trim().toLowerCase(Locale.ROOT);
-                String value = line.substring(colon + 1).trim();
-                if (name.equals("authorization") && value.startsWith("Bearer ")) bearer = value.substring(7);
+                if (colon > 0 && line.substring(0, colon).trim().equalsIgnoreCase("Authorization")) {
+                    authorization = line.substring(colon + 1).trim();
+                }
             }
 
-            OutputStream out = c.getOutputStream();
-            if (!SessionToken.matches(bearer)) {
-                respond(out, 401, "Unauthorized", json("error", SessionToken.isSet() ? "토큰 불일치" : "세션 토큰이 설정되지 않음"));
+            if (!HelperAuth.accepts(authorization)) {
+                respond(out, 401, "Unauthorized", errorBody(HelperAuth.locked() ? "세션 토큰이 설정되지 않음" : "토큰 불일치"));
                 return;
             }
             if (!method.equals("GET")) {
-                respond(out, 405, "Method Not Allowed", json("error", "GET 만 지원"));
+                respond(out, 405, "Method Not Allowed", errorBody("GET 만 지원"));
                 return;
             }
             switch (path) {
@@ -97,14 +113,27 @@ final class HelperServer extends Thread {
                     respond(out, 200, "OK", new TreeDumper(service).dumpActiveWindow().toString());
                     break;
                 default:
-                    respond(out, 404, "Not Found", json("error", "알 수 없는 경로: " + path));
+                    respond(out, 404, "Not Found", errorBody("알 수 없는 경로: " + path));
             }
         } catch (Exception e) {
+            // 내부 사정은 logcat 에만 남기고 응답에는 싣지 않는다.
             Log.w(SinclairAccessibilityService.TAG, "요청 처리 실패", e);
             try {
-                respond(client.getOutputStream(), 500, "Internal Server Error", json("error", String.valueOf(e.getMessage())));
+                respond(client.getOutputStream(), 500, "Internal Server Error", errorBody("처리 실패. adb logcat -s SinclairHelper 참고"));
             } catch (IOException ignored) {}
         }
+    }
+
+    /** CRLF 로 끝나는 한 줄(ISO-8859-1). 스트림이 먼저 끝나면 null. MAX_LINE_BYTES 에서 읽기를 멈춘다. */
+    private static String readLine(InputStream in) throws IOException {
+        StringBuilder sb = new StringBuilder(128);
+        int b;
+        while ((b = in.read()) >= 0) {
+            if (b == '\n') break;
+            if (b != '\r') sb.append((char) b);
+            if (sb.length() >= MAX_LINE_BYTES) break;
+        }
+        return b < 0 && sb.length() == 0 ? null : sb.toString();
     }
 
     private String ping() throws JSONException {
@@ -116,9 +145,9 @@ final class HelperServer extends Thread {
         return o.toString();
     }
 
-    private static String json(String key, String value) {
+    private static String errorBody(String message) {
         try {
-            return new JSONObject().put(key, value).toString();
+            return new JSONObject().put("error", message).toString();
         } catch (JSONException e) {
             return "{}";
         }

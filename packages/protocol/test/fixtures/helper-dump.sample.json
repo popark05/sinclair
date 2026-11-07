@@ -113,13 +113,13 @@
                         {
                             "ref": "@e10",
                             "role": "view",
-                            "name": "오전11:37",
+                            "name": "오전11:42",
                             "testId": "com.samsung.android.app.aodservice:id/common_time_area",
                             "rect": {
                                 "x": 300,
-                                "y": 542,
+                                "y": 543,
                                 "width": 480,
-                                "height": 139
+                                "height": 138
                             }
                         },
                         {
