@@ -132,8 +132,19 @@ describe('Reporter', () => {
     const report = await runTests([fixture('mixed.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 200, reporter });
     vexpect(report.summary).toEqual({ passed: 2, failed: 1, blocked: 0, skipped: 1 });
     vexpect(n).toBe(report.events.length); // 한 번 실패해도 다음 이벤트는 계속 전달
-    vexpect(report.warnings?.filter((w) => w.includes('전송 실패'))).toHaveLength(4); // attempt.started 4개
+    vexpect(report.warnings?.filter((w) => w.includes('전송 실패'))).toHaveLength(report.events.filter((e) => e.type === 'attempt.started').length);
     vexpect(report.warnings?.some((w) => w.includes('flush 실패'))).toBe(true);
+  });
+
+  it('onEvent 가 영영 끝나지 않아도 테스트 진행은 막히지 않는다', async () => {
+    const order: string[] = [];
+    const reporter: Reporter = { onEvent: (e) => { order.push(e.type); return new Promise(() => {}); } };
+    const started = Date.now();
+    const report = await runTests([fixture('mixed.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 200, reporter, reporterFlushTimeoutMs: 100 });
+    vexpect(report.summary).toEqual({ passed: 2, failed: 1, blocked: 0, skipped: 1 });
+    vexpect(order.at(-1)).toBe('run.finished'); // 모든 이벤트가 끝까지 전달됐고 그 사이 테스트가 진행됨
+    vexpect(Date.now() - started).toBeLessThan(2000);
+    vexpect(report.warnings?.some((w) => w.includes('flush'))).toBe(true);
   });
 
   it('flush 가 기한 안에 끝나지 않으면 경고와 함께 리포트를 돌려준다', async () => {

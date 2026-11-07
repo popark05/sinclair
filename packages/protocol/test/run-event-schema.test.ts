@@ -12,6 +12,7 @@ const VALID: RunEvent[] = [
   { ...base, type: 'step.recorded', attemptId: 'a1', stepIndex: 1, kind: 'act', cache: 'replayed', modelCalls: 0, durationMs: 10 },
   { ...base, type: 'attempt.finished', attemptId: 'a1', result: 'failed', errorCode: 'not-found', artifacts: [{ kind: 'screenshot', key: 'a1.screenshot.png' }] },
   { ...base, type: 'run.finished', state: 'infra-failed' },
+  { ...base, at: '2026-11-07T09:00:00+09:00', type: 'step.recorded', attemptId: 'a1', stepIndex: 2, kind: 'locator', instruction: '', modelCalls: 0, durationMs: 0 }, // 오프셋 타임존, 빈 instruction 허용
 ];
 
 describe('parseRunEvent', () => {
@@ -38,6 +39,11 @@ describe('parseRunEvent', () => {
     ['모르는 키 (닫힌 스키마)', { ...base, type: 'run.finished', state: 'finished', extra: 1 }, /extra/],
     ['필드 타입 불일치 (attemptNo 문자열)', { ...base, type: 'attempt.started', attemptId: 'a1', testId: 't', attemptNo: '1' }, /attemptNo/],
     ['at 이 ISO 8601 이 아님', { ...base, at: '어제', type: 'run.finished', state: 'finished' }, /at/],
+    ['at 에 타임존이 없음', { ...base, at: '2026-11-07T00:00:00', type: 'run.finished', state: 'finished' }, /at/],
+    ['artifacts 원소에 모르는 키', { ...base, type: 'attempt.finished', attemptId: 'a1', result: 'passed', artifacts: [{ kind: 'trace', key: 'x', size: 1 }] }, /artifacts/],
+    ['errorCode 가 빈 문자열', { ...base, type: 'attempt.finished', attemptId: 'a1', result: 'failed', errorCode: '', artifacts: [] }, /errorCode/],
+    ['stepIndex 가 음수', { ...base, type: 'step.recorded', attemptId: 'a1', stepIndex: -1, kind: 'act', modelCalls: 0, durationMs: 1 }, /stepIndex/],
+    ['attemptNo 가 0', { ...base, type: 'attempt.started', attemptId: 'a1', testId: 't', attemptNo: 0 }, /attemptNo/],
   ])('거부: %s', (_, input, pattern) => {
     const r = parseRunEvent(input);
     expect(r.ok).toBe(false);

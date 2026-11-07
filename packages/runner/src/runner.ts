@@ -60,7 +60,7 @@ export interface RunReport {
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
-/** 전송은 보통 수십 ms 지만, 마지막 배치 재시도까지 감안해 넉넉히 잡는다 */
+/** Reporter 가 원격 전송일 때 마지막 이벤트들의 왕복을 기다릴 여유. 로컬 Reporter 는 즉시 끝난다 */
 const DEFAULT_FLUSH_TIMEOUT_MS = 10_000;
 
 export async function runTests(files: string[], options: RunOptions): Promise<RunReport> {
@@ -77,11 +77,12 @@ export async function runTests(files: string[], options: RunOptions): Promise<Ru
     const parsed = parseRunEvent(event);
     if (!parsed.ok) warnings.push(`이벤트 ${event.type} 검증 실패: ${parsed.errors.join(', ')}`);
     if (!options.reporter) return;
+    const failed = (err: unknown) => { warnings.push(`Reporter onEvent(${event.type}) 실패: ${errorMessage(err)}`); };
     try {
       const r = options.reporter.onEvent(event);
-      if (r) pending.push(r.catch((err: unknown) => { warnings.push(`Reporter onEvent(${event.type}) 실패: ${message(err)}`); }));
+      if (r) pending.push(r.catch(failed));
     } catch (err) {
-      warnings.push(`Reporter onEvent(${event.type}) 실패: ${message(err)}`);
+      failed(err);
     }
   };
   emit({
@@ -105,7 +106,8 @@ export async function runTests(files: string[], options: RunOptions): Promise<Ru
   // blocked(기기·헬퍼 불가)는 테스트 판정이 아니라 인프라 문제라 Run 은 infra-failed
   emit({ ...base(), type: 'run.finished', state: summary.blocked > 0 ? 'infra-failed' : 'finished' });
   await flushReporter();
-  return { runId, tests, summary, events, ...(warnings.length ? { warnings } : {}) };
+  // flush 기한을 넘긴 Reporter 가 나중에 경고를 더해도 리포트는 바뀌지 않도록 복사한다
+  return { runId, tests, summary, events, ...(warnings.length ? { warnings: [...warnings] } : {}) };
 
   async function flushReporter(): Promise<void> {
     if (!options.reporter) return;
@@ -115,7 +117,7 @@ export async function runTests(files: string[], options: RunOptions): Promise<Ru
     const work = (async () => {
       await Promise.all(pending);
       await options.reporter!.flush?.();
-    })().then(() => 'done' as const, (err: unknown) => { warnings.push(`Reporter flush 실패: ${message(err)}`); return 'done' as const; });
+    })().then(() => 'done' as const, (err: unknown) => { warnings.push(`Reporter flush 실패: ${errorMessage(err)}`); return 'done' as const; });
     const outcome = await Promise.race([work, timeout]);
     clearTimeout(timer);
     if (outcome === 'timeout') warnings.push(`Reporter flush 가 ${limit}ms 안에 끝나지 않아 기다리지 않음`);
@@ -125,7 +127,7 @@ export async function runTests(files: string[], options: RunOptions): Promise<Ru
     const attemptId = randomUUID();
     const steps: StepRecorded[] = [];
     const artifacts: AttemptFinished['artifacts'] = [];
-    const warnings: string[] = [];
+    const attemptWarnings: string[] = [];
     const started = Date.now();
     emit({ ...base(), type: 'attempt.started', attemptId, testId: tc.name, attemptNo: 1 });
 
@@ -134,7 +136,7 @@ export async function runTests(files: string[], options: RunOptions): Promise<Ru
       emit({ ...base(), type: 'attempt.finished', attemptId, result, ...(errorCode ? { errorCode } : {}), artifacts });
       return {
         name: tc.name, file, result, durationMs: Date.now() - started, steps, artifacts,
-        ...(error ? { error: error.message } : {}), ...(errorCode ? { errorCode } : {}), ...(warnings.length ? { warnings } : {}),
+        ...(error ? { error: error.message } : {}), ...(errorCode ? { errorCode } : {}), ...(attemptWarnings.length ? { warnings: attemptWarnings } : {}),
       };
     };
 
@@ -167,9 +169,9 @@ export async function runTests(files: string[], options: RunOptions): Promise<Ru
     } catch (e) {
       const error = e instanceof Error ? e : new Error(String(e));
       const blocked = error instanceof EngineError && error.code === 'device-unavailable';
-      await capture(attemptId).catch((err: unknown) => warnings.push(`아티팩트 저장 실패: ${err instanceof Error ? err.message : String(err)}`));
+      await capture(attemptId).catch((err: unknown) => attemptWarnings.push(`아티팩트 저장 실패: ${errorMessage(err)}`));
       // 실패한 테스트가 남긴 앱 상태를 바로 버린다(마지막 테스트여도). 기기가 없으면 restart 도 안 되므로 건너뛴다
-      if (!blocked) await session('restart').catch((err: unknown) => warnings.push(`restart 실패: ${err instanceof Error ? err.message : String(err)}`));
+      if (!blocked) await session('restart').catch((err: unknown) => attemptWarnings.push(`restart 실패: ${errorMessage(err)}`));
       return finish(blocked ? 'blocked' : 'failed', error);
     }
 
@@ -200,6 +202,6 @@ export async function runTests(files: string[], options: RunOptions): Promise<Ru
   }
 }
 
-function message(err: unknown): string {
+function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
