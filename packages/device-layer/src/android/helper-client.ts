@@ -1,7 +1,7 @@
 // 온디바이스 헬퍼(packages/device-layer/android-helper)와의 HTTP 세션. adb forward 터널 위에서 Bearer 토큰으로 말한다.
 import * as http from 'node:http';
 import { randomBytes } from 'node:crypto';
-import type { SemanticNode } from '@sinclair/protocol';
+import type { ScreenshotResult, SemanticNode } from '@sinclair/protocol';
 import type { Dadb } from '../adb/dadb.ts';
 import type { AdbTunnel } from '../adb/services/forward.ts';
 
@@ -21,6 +21,9 @@ export class HelperHttpError extends Error {
 }
 
 export interface HelperPing { ok: boolean; version: string; sdk: number }
+
+/** 헬퍼 /snapshot 응답. screenshot 이 없으면 원자 캡처 실패(detail 에 이유). */
+export interface HelperSnapshot { root: SemanticNode; atomic: boolean; screenshot?: ScreenshotResult; detail?: string }
 
 export class HelperSession {
   /** 호스트 임의 포트 → 기기 HELPER_PORT 터널을 열고 세션 토큰을 만든다(아직 기기에 보내지는 않음). */
@@ -46,6 +49,10 @@ export class HelperSession {
 
   dump(): Promise<SemanticNode> {
     return this.get('/dump') as Promise<SemanticNode>;
+  }
+
+  snapshot(): Promise<HelperSnapshot> {
+    return this.get('/snapshot') as Promise<HelperSnapshot>;
   }
 
   close(): Promise<void> {

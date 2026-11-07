@@ -1,3 +1,4 @@
+import type { SemanticNode } from './engine.ts';
 // 디바이스 레이어 JSON-RPC 메서드 이름. OpenRPC 문서는 이 목록에서 생성한다.
 // 명명 체계는 mobilecli(FSL)의 설계를 참고했으며 구현은 독자적으로 한다.
 
@@ -7,6 +8,7 @@ export const DEVICE_RPC_METHODS = [
   'device.screenshot',
   'device.screencapture',
   'device.dump.ui',
+  'device.snapshot',
   'device.io.tap',
   'device.io.longpress',
   'device.io.swipe',
@@ -110,6 +112,7 @@ export interface DeviceRpcParams {
   'device.info': DeviceParams;
   'device.screenshot': DeviceParams;
   'device.dump.ui': DeviceParams;
+  'device.snapshot': DeviceParams;
   'device.io.tap': TapParams;
   'device.io.longpress': LongPressParams;
   'device.io.swipe': SwipeParams;
@@ -123,3 +126,17 @@ export interface DeviceRpcParams {
 
 /** `device.screenshot` 결과 */
 export interface ScreenshotResult { format: 'png'; base64: string }
+
+/**
+ * `device.snapshot` 결과: 같은 순간의 스크린샷과 UI 트리. 녹화 캐시 재생의 앵커 검사가 "그 트리의 그 화면" 을 전제한다.
+ * atomic 이 false 면 헬퍼가 원자 캡처를 못 해(Android 11 미만, takeScreenshot 간격 제한 등) 스크린샷을 screencap 으로 따로 찍은 것이다.
+ */
+export interface SnapshotResult {
+  screenshot: ScreenshotResult;
+  root: SemanticNode;
+  atomic: boolean;
+  /** ISO 8601, 호스트 기준 */
+  capturedAt: string;
+  /** atomic 이 false 인 이유 */
+  detail?: string;
+}

@@ -41,6 +41,8 @@ export class FakeUsbDevice implements UsbDeviceLike {
   claimFailures = 0;
   /** ADB 인터페이스가 없는 기기(키보드 등). */
   hasAdb = true;
+  /** true 면 헤더와 payload 를 한 전송으로 보낸다(일부 adbd 가 그렇게 보내 한 패킷에 헤더+본문 앞부분이 섞인다). */
+  coalesceWrites = false;
 
   readonly outTransfers: number[] = [];
   readonly clearedHalts: string[] = [];
@@ -199,8 +201,12 @@ export class FakeUsbDevice implements UsbDeviceLike {
   // FakeDevice가 보낸 메시지 하나(헤더+payload)를 adbd처럼 두 전송으로 나눈다.
   private fromDevice(bytes: Uint8Array): void {
     const buffer = Buffer.from(bytes);
-    this.queue.push(buffer.subarray(0, 24));
-    if (buffer.length > 24) this.queue.push(buffer.subarray(24));
+    if (this.coalesceWrites) {
+      this.queue.push(buffer);
+    } else {
+      this.queue.push(buffer.subarray(0, 24));
+      if (buffer.length > 24) this.queue.push(buffer.subarray(24));
+    }
     this.wake();
   }
 

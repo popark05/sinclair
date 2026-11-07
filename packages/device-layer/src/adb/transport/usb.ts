@@ -25,6 +25,7 @@ import {
   AdbUsbAccessException
 } from '../errors.ts';
 import { HEADER_LENGTH } from '../protocol/constants.ts';
+import { ADB_TRACE, adbTrace } from '../trace.ts';
 
 /** ADB 인터페이스 식별자(AOSP adb: ADB_CLASS/ADB_SUBCLASS/ADB_PROTOCOL). */
 export const ADB_CLASS = 0xff;
@@ -172,8 +173,13 @@ export interface UsbTransportOptions {
 }
 
 const DEFAULT_WRITE_TIMEOUT = 10_000;
-/** open 직후 잔여 입력을 버리는 시간. 잔여 패킷은 즉시 읽히므로 짧아도 되고, 연결마다 한 번 치르는 비용이다. */
-const STALE_INPUT_SETTLE_MS = 100;
+/**
+ * open 직후 잔여 입력 버리기: 이 시간 동안 아무것도 안 오면 끝난 것으로 본다(연결마다 한 번 치르는 비용).
+ * 이전 세션이 큰 응답(수 MB 스크린샷)을 받다 끊기면 adbd 가 그 스트림의 미확인 WRTE 를 한동안 계속 보내므로 고정 시간이 아니라 "조용해질 때까지" 기다린다.
+ */
+const STALE_INPUT_QUIET_MS = 150;
+/** 잔여 입력 버리기의 상한. 스트림당 미확인 WRTE 는 1개(≤1MB)라 실제로는 수백 ms 안에 조용해진다. */
+const STALE_INPUT_MAX_MS = 3_000;
 const DEFAULT_IDLE_POLL = 1_000;
 const DEFAULT_PAYLOAD_TIMEOUT = 30_000;
 const CLAIM_RETRY_DELAY = 300;
@@ -184,6 +190,11 @@ export class UsbTransport implements AdbTransport {
   private discarding = true;
   /** 읽기 루프가 헤더의 첫 바이트를 기다리는 중(= 패킷 경계)이면 true. */
   private atPacketBoundary = true;
+  /** 헤더 패킷에 섞여 온 본문 앞부분. 다음 readExact 가 먼저 소비한다. */
+  private pending: Buffer | undefined;
+  /** 잔여 입력 버리기 통계. */
+  private lastDiscardedAt = 0;
+  private discardedBytes = 0;
   private readonly closeListeners: Array<(error?: Error) => void> = [];
   private closed = false;
   private closeError: Error | undefined;
@@ -252,11 +263,16 @@ export class UsbTransport implements AdbTransport {
    * 그래서 평소 읽기 루프를 그대로 돌리되 리스너에 전달하지 않고, 패킷 경계에서 넘긴다.
    */
   private async discardStaleInput(): Promise<void> {
-    const until = Date.now() + STALE_INPUT_SETTLE_MS;
-    while (Date.now() < until || !this.atPacketBoundary) {
+    const started = Date.now();
+    this.lastDiscardedAt = started;
+    for (;;) {
       if (this.closed) break;
+      const quietFor = Date.now() - this.lastDiscardedAt;
+      if (this.atPacketBoundary && quietFor >= STALE_INPUT_QUIET_MS) break;
+      if (Date.now() - started >= STALE_INPUT_MAX_MS && this.atPacketBoundary) break;
       await new Promise((r) => setTimeout(r, 10));
     }
+    if (ADB_TRACE && this.discardedBytes > 0) adbTrace(`usb open: 이전 세션 잔여 ${this.discardedBytes} bytes 버림 (${Date.now() - started}ms)`);
     this.discarding = false;
   }
 
@@ -333,14 +349,26 @@ export class UsbTransport implements AdbTransport {
   private async readExact(n: number, idle: boolean): Promise<Buffer | null> {
     const parts: Buffer[] = [];
     let have = 0;
+    // 지난 읽기에서 남은 바이트(헤더 패킷에 본문 앞부분이 섞여 온 경우)를 먼저 쓴다.
+    if (this.pending) {
+      const take = this.pending.subarray(0, n);
+      this.pending = this.pending.length > n ? this.pending.subarray(n) : undefined;
+      parts.push(take);
+      have = take.length;
+    }
     while (have < n) {
       if (this.closed) return null;
       const waitingForFirstByte = idle && have === 0;
+      // 헤더(24바이트)는 패킷 하나를 통째로 요청한다: 일부 adbd 는 헤더와 본문을 한 전송으로 보내 한 패킷에 섞이는데,
+      // node-usb 가 요청 길이로 잘라내면 초과분이 사라져 스트림이 어긋난다(실기기 Samsung 에서 관찰). 헤더만 오면 짧은
+      // 패킷이라 전송이 바로 끝나고, 섞여 오면 가득 찬 패킷이 바로 돌아오므로 교착은 없다. 본문은 정확한 길이만 요청한다
+      // (패킷 크기 배수인 본문에서 ZLP 없이 전송이 끝나지 않는 교착을 피하기 위해).
+      const request = idle && have === 0 ? Math.max(n, this.adbInterface.packetSize) : n - have;
       let result: { data?: DataView; status: string };
       try {
         result = await this.device.transferIn(
           this.adbInterface.inEndpoint,
-          n - have,
+          request,
           waitingForFirstByte ? this.options.idlePollMs : this.options.payloadTimeoutMs
         );
       } catch (e) {
@@ -350,20 +378,33 @@ export class UsbTransport implements AdbTransport {
       if (result.status !== 'ok') throw new Error(`transferIn status: ${result.status}`);
       const view = result.data;
       if (!view || view.byteLength === 0) continue; // ZLP
-      parts.push(Buffer.from(view.buffer, view.byteOffset, view.byteLength));
-      have += view.byteLength;
+      const chunk = Buffer.from(view.buffer, view.byteOffset, view.byteLength);
+      const need = n - have;
+      if (chunk.length > need) {
+        this.pending = chunk.subarray(need);
+        parts.push(chunk.subarray(0, need));
+        have = n;
+      } else {
+        parts.push(chunk);
+        have += chunk.length;
+      }
     }
     return parts.length === 1 ? parts[0]! : Buffer.concat(parts);
   }
 
   private emit(chunk: Buffer): void {
-    if (this.discarding) return;
+    if (this.discarding) {
+      this.lastDiscardedAt = Date.now();
+      this.discardedBytes += chunk.length;
+      return;
+    }
     for (const listener of this.dataListeners) listener(chunk);
   }
 
   /** 닫기(멱등): 읽기 루프가 멈추길 잠깐 기다린 뒤 인터페이스를 놓고 기기를 닫는다. */
   private shutdown(error?: Error): Promise<void> {
     if (this.releasing) return this.releasing;
+    if (ADB_TRACE && error) adbTrace(`usb shutdown: ${error.message}${error.cause instanceof Error ? ` <- ${error.cause.message}` : ''}`);
     this.closed = true;
     this.closeError = error;
     this.releasing = (async () => {

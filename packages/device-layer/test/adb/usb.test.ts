@@ -277,3 +277,15 @@ describe('UsbTransport.open: 이전 세션 잔여 데이터', () => {
     expect(phone.shellCommands).toEqual(['echo hi']);
   });
 });
+
+describe('UsbTransport: 헤더와 payload 가 한 전송에 섞여 와도 읽는다', () => {
+  it('짧은 응답과 패킷 여러 개짜리 큰 응답 모두 정확히 받고 다음 메시지와 어긋나지 않는다', async () => {
+    const { phone, usbDevice, dadb } = setup({ idlePollMs: 20 });
+    usbDevice.coalesceWrites = true;
+    expect((await dadb.shell('echo hi')).output).toBe('hi\n');
+    const big = 'x'.repeat(3000);
+    expect((await dadb.shell(`echo ${big}`)).output).toBe(`${big}\n`);
+    expect((await dadb.shell('echo after')).output).toBe('after\n');
+    expect(phone.shellCommands).toEqual(['echo hi', `echo ${big}`, 'echo after']);
+  });
+});

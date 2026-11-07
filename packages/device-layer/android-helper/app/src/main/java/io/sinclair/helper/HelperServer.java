@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets;
  * 라우트:
  *   GET /ping  → {"ok":true,"version":"<versionName>","sdk":<API>,"service":"ready"}
  *   GET /dump  → 활성 창의 접근성 트리(SemanticNode JSON, 루트 객체)
+ *   GET /snapshot → {"root":…, "atomic":true, "screenshot":{"format":"png","base64":…}} 또는 {"root":…, "atomic":false, "detail":…}
  */
 final class HelperServer extends Thread {
     /** 호스트는 adb forward 를 거쳐 요청 하나씩 보내므로 동시 연결은 몇 개면 충분하다. 넘치면 커널이 거절한다. */
@@ -112,6 +113,9 @@ final class HelperServer extends Thread {
                 case "/dump":
                     respond(out, 200, "OK", new TreeDumper(service).dumpActiveWindow().toString());
                     break;
+                case "/snapshot":
+                    respond(out, 200, "OK", snapshot());
+                    break;
                 default:
                     respond(out, 404, "Not Found", errorBody("알 수 없는 경로: " + path));
             }
@@ -134,6 +138,25 @@ final class HelperServer extends Thread {
             if (sb.length() >= MAX_LINE_BYTES) break;
         }
         return b < 0 && sb.length() == 0 ? null : sb.toString();
+    }
+
+    /**
+     * 같은 순간의 스크린샷과 트리. takeScreenshot 은 호출 즉시 시스템이 프레임을 잡으므로, 그 직후(콜백 대기 전이 아닌
+     * 호출 직후) 트리를 읽어 둘을 같은 순간에 맞춘다. 스크린샷이 실패하면 트리만 atomic:false 로 돌려준다.
+     */
+    private String snapshot() throws JSONException {
+        ScreenCapture.Result shot = ScreenCapture.capture(service);
+        JSONObject root = new TreeDumper(service).dumpActiveWindow();
+        JSONObject o = new JSONObject();
+        o.put("root", root);
+        if (shot.pngBase64 != null) {
+            o.put("atomic", true);
+            o.put("screenshot", new JSONObject().put("format", "png").put("base64", shot.pngBase64));
+        } else {
+            o.put("atomic", false);
+            o.put("detail", shot.detail);
+        }
+        return o.toString();
     }
 
     private String ping() throws JSONException {

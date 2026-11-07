@@ -37,6 +37,7 @@ export function createDeviceServer(backends: DeviceBackend[]): RpcDispatcher {
     return result;
   });
   d.register('device.dump.ui', async (p) => { const id = str(p, 'deviceId'); return (await find(id)).dumpUi(id); });
+  d.register('device.snapshot', async (p) => { const id = str(p, 'deviceId'); return (await find(id)).snapshot(id); });
   d.register('device.io.tap', async (p) => { const id = str(p, 'deviceId'); await (await find(id)).tap(id, point(p)); return null; });
   d.register('device.io.longpress', async (p) => { const id = str(p, 'deviceId'); await (await find(id)).longPress(id, point(p), num(p, 'durationMs', 800)); return null; });
   d.register('device.io.swipe', async (p) => {

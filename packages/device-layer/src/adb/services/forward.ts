@@ -9,6 +9,7 @@ import * as net from 'node:net';
 import { once } from 'node:events';
 import type { AdbStreamLike } from '../protocol/session.ts';
 import type { AdbOpener } from './opener.ts';
+import { ADB_TRACE, adbTrace } from '../trace.ts';
 
 export interface AdbTunnel {
   /** 실제 바인딩된 호스트 포트(hostPort에 0을 주면 임의 포트). */
@@ -119,8 +120,9 @@ export function pipeSocketAndStream(socket: net.Socket, stream: AdbStreamLike): 
         if (chunk === null || done) break;
         if (!socket.write(chunk)) await once(socket, 'drain');
       }
-    } catch {
+    } catch (e) {
       // 연결 오류: 아래에서 정리.
+      if (ADB_TRACE) adbTrace(`forward 기기→소켓 오류: ${e instanceof Error ? e.message : String(e)}`);
     }
     if (done) return;
     clearTimeout(flushTimer);

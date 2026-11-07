@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   RUN_EVENT_TYPES, DEVICE_RPC_METHODS, ATTEMPT_RESULTS, CACHE_DECISIONS, NETWORK_MODES,
   capabilitiesOf, type Engine, type RunEvent,
-  DEVICE_CONNECTION_STATES, DEVICE_PLATFORMS, DEVICE_BUTTONS, HELPER_STATES, type DeviceInfo, type DeviceRpcParams,
+  DEVICE_CONNECTION_STATES, DEVICE_PLATFORMS, DEVICE_BUTTONS, HELPER_STATES, type DeviceInfo, type DeviceRpcParams, type SnapshotResult,
 } from '../src/index.ts';
 
 describe('protocol 계약', () => {
@@ -85,5 +85,22 @@ describe('DeviceInfo.helper 계약 (온디바이스 헬퍼 상태)', () => {
     const off: DeviceInfo = { ...ready, helper: { state: 'disabled', detail: '접근성 서비스가 꺼져 있음' } };
     expect(ready.helper?.state).toBe('ready');
     expect(off.helper?.detail).toContain('접근성');
+  });
+});
+
+describe('device.snapshot 계약 (스크린샷·트리 원자 캡처)', () => {
+  it('메서드 목록에 있고, 결과는 screenshot/root/atomic/capturedAt 을 가지며 원자성이 깨지면 detail 로 이유를 준다', () => {
+    expect(DEVICE_RPC_METHODS).toContain('device.snapshot');
+    const atomic: SnapshotResult = {
+      screenshot: { format: 'png', base64: 'iVBORw0KGgo=' },
+      root: { ref: '@e0', role: 'group' },
+      atomic: true,
+      capturedAt: '2026-11-07T00:00:00.000Z',
+    };
+    const fallback: SnapshotResult = { ...atomic, atomic: false, detail: 'takeScreenshot 호출 간격 제한' };
+    expect(Object.keys(atomic).sort()).toEqual(['atomic', 'capturedAt', 'root', 'screenshot']);
+    expect(fallback.detail).toBeDefined();
+    const p: DeviceRpcParams['device.snapshot'] = { deviceId: 'D' };
+    expect(p.deviceId).toBe('D');
   });
 });

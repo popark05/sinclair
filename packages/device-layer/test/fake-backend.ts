@@ -16,6 +16,9 @@ export class FakeBackend implements DeviceBackend {
   async info(id: string) { return (await this.listDevices()).find((d) => d.id === id)!; }
   async screenshot() { return new Uint8Array([0x89, 0x50, 0x4e, 0x47]); }
   async dumpUi() { return { ref: '@e0', role: 'root', children: [{ ref: '@e1', role: 'button', name: '로그인' }] }; }
+  async snapshot() {
+    return { screenshot: { format: 'png' as const, base64: Buffer.from(await this.screenshot()).toString('base64') }, root: await this.dumpUi(), atomic: true, capturedAt: new Date().toISOString() };
+  }
   async tap(_: string, p: Point) { await this.rec(`tap ${p.x},${p.y}`); }
   async longPress(_: string, p: Point, d: number) { await this.rec(`longpress ${p.x},${p.y} ${d}`); }
   async swipe(_: string, a: Point, b: Point) { await this.rec(`swipe ${a.x},${a.y}->${b.x},${b.y}`); }

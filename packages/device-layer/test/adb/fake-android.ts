@@ -29,6 +29,10 @@ export class FakeAndroid {
     /** true 면 SET_TOKEN 브로드캐스트를 무시한다(토큰 불일치 상황). */
     dropToken: false,
     version: '0.1.0',
+    /** /ping 의 sdk. 30 미만이면 /snapshot 이 스크린샷 없이 돌아온다(takeScreenshot 미지원). */
+    sdk: 33,
+    /** true 면 takeScreenshot 이 간격 제한(ERROR 3)으로 실패한 상황: 트리만 돌려준다. */
+    screenshotRateLimited: false,
     tree: { ref: '@e0', role: 'group', rect: { x: 0, y: 0, width: 1080, height: 2400 }, children: [{ ref: '@e1', role: 'button', name: '로그인', rect: { x: 10, y: 20, width: 100, height: 40 } }] } as unknown,
     requests: [] as string[],
   };
@@ -343,8 +347,13 @@ export class FakeAndroid {
     };
     if (!this.helper.token || auth !== `Bearer ${this.helper.token}`) return respond(401, { error: this.helper.token ? '토큰 불일치' : '세션 토큰이 설정되지 않음' });
     if (method !== 'GET') return respond(405, { error: 'GET 만 지원' });
-    if (path === '/ping') return respond(200, { ok: true, version: this.helper.version, sdk: 33, service: 'ready' });
+    if (path === '/ping') return respond(200, { ok: true, version: this.helper.version, sdk: this.helper.sdk, service: 'ready' });
     if (path === '/dump') return respond(200, this.helper.tree);
+    if (path === '/snapshot') {
+      if (this.helper.sdk < 30) return respond(200, { root: this.helper.tree, atomic: false, detail: 'takeScreenshot 은 Android 11(API 30) 이상에서만 지원' });
+      if (this.helper.screenshotRateLimited) return respond(200, { root: this.helper.tree, atomic: false, detail: 'takeScreenshot 호출 간격 제한(errorCode 3), 재시도 실패' });
+      return respond(200, { root: this.helper.tree, atomic: true, screenshot: { format: 'png', base64: this.screenshotPng.toString('base64') } });
+    }
     return respond(404, { error: `알 수 없는 경로: ${path}` });
   }
 

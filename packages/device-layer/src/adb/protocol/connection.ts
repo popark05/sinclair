@@ -235,6 +235,7 @@ export class AdbConnection implements StreamHost, AdbSession {
   }
 
   private failAll(error: AdbException): void {
+    if (ADB_TRACE) adbTrace(`connection failAll: ${error.message}`);
     this.closed = true;
     if (this.traceTimer) clearInterval(this.traceTimer);
     const streams = [...this.streams.values()];

@@ -82,3 +82,34 @@ describe.skipIf(!target)('AndroidBackend 실기기 헬퍼 온보딩·dump.ui', (
     expect(withId).toBeGreaterThan(0);
   }, APPROVAL_WAIT_MS + 20_000);
 });
+
+describe.skipIf(!target)('AndroidBackend 실기기 원자 스냅샷 (device.snapshot)', () => {
+  it('최근 앱 전환 애니메이션 중 snapshot: atomic:true, PNG 크기가 루트 rect 와 일치하고 증거가 .e2e/ 에 남는다', async () => {
+    const [device] = await backend.listDevices();
+    const id = target === '1' ? device!.id : target!;
+    let info = await backend.info(id);
+    for (let i = 0; i < 40 && info.helper?.state === 'pending'; i++) {
+      await new Promise((r) => setTimeout(r, 250));
+      info = await backend.info(id);
+    }
+    expect(info.helper?.state, JSON.stringify(info.helper)).toBe('ready');
+    await backend.keys(id, ['KEYCODE_WAKEUP']);
+    await backend.button(id, 'home');
+    await new Promise((r) => setTimeout(r, 400));
+    await backend.keys(id, ['KEYCODE_APP_SWITCH']); // 전환 애니메이션이 도는 동안 찍는다
+    const snap = await backend.snapshot(id);
+    await backend.button(id, 'back');
+
+    const png = Buffer.from(snap.screenshot.base64, 'base64');
+    expect(png.subarray(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    const width = png.readUInt32BE(16), height = png.readUInt32BE(20); // IHDR
+    expect(snap.atomic, snap.detail).toBe(true);
+    expect(snap.root.rect).toEqual({ x: 0, y: 0, width, height });
+
+    const dir = path.resolve(import.meta.dirname, '../../../.e2e/device-proof');
+    await fs.mkdir(dir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    await fs.writeFile(path.join(dir, `${stamp}-snapshot.png`), png);
+    await fs.writeFile(path.join(dir, `${stamp}-snapshot.json`), JSON.stringify({ ...snap, screenshot: { format: 'png', bytes: png.length } }, null, 2));
+  }, APPROVAL_WAIT_MS + 20_000);
+});

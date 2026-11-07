@@ -28,6 +28,10 @@ class LoggingFakeBackend implements DeviceBackend {
       { ref: '@e2', role: 'textbox', name: '아이디' },
     ] };
   }
+  async snapshot(id: string) {
+    this.log(id, 'snapshot');
+    return { screenshot: { format: 'png' as const, base64: Buffer.from(await this.screenshot()).toString('base64') }, root: await this.dumpUi(), atomic: true, capturedAt: new Date().toISOString() };
+  }
   async tap(id: string, p: Point) { this.log(id, `tap ${p.x},${p.y}`); }
   async longPress(id: string, p: Point, d: number) { this.log(id, `longpress ${p.x},${p.y} ${d}`); }
   async swipe(id: string, a: Point, b: Point, d: number) { this.log(id, `swipe ${a.x},${a.y}->${b.x},${b.y} ${d}`); }

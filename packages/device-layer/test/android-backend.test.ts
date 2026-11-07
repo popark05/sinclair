@@ -402,3 +402,76 @@ describe('JSON-RPC device.dump.ui', () => {
     expect(r.error?.message).toContain('not-installed');
   });
 });
+
+describe('AndroidBackend 스냅샷 (device.snapshot) 과 screenshot 의 헬퍼 우선', () => {
+  const apkPath = path.join(os.tmpdir(), `sinclair-fake-helper-snap-${process.pid}.apk`);
+  beforeAll(() => fs.writeFileSync(apkPath, Buffer.concat([Buffer.from('PK'), Buffer.alloc(64, 1)])));
+  afterAll(() => fs.rmSync(apkPath, { force: true }));
+
+  async function snapSetup(prepare?: (phone: FakeAndroid) => void) {
+    const phone = new FakeAndroid();
+    phone.installPackageName = phone.helper.pkg;
+    prepare?.(phone);
+    const usb = new FakeUsbBackend([new FakeUsbDevice(phone.services, 'PHONE1')]);
+    const backend = createAndroidBackend({
+      usbBackend: usb, helperApkPath: apkPath, helperRetryBackoffMs: 0, probeWaitMs: 5_000,
+      dadb: { keyPair: null, includeEmulators: false, usb: { idlePollMs: 20, claimRetries: 0 } },
+    });
+    cleanups.push(() => backend.close());
+    await backend.listDevices();
+    phone.shellCommands.length = 0;
+    return { phone, backend };
+  }
+
+  it('헬퍼가 원자 캡처를 지원하면 같은 응답에서 온 스크린샷과 트리를 atomic:true 로 돌려준다', async () => {
+    const { phone, backend } = await snapSetup();
+    const r = await backend.snapshot('PHONE1');
+    expect(r.atomic).toBe(true);
+    expect(r.screenshot).toEqual({ format: 'png', base64: phone.screenshotPng.toString('base64') });
+    expect(r.root).toMatchObject({ ref: '@e0', children: [{ ref: '@e1', role: 'button' }] });
+    expect(new Date(r.capturedAt).getTime()).toBeGreaterThan(0);
+    expect(phone.shellCommands).not.toContain('screencap -p');
+  });
+
+  it('takeScreenshot 간격 제한으로 실패하면 트리는 그대로, 스크린샷은 screencap 으로 따로 찍고 atomic:false 와 이유를 준다', async () => {
+    const { phone, backend } = await snapSetup((p) => { p.helper.screenshotRateLimited = true; });
+    const r = await backend.snapshot('PHONE1');
+    expect(r.atomic).toBe(false);
+    expect(r.detail).toContain('간격');
+    expect(r.screenshot.base64).toBe(phone.screenshotPng.toString('base64'));
+    expect(phone.shellCommands).toContain('screencap -p');
+  });
+
+  it('Android 11 미만(API<30)이면 헬퍼가 스크린샷을 못 찍어 screencap 으로 fallback 한다', async () => {
+    const { phone, backend } = await snapSetup((p) => { p.helper.sdk = 29; });
+    const r = await backend.snapshot('PHONE1');
+    expect(r.atomic).toBe(false);
+    expect(r.detail).toMatch(/Android 11|API 30/);
+    expect(phone.shellCommands).toContain('screencap -p');
+  });
+
+  it('screenshot 단독 호출도 헬퍼가 ready 면 헬퍼 경로를 쓰고, 아니면 screencap 을 쓴다', async () => {
+    const { phone, backend } = await snapSetup();
+    const png = await backend.screenshot('PHONE1');
+    expect(Buffer.from(png).equals(phone.screenshotPng)).toBe(true);
+    expect(phone.helper.requests).toContain('GET /snapshot');
+    expect(phone.shellCommands).not.toContain('screencap -p');
+
+    const off = await snapSetup((p) => { p.helper.sdk = 29; });
+    await off.backend.screenshot('PHONE1');
+    expect(off.phone.shellCommands).toContain('screencap -p');
+  });
+
+  it('헬퍼가 준비되지 않으면 snapshot 은 -32002 다(트리 없이 스크린샷만 줄 수는 없다)', async () => {
+    const { backend } = await snapSetup((p) => { p.failInstall = 'INSTALL_FAILED_TEST_ONLY'; });
+    await expect(backend.snapshot('PHONE1')).rejects.toMatchObject({ code: RPC_ERRORS.helperUnavailable });
+  });
+
+  it('JSON-RPC device.snapshot 이 결과를 그대로 노출한다', async () => {
+    const { backend } = await snapSetup();
+    const server = createDeviceServer([backend]);
+    const r = await server.handle({ jsonrpc: '2.0', id: 1, method: 'device.snapshot', params: { deviceId: 'PHONE1' } });
+    expect(r.error).toBeUndefined();
+    expect(r.result).toMatchObject({ atomic: true, screenshot: { format: 'png' }, root: { ref: '@e0' } });
+  });
+});

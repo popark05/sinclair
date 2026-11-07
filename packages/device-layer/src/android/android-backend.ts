@@ -2,7 +2,7 @@
 // 상태 판정 패턴은 EverMock의 direct-adb-adapter를 따른다.
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import type { DeviceButton, HelperInfo, SemanticNode } from '@sinclair/protocol';
+import type { DeviceButton, HelperInfo, SemanticNode, SnapshotResult } from '@sinclair/protocol';
 import type { DeviceBackend, DeviceInfo } from '../backend.ts';
 import { HELPER_PACKAGE, HELPER_SERVICE, HelperHttpError, HelperSession } from './helper-client.ts';
 import { Dadb, type DadbListOptions } from '../adb/dadb.ts';
@@ -284,23 +284,55 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
     return entry;
   }
 
-  async function dumpUi(deviceId: string): Promise<SemanticNode> {
+  /** 헬퍼가 준비된 세션으로 요청을 보낸다. 실패하면 온보딩을 다시 돌려 상태를 갱신하고 한 번 더 시도한다(서비스 꺼짐·토큰 소실 복구). */
+  async function withHelper<T>(deviceId: string, call: (session: HelperSession) => Promise<T>): Promise<T> {
     const entry = await tracked(deviceId);
     await entry.probe; // 연결 판정(과 그에 딸린 온보딩)이 진행 중이면 끝날 때까지
     if (entry.helper?.state !== 'ready') await ensureHelper(entry);
     let firstError: unknown;
     if (entry.helper?.state === 'ready' && entry.session) {
       try {
-        return await entry.session.dump();
+        return await call(entry.session);
       } catch (e) {
-        // 서비스가 꺼졌거나 토큰이 사라진 경우: 온보딩을 다시 돌려 상태를 갱신하고 한 번 더 시도한다.
         firstError = e;
         await ensureHelper(entry);
-        if (entry.helper?.state === 'ready' && entry.session) return entry.session.dump();
+        if (entry.helper?.state === 'ready' && entry.session) return call(entry.session);
       }
     }
     const cause = firstError instanceof Error ? ` (첫 시도: ${firstError.message})` : '';
     throw new RpcError(RPC_ERRORS.helperUnavailable, `헬퍼 사용 불가(${entry.helper?.state}): ${entry.helper?.detail ?? ''}${cause}`);
+  }
+
+  const dumpUi = (deviceId: string): Promise<SemanticNode> => withHelper(deviceId, (s) => s.dump());
+
+  /** 같은 순간의 스크린샷+트리. 헬퍼가 스크린샷을 못 주면(Android 11 미만, 간격 제한) screencap 으로 따로 찍고 atomic:false. */
+  async function snapshot(deviceId: string): Promise<SnapshotResult> {
+    const capturedAt = new Date().toISOString();
+    const r = await withHelper(deviceId, (s) => s.snapshot());
+    if (r.screenshot && r.atomic) return { screenshot: r.screenshot, root: r.root, atomic: true, capturedAt };
+    const png = await runBinary(deviceId, 'screencap -p');
+    return {
+      screenshot: { format: 'png', base64: Buffer.from(png).toString('base64') },
+      root: r.root,
+      atomic: false,
+      capturedAt,
+      detail: r.detail ?? '헬퍼가 스크린샷 없이 응답함',
+    };
+  }
+
+  /** 헬퍼가 준비돼 있으면 헬퍼 경로(원자 캡처의 스크린샷)를 쓰고, 아니면 screencap. */
+  async function screenshot(deviceId: string): Promise<Uint8Array> {
+    const entry = await tracked(deviceId);
+    await entry.probe;
+    if (entry.helper?.state === 'ready' && entry.session) {
+      try {
+        const r = await entry.session.snapshot();
+        if (r.screenshot) return Buffer.from(r.screenshot.base64, 'base64');
+      } catch {
+        // 헬퍼 쪽 문제는 screencap 으로 덮는다. 상태 갱신은 다음 info/dump 에서.
+      }
+    }
+    return runBinary(deviceId, 'screencap -p');
   }
 
   const notImplemented = (name: string) => async (..._args: unknown[]): Promise<never> => {
@@ -360,8 +392,9 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
       await recheckHelper(entry);
       return toInfo(deviceId, entry);
     },
-    screenshot: (id) => runBinary(id, 'screencap -p'),
+    screenshot,
     dumpUi,
+    snapshot,
     tap: (id, p) => input(id, `tap ${p.x} ${p.y}`),
     longPress: (id, p, durationMs) => input(id, `swipe ${p.x} ${p.y} ${p.x} ${p.y} ${durationMs}`),
     swipe: (id, from, to, durationMs) => input(id, `swipe ${from.x} ${from.y} ${to.x} ${to.y} ${durationMs}`),
