@@ -4,11 +4,15 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** in-progress (실기기 검증만 남음)
 
-- [ ] EverMock의 direct ADB 레이어(dadb 포트)와 `test/main/adb`의 페이크(fake-android, fake-usb, fake-adb-server)가 `packages/device-layer`로 이식되고 NOTICE(Apache-2.0)가 함께 옮겨진다
-- [ ] `usb` 의존성과 타깃별 node-usb 바이너리 fetch 스크립트가 워크스페이스에 들어오고 `pnpm install` 후 `pnpm check`가 통과한다
-- [ ] `AndroidBackend`가 `DeviceBackend`의 `listDevices`/`info`를 구현하고, 페이크 하네스 테스트로 세 상태를 검증한다
-- [ ] 프리팩터: 디스패처의 기기 탐색이 호출마다 `listDevices`를 돌지 않도록 백엔드가 기기 조회를 캐시한다(USB 열거는 느리다)
+- [x] EverMock의 direct ADB 레이어(dadb 포트)와 `test/main/adb`의 페이크(fake-android, fake-usb, fake-adb-server)가 `packages/device-layer`로 이식되고 NOTICE(Apache-2.0)가 함께 옮겨진다
+- [x] `usb` 의존성과 타깃별 node-usb 바이너리 fetch 스크립트가 워크스페이스에 들어오고 `pnpm install` 후 `pnpm check`가 통과한다
+- [x] `AndroidBackend`가 `DeviceBackend`의 `listDevices`/`info`를 구현하고, 페이크 하네스 테스트로 세 상태를 검증한다
+- [x] 프리팩터: 디스패처의 기기 탐색이 호출마다 `listDevices`를 돌지 않도록 백엔드가 기기 조회를 캐시한다(USB 열거는 느리다)
 - [ ] 실기기 테스트(`ADB_TEST_USB=1` 류 opt-in)로 Samsung 등 실제 기기가 `devices.list`에 나온다
-- [ ] `verify-device-layer`의 `serve.ts`에 실백엔드 모드가 추가되고 `features/rpc-methods.md`가 실기기 기준으로 갱신된다
+- [x] `verify-device-layer`의 `serve.ts`에 실백엔드 모드가 추가되고 `features/rpc-methods.md`가 실기기 기준으로 갱신된다
+
+## Comments
+
+- 2026-11-07: 이식·백엔드·캐시·serve.ts 실기기 모드 완료(커밋 e7e633b, bcc26c1 이후). 실기기 항목은 기기가 연결되지 않아 미검증. 실행: `adb kill-server && SINCLAIR_TEST_USB=1 npx vitest run packages/device-layer/test/android-backend.device.test.ts`.

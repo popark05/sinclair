@@ -31,7 +31,8 @@ const HOST_TARGETS = {
   win32: ['win-x64', 'win-arm64']
 };
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// usb 패키지는 device-layer 워크스페이스의 node_modules 에 있다(pnpm 은 루트에 호이스팅하지 않는다).
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'packages', 'device-layer');
 const version = JSON.parse(readFileSync(path.join(root, 'node_modules', 'usb', 'package.json'), 'utf-8')).version;
 
 function parseTargets() {

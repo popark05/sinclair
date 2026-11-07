@@ -21,7 +21,8 @@ $S/start.sh $RUN
 # 출력 마지막 줄: READY port=<n> runDir=<RUN>
 ```
 
-- `scripts/serve.ts`가 `createDeviceServer([LoggingFakeBackend])` + `serveHttp()`를 띄운다. 페이크 기기 `VERIFY1`, `VERIFY2` (android, state=device).
+- `scripts/serve.ts`가 `createDeviceServer([backend])` + `serveHttp()`를 띄운다. 기본 백엔드는 페이크(기기 `VERIFY1`, `VERIFY2`, android, state=device).
+- **실기기 모드:** `SINCLAIR_VERIFY_BACKEND=android $S/start.sh $RUN` 이면 `createAndroidBackend()`(직접 USB)를 쓴다. 먼저 `adb kill-server`(adb server 가 USB 인터페이스를 점유한다). READY 줄의 `backend=android` 로 모드를 확인한다. 실기기 모드에서는 `backend-calls.log` 가 비어 있다(페이크만 기록한다).
 - 준비 완료 기준은 `server.out`의 `READY` 줄이다. 그때 `$RUN/server.json`(port, token, pid)이 존재한다.
 - `node --experimental-transform-types`로 실행한다. 제품 코드(`rpc.ts`의 `RpcError`)가 생성자 파라미터 프로퍼티를 쓰므로 strip-only 모드로는 로드되지 않는다.
 - 시드 데이터·마이그레이션 없음. 빈 `RUN` 디렉터리에서 바로 사용 가능 상태가 된다.
@@ -62,7 +63,7 @@ $S/rpc.sh $RUN device.io.tap '{"deviceId":"VERIFY1","x":10,"y":20}' tap
 - 러너가 쓰는 실제 경로(HTTP + 토큰 + JSON-RPC)로 호출한다. `RpcDispatcher.handle()`을 직접 부르는 것은 단위 테스트지 증명이 아니다.
 - 동작과 결과 상태를 함께 남긴다. `device.io.*`의 `result: null`만으로는 부족하고 `backend-calls.log`에 해당 줄이 **그 순서로** 찍혀야 한다.
 - 오류 경로는 오류 코드로 증명한다: `-32000` 기기 없음, `-32602` 파라미터 누락, `-32601` 미구현/미지 메서드, HTTP 401 토큰 없음.
-- 페이크 백엔드는 프로덕션 경계(`DeviceBackend` 인터페이스) 바로 아래를 대체한다. 서버 계약은 증명되지만 **실제 기기 동작은 증명되지 않는다.** 보고서에 그 한계를 쓴다.
+- 페이크 백엔드는 프로덕션 경계(`DeviceBackend` 인터페이스) 바로 아래를 대체한다. 서버 계약은 증명되지만 **실제 기기 동작은 증명되지 않는다.** 실기기 증명은 `SINCLAIR_VERIFY_BACKEND=android` 로 다시 돌린다. 보고서에 어느 모드였는지 쓴다.
 
 ## Cleanup
 
@@ -84,4 +85,5 @@ $S/stop.sh $RUN
 
 ## 검증 이력
 
+- 2026-11-07: 실기기 모드 추가(`SINCLAIR_VERIFY_BACKEND=android`). 기기 없이 기동·doctor·`devices.list`(빈 목록)까지 확인. 실기기로는 아직 미검증.
 - 2026-11-07: 커밋 `0afc66c` 기준으로 Launch → Doctor → `rpc-methods` 기능 드라이브 → 증거 확인 → Cleanup 을 1회 완주. 정지 후 doctor 가 FAIL 로 바뀌는 것도 확인.

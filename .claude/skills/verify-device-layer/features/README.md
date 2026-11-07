@@ -6,7 +6,7 @@
 
 - `S=.claude/skills/verify-device-layer/scripts`, `RUN=.e2e/verify-device-layer/<timestamp>-<purpose>` 로 리포 루트에서 시작한다.
 - `$S/start.sh $RUN` 이 `READY` 를 출력했고 `$S/doctor.sh $RUN` 이 `DOCTOR OK` 다.
-- 페이크 기기 `VERIFY1`, `VERIFY2` 가 `devices.list` 에 보인다.
+- 페이크 모드: 기기 `VERIFY1`, `VERIFY2` 가 `devices.list` 에 보인다. 실기기 모드(`SINCLAIR_VERIFY_BACKEND=android`, `adb kill-server` 선행): USB 로 꽂은 기기의 시리얼이 보인다.
 - 이 실행이 띄우지 않은 서버는 절대 구동하지 않는다 (`server.json` 의 pid 가 우리 것).
 
 ## Driving conventions

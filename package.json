@@ -10,6 +10,7 @@
     "typecheck": "pnpm -r run typecheck",
     "test": "vitest run",
     "lint": "oxlint",
+    "fetch-usb": "node scripts/fetch-usb-binaries.mjs",
     "check": "pnpm run lint && pnpm run typecheck && pnpm run test"
   },
   "devDependencies": {

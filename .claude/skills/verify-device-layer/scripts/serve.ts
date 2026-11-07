@@ -1,8 +1,9 @@
-// 검증용 스캐폴딩: 디바이스 JSON-RPC 서버를 페이크 백엔드로 띄운다. 실제 기기가 없어도 서버 계약을 구동할 수 있다.
+// 검증용 스캐폴딩: 디바이스 JSON-RPC 서버를 띄운다. 기본은 페이크 백엔드(기기 없이 서버 계약 구동),
+// SINCLAIR_VERIFY_BACKEND=android 면 실제 AndroidBackend(직접 USB, adb kill-server 필요)를 쓴다.
 // 사용: node scripts/serve.ts <RUN_DIR>   (RUN_DIR 에 server.json, backend-calls.log 를 쓴다)
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createDeviceServer, serveHttp, type DeviceBackend, type DeviceInfo, type Point } from '../../../../packages/device-layer/src/index.ts';
+import { createAndroidBackend, createDeviceServer, serveHttp, type DeviceBackend, type DeviceInfo, type Point } from '../../../../packages/device-layer/src/index.ts';
 
 const runDir = process.argv[2];
 if (!runDir) { console.error('사용법: node scripts/serve.ts <RUN_DIR>'); process.exit(2); }
@@ -38,9 +39,13 @@ class LoggingFakeBackend implements DeviceBackend {
   async openUrl(id: string, u: string) { this.log(id, `url ${u}`); }
 }
 
-const srv = await serveHttp(createDeviceServer([new LoggingFakeBackend(['VERIFY1', 'VERIFY2'])]));
+const backendKind = process.env.SINCLAIR_VERIFY_BACKEND ?? 'fake';
+const backend: DeviceBackend = backendKind === 'android'
+  ? createAndroidBackend({ dadb: { includeEmulators: false, authTimeoutMs: 60_000 } })
+  : new LoggingFakeBackend(['VERIFY1', 'VERIFY2']);
+const srv = await serveHttp(createDeviceServer([backend]));
 writeFileSync(join(runDir, 'server.json'), JSON.stringify({ port: srv.port, token: srv.token, pid: process.pid, startedAt: new Date().toISOString() }, null, 2));
-console.log(`READY port=${srv.port} runDir=${runDir}`);
+console.log(`READY port=${srv.port} runDir=${runDir} backend=${backendKind}`);
 const stop = async () => { await srv.close(); process.exit(0); };
 process.on('SIGTERM', stop);
 process.on('SIGINT', stop);
