@@ -8,7 +8,11 @@ import { ingestBatch } from './ingest.ts';
 import { projectRun, type RunView } from './projection.ts';
 import type { EventStore } from './store.ts';
 
-export interface ControlPlaneOptions { port?: number; host?: string }
+export interface ControlPlaneOptions { port?: number; host?: string; maxBodyBytes?: number }
+
+/** /ingest 본문 상한. 인증이 없으므로 같은 호스트의 다른 프로세스가 메모리를 채우지 못하게 막는다.
+ *  Reporter 배치(03)는 수백 이벤트 × 수 KB 라 1 MB 안에 든다 */
+const DEFAULT_MAX_BODY_BYTES = 8 * 1024 * 1024;
 export interface ControlPlaneServer { port: number; close(): Promise<void> }
 
 export interface RunSummary { runId: string; state: RunView['state']; targetId?: string; startedAt?: string; finishedAt?: string; attempts: number }
@@ -29,8 +33,19 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       const parts = url.pathname.split('/').filter(Boolean);
       if (req.method === 'POST' && url.pathname === '/ingest') {
+        const limit = opts.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
         const chunks: Buffer[] = [];
-        for await (const c of req) chunks.push(c as Buffer);
+        let size = 0;
+        for await (const c of req) {
+          size += (c as Buffer).length;
+          if (size > limit) {
+            // 나머지 본문은 버리고 응답 뒤 연결을 닫는다(destroy 하면 클라이언트가 응답을 못 받는다)
+            req.resume();
+            res.writeHead(413, { 'content-type': 'application/json', connection: 'close' }).end(JSON.stringify({ error: `본문이 ${limit} 바이트를 넘음` }));
+            return;
+          }
+          chunks.push(c as Buffer);
+        }
         let body: unknown;
         try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return json(res, 400, { error: 'JSON 파싱 실패' }); }
         if (!Array.isArray(body)) return json(res, 400, { error: '본문은 RunEvent 배열이어야 함' });
@@ -48,7 +63,9 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
       }
       return json(res, 404, { error: '모르는 경로' });
     } catch (err) {
-      return json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      // 내부 오류 내용은 로그에만 남긴다
+      console.error('[control-plane]', err);
+      return json(res, 500, { error: '내부 오류' });
     }
   });
   await new Promise<void>((r) => server.listen(opts.port ?? 0, opts.host ?? '127.0.0.1', r));

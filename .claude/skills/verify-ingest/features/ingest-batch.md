@@ -28,10 +28,14 @@ $S/get.sh $RUN /runs/없음 missing                     # 404
 $S/get.sh $RUN /runs list                             # [{runId:"verify-run",state:"finished",attempts:1,...}]
 ```
 
-순서 무관: 새 RUN 에서 `sample-events.json` 의 원소를 역순으로 두 배치로 나눠 보낸 뒤 `view` 를 정순 RUN 의 `view-1.response` 와 diff 한다.
+```bash
+$S/order-check.sh $RUN $S/sample-events.json order    # ORDER-INDEPENDENT; evidence order-view-ordered/-shuffled 비교
+```
 
 ## Gotchas
 
 - 저장소가 인메모리라 서버를 내리면 사라진다. 한 RUN 안에서 증명한다.
 - `at` 은 타임존이 있어야 한다(`Z` 또는 `+09:00`). 없으면 `rejected`.
 - 중복 판정은 eventId 만 본다. 내용이 달라도 같은 id 면 처음 것이 남는다.
+- 본문은 8 MB 상한(413). 큰 배치는 파일로 넘긴다(`ingest.sh` 는 항상 파일로 보낸다).
+- 원소 거부는 HTTP 200 + `rejected[]` 다. 400 은 본문 전체가 JSON 배열이 아닐 때만.

@@ -18,7 +18,8 @@ export async function ingestBatch(store: EventStore, batch: unknown[]): Promise<
       response.rejected.push({ index, ...(eventId !== undefined ? { eventId } : {}), errors: parsed.errors });
       continue;
     }
-    response[await store.append(parsed.event)]++;
+    const outcome = await store.append(parsed.event);
+    if (outcome === 'accepted') response.accepted++; else response.duplicate++;
   }
   return response;
 }

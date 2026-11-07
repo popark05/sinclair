@@ -55,6 +55,13 @@ describe('POST /ingest', () => {
     expect(await (await post([])).json()).toEqual({ accepted: 0, duplicate: 0, rejected: [] });
   });
 
+  it('본문이 상한을 넘으면 413', async () => {
+    await server.close();
+    server = await serveControlPlane(createMemoryEventStore(), { maxBodyBytes: 100 });
+    expect((await post(RUN)).status).toBe(413);
+    expect((await post([])).status).toBe(200);
+  });
+
   it('순서가 뒤섞인 두 배치로 나눠 보내도 투영이 같다', async () => {
     await post([RUN[3], RUN[4]]);
     await post([RUN[2], RUN[0], RUN[1]]);

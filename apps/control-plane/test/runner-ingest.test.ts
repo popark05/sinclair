@@ -21,8 +21,8 @@ describe('러너 → Ingest → 조회', () => {
 
     const view = (await (await fetch(`http://127.0.0.1:${server.port}/runs/${report.runId}`)).json()) as RunView;
     expect(view).toMatchObject({ runId: report.runId, state: 'finished', cycleId: 'c1', targetId: 'fake', deviceId: 'fake-1' });
-    expect(view.attempts.map((a) => [a.testId, a.result, a.steps.length, a.artifacts.length, a.errorCode]))
-      .toEqual(report.tests.map((t) => [t.name, t.result, t.steps.length, t.artifacts.length, t.errorCode]));
+    expect(view.attempts.map((a) => [a.testId, a.attemptNo, a.result, a.errorCode, a.artifacts, a.steps.map((s) => [s.kind, s.instruction, s.durationMs])]))
+      .toEqual(report.tests.map((t) => [t.name, 1, t.result, t.errorCode, t.artifacts, t.steps.map((s) => [s.kind, s.instruction, s.durationMs])]));
     expect(view.attempts[1]!.steps[0]!.instruction).toContain('없는 문구');
   });
 });

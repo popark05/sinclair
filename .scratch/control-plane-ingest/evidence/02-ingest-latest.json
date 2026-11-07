@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-07T05:55:02.255Z",
+  "at": "2026-11-07T05:59:29.659Z",
   "store": "memory",
   "first": {
     "accepted": 5,
@@ -12,6 +12,7 @@
     "rejected": []
   },
   "idempotent": true,
+  "orderIndependent": true,
   "reject": {
     "accepted": 0,
     "duplicate": 0,
@@ -35,6 +36,22 @@
   "list": [
     {
       "runId": "verify-run",
+      "state": "finished",
+      "targetId": "android",
+      "startedAt": "2026-11-07T00:00:00.000Z",
+      "finishedAt": "2026-11-07T00:00:04.000Z",
+      "attempts": 1
+    },
+    {
+      "runId": "verify-run-ordered",
+      "state": "finished",
+      "targetId": "android",
+      "startedAt": "2026-11-07T00:00:00.000Z",
+      "finishedAt": "2026-11-07T00:00:04.000Z",
+      "attempts": 1
+    },
+    {
+      "runId": "verify-run-shuffled",
       "state": "finished",
       "targetId": "android",
       "startedAt": "2026-11-07T00:00:00.000Z",

@@ -71,4 +71,22 @@ describe('projectRun', () => {
     const view = projectRun([RUN[0]!, { ...base('e9', 9), type: 'run.finished', state: 'infra-failed' }]);
     expect(view.state).toBe('infra-failed');
   });
+
+  it('타임존 오프셋이 섞여 있어도 시각 기준으로 정렬한다', () => {
+    const view = projectRun([
+      { ...base('e0', 0), type: 'run.started', targetId: 't' },
+      { ...base('b', 0), at: '2026-11-07T09:00:05+09:00', type: 'attempt.started', attemptId: 'b', testId: 'B', attemptNo: 1 }, // = 00:00:05Z
+      { ...base('a', 0), at: '2026-11-07T00:00:01.000Z', type: 'attempt.started', attemptId: 'a', testId: 'A', attemptNo: 1 },
+    ]);
+    expect(view.attempts.map((a) => a.attemptId)).toEqual(['a', 'b']);
+  });
+
+  it('같은 자리에 eventId 가 다른 이벤트가 둘 오면 at 이 빠른 것(같으면 eventId 가 작은 것)을 택하고, 어느 순서로 와도 같다', () => {
+    const dupStart = { ...base('e0-dup', 9), type: 'run.started' as const, targetId: 'late' };
+    const dupStep = { ...base('e2-dup', 2), type: 'step.recorded' as const, attemptId: 'a1', stepIndex: 0, kind: 'locator' as const, instruction: '다른 내용', modelCalls: 0, durationMs: 1 };
+    const expected = projectRun(RUN);
+    expect(projectRun([...RUN, dupStart, dupStep])).toEqual(expected); // e0(at 0) < e0-dup(at 9); e2 < e2-dup (같은 at, eventId 순)
+    expect(projectRun([dupStep, dupStart, ...RUN])).toEqual(expected);
+    expect(projectRun([...RUN, dupStart, dupStep]).attempts[0]!.steps).toHaveLength(2); // 중복 스텝이 쌓이지 않는다
+  });
 });

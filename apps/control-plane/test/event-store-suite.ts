@@ -37,6 +37,13 @@ export function eventStoreSuite(name: string, makeStore: () => Promise<EventStor
       expect(await store.runIds()).toEqual(['r2', 'r1']);
     });
 
+    it('append 한 뒤 호출자가 입력 객체를 바꿔도 저장소는 바뀌지 않는다', async () => {
+      const input = ev('e1', 'r1', 'run.started');
+      await store.append(input);
+      (input as { runId: string }).runId = '변조';
+      expect((await store.eventsForRun('r1'))[0]!.runId).toBe('r1');
+    });
+
     it('돌려준 이벤트를 호출자가 바꿔도 저장소는 바뀌지 않는다', async () => {
       await store.append(ev('e1', 'r1', 'run.started'));
       const [got] = await store.eventsForRun('r1');

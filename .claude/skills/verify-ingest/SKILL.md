@@ -40,6 +40,7 @@ $S/doctor.sh $RUN
 $S/ingest.sh $RUN <events.json | '[...]'> [evidence-name]   # POST /ingest, 응답 {accepted, duplicate, rejected[]}
 $S/get.sh $RUN /runs/<runId> [evidence-name]               # RunView
 $S/get.sh $RUN /runs [evidence-name]                        # 요약 목록
+$S/order-check.sh $RUN <events.json> [evidence-name]        # 정순 run 과 역순·분할 run 의 투영 비교 → ORDER-INDEPENDENT
 ```
 
 - `evidence-name` 을 주면 요청+상태+응답을 `$RUN/evidence/<name>.json` 에 저장한다.
@@ -54,7 +55,7 @@ $S/get.sh $RUN /runs [evidence-name]                        # 요약 목록
 
 - Reporter 가 쓰는 실제 경로(HTTP + JSON 배열)로 보낸다. `ingestBatch()` 를 직접 부르는 것은 단위 테스트지 증명이 아니다.
 - 멱등은 **같은 배치를 두 번** 보내 두 번째 응답이 전부 `duplicate` 이고 두 조회 결과가 바이트 단위로 같음을 보인다.
-- 순서 무관은 뒤섞은 배치의 투영이 정순 투영과 같음을 보인다.
+- 순서 무관은 `order-check.sh` 가 `ORDER-INDEPENDENT` 를 출력하고 `evidence/<name>-view-ordered.json` 과 `-view-shuffled.json` 이 runId 만 다름을 보인다.
 - 거부는 `rejected[].index/eventId/errors` 로 증명하고, 같은 배치의 올바른 원소가 저장됐음을 조회로 보인다.
 - 인메모리 저장소 위의 증명임을 보고서에 쓴다(재시작 영속은 04 에서).
 
@@ -74,5 +75,6 @@ $S/stop.sh $RUN
 | `scripts/doctor.sh <RUN>` | 읽기 전용 상태 점검 |
 | `scripts/ingest.sh <RUN> <batch> [name]` | POST /ingest + 증거 저장 |
 | `scripts/get.sh <RUN> <path> [name]` | GET + 증거 저장 |
+| `scripts/order-check.sh <RUN> <events.json> [name]` | 순서 무관 증명(runId 접미사 `-ordered`/`-shuffled`) |
 | `scripts/stop.sh <RUN>` | 우리가 띄운 pid 만 종료 |
 | `scripts/sample-events.json` | 완료된 run 1개의 이벤트 5개 |
