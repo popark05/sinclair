@@ -2,9 +2,9 @@
 // 출력: 리포트 요약과 Reporter 통계. 증거는 <RUN_DIR>/evidence/run-sample.json
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-// testing/index.ts 는 vitest 계약 스위트를 함께 내보내므로(vitest 밖에서 import 불가) 파일을 직접 가져온다
-import { FakeEngine } from '../../../../packages/protocol/src/testing/fake-engine.ts';
-import { HOME_SCREEN, LOGIN_SCREEN } from '../../../../packages/protocol/src/testing/login-scenario.ts';
+// testing/index.ts 는 vitest 계약 스위트를 함께 내보내므로(vitest 밖에서 import 불가) 파일 단위 export 를 쓴다
+import { FakeEngine } from '@sinclair/protocol/testing/fake-engine';
+import { HOME_SCREEN, LOGIN_SCREEN } from '@sinclair/protocol/testing/login-scenario';
 import { runTests, createHttpReporter } from '../../../../packages/runner/src/index.ts';
 
 const runDir = process.argv[2];

@@ -14,7 +14,8 @@
     "lint": "oxlint",
     "fetch-usb": "node scripts/fetch-usb-binaries.mjs",
     "check": "pnpm run lint && pnpm run typecheck && pnpm run test",
-    "control-plane": "node apps/control-plane/bin/sinclair-control-plane.mjs"
+    "control-plane": "node apps/control-plane/bin/sinclair-control-plane.mjs",
+    "agent": "node apps/runner-agent/bin/sinclair-agent.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

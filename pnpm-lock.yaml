@@ -200,12 +200,22 @@ importers:
 
   apps/runner-agent:
     dependencies:
+      '@sinclair/device-layer':
+        specifier: workspace:*
+        version: link:../../packages/device-layer
+      '@sinclair/engine-mobile':
+        specifier: workspace:*
+        version: link:../../packages/engine-mobile
       '@sinclair/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
       '@sinclair/runner':
         specifier: workspace:*
         version: link:../../packages/runner
+    devDependencies:
+      '@sinclair/control-plane':
+        specifier: workspace:*
+        version: link:../control-plane
 
   apps/studio:
     dependencies:

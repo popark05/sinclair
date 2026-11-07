@@ -9,5 +9,16 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
-  "dependencies": { "@sinclair/protocol": "workspace:*", "@sinclair/runner": "workspace:*" }
+  "dependencies": {
+    "@sinclair/protocol": "workspace:*",
+    "@sinclair/runner": "workspace:*",
+    "@sinclair/engine-mobile": "workspace:*",
+    "@sinclair/device-layer": "workspace:*"
+  },
+  "devDependencies": {
+    "@sinclair/control-plane": "workspace:*"
+  },
+  "bin": {
+    "sinclair-agent": "./bin/sinclair-agent.mjs"
+  }
 }
