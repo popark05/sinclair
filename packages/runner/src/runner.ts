@@ -15,6 +15,8 @@ export interface Reporter {
   onEvent(event: RunEvent): void | Promise<void>;
   /** run 이 끝날 때 한 번. 보류 중인 전송을 마친다 */
   flush?(): Promise<void>;
+  /** Reporter 가 삼키지 않고 알리고 싶은 문제(거부된 이벤트 등). flush 뒤 RunReport.warnings 에 합쳐진다 */
+  readonly warnings?: readonly string[];
 }
 
 export interface RunOptions {
@@ -121,6 +123,7 @@ export async function runTests(files: string[], options: RunOptions): Promise<Ru
     const outcome = await Promise.race([work, timeout]);
     clearTimeout(timer);
     if (outcome === 'timeout') warnings.push(`Reporter flush 가 ${limit}ms 안에 끝나지 않아 기다리지 않음`);
+    warnings.push(...(options.reporter.warnings ?? []));
   }
 
   async function runOne(tc: TestCase, file: string): Promise<TestResult> {

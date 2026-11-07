@@ -4,12 +4,20 @@
 
 **Blocked by:** 01 (Reporter 훅), 02 (Ingest)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] HTTP Reporter: 배치 크기·간격·재시도 횟수·백오프 옵션, 상수마다 이유 주석
-- [ ] 일시적 실패(5xx, 연결 거부)는 재시도, 검증 거부(4xx `rejected`)는 재시도하지 않고 경고로 남긴다
-- [ ] 재시도로 같은 이벤트가 두 번 가도 Ingest 투영이 변하지 않는 테스트(서버가 첫 응답을 일부러 끊음)
-- [ ] 서버가 run 중간에 내려갔다 올라와도 flush 뒤 모든 이벤트가 저장된다
-- [ ] flush 가 기한 안에 못 끝나면 러너는 경고와 함께 리포트를 돌려주고 멈추지 않는다
-- [ ] 통합 테스트: FakeEngine 샘플 run → HTTP Reporter → 인프로세스 Ingest → `GET /runs/:id` 가 `RunReport` 와 일치
-- [ ] `verify-ingest` 스킬에 "러너에서 흘려보내기" feature 추가
+- [x] HTTP Reporter: 배치 크기·간격·재시도 횟수·백오프 옵션, 상수마다 이유 주석
+- [x] 일시적 실패(5xx, 연결 거부)는 재시도, 검증 거부(4xx `rejected`)는 재시도하지 않고 경고로 남긴다
+- [x] 재시도로 같은 이벤트가 두 번 가도 Ingest 투영이 변하지 않는 테스트(서버가 첫 응답을 일부러 끊음)
+- [x] 서버가 run 중간에 내려갔다 올라와도 flush 뒤 모든 이벤트가 저장된다
+- [x] flush 가 기한 안에 못 끝나면 러너는 경고와 함께 리포트를 돌려주고 멈추지 않는다
+- [x] 통합 테스트: FakeEngine 샘플 run → HTTP Reporter → 인프로세스 Ingest → `GET /runs/:id` 가 `RunReport` 와 일치
+- [x] `verify-ingest` 스킬에 "러너에서 흘려보내기" feature 추가
+
+## Comments
+
+- 2026-11-07: 완료. `packages/runner/src/http-reporter.ts` `createHttpReporter({ url, batchSize 100, flushIntervalMs 500, backoffMs 500, maxBackoffMs 10s, fetch })` → `HttpReporter { onEvent, flush, warnings, stats, setUrl }`. onEvent 는 큐에 넣고 동기로 끝난다(러너 `pending` 누적 없음, 01 미결 해소). 배치 크기 또는 간격마다 `POST /ingest`, 한 번에 하나만 보내 순서 보존. 5xx·연결 오류는 같은 eventId 로 상한 있는 백오프를 두고 끝없이 재시도(기한은 러너 `reporterFlushTimeoutMs`), `rejected[]`·200 외 상태(400 등)는 재시도 없이 `warnings`. 러너 `Reporter.warnings`(선택) 를 flush 뒤 `RunReport.warnings` 에 합친다.
+- 테스트: 러너 쪽 페이크 Ingest 7개(배치·순서, 간격, 5xx/끊김 재시도 같은 eventId, rejected/400 경고, 서버 내려갔다 올라옴(setUrl), 빈 큐 타이머 회귀, flush 중 유입) + 러너 warnings 병합 1개; control-plane 종단 2개(러너 → HTTP Reporter → 실제 Ingest → 투영 일치; Ingest 저장 뒤 응답을 끊는 프록시로 재전송 → duplicate 로 흡수, 스텝 중복 없음).
+- 발견·수정한 버그: 간격 타이머가 배치 전송이 이미 끝난 뒤 빈 큐로 `drain()` 을 돌리면 async IIFE 가 동기로 끝나 `finally` 가 대입보다 먼저 실행되고, 끝난 promise 가 `draining` 에 남아 이후 flush 가 즉시 반환됐다(이벤트 유실). 빈 큐 조기 반환 + `draining === run` 가드로 고치고 회귀 테스트 추가.
+- `verify-ingest` 에 `run-sample.sh`(FakeEngine 샘플 → HTTP Reporter → 띄운 Ingest) 와 `features/runner-stream.md` 추가. 구동 결과: 이벤트 10, sent/accepted 10, 경고 0, 투영 finished·attempts 3. evidence `03-http-reporter-latest.json`. 재전송 멱등은 프록시 테스트로 증명(스크립트 재현 없음).
+- 03 문구 정정: "4xx 거부" 는 "`rejected[]` 와 200 외 응답(400 등)은 재시도 안 함, 5xx·연결 오류는 재시도" 로 구현.

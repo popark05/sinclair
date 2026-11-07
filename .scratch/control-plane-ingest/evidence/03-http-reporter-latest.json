@@ -1,0 +1,41 @@
+{
+  "at": "2026-11-07T06:17:02.823Z",
+  "store": "memory",
+  "batchSize": 3,
+  "summary": {
+    "passed": 1,
+    "failed": 1,
+    "blocked": 0,
+    "skipped": 1
+  },
+  "events": 10,
+  "stats": {
+    "sent": 10,
+    "accepted": 10,
+    "duplicate": 0,
+    "rejected": 0,
+    "retries": 0
+  },
+  "warnings": [],
+  "view": {
+    "state": "finished",
+    "cycleId": "verify-cycle",
+    "attempts": [
+      [
+        "로그인 버튼이 보인다",
+        "passed",
+        1
+      ],
+      [
+        "없는 요소를 기다리다 실패한다",
+        "failed",
+        1
+      ],
+      [
+        "아직 안 만든 기능",
+        "skipped",
+        0
+      ]
+    ]
+  }
+}

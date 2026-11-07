@@ -41,6 +41,7 @@ $S/ingest.sh $RUN <events.json | '[...]'> [evidence-name]   # POST /ingest, 응�
 $S/get.sh $RUN /runs/<runId> [evidence-name]               # RunView
 $S/get.sh $RUN /runs [evidence-name]                        # 요약 목록
 $S/order-check.sh $RUN <events.json> [evidence-name]        # 정순 run 과 역순·분할 run 의 투영 비교 → ORDER-INDEPENDENT
+$S/run-sample.sh $RUN [batchSize]                           # 러너(FakeEngine 샘플) → HTTP Reporter → Ingest. evidence/run-sample.json
 ```
 
 - `evidence-name` 을 주면 요청+상태+응답을 `$RUN/evidence/<name>.json` 에 저장한다.
@@ -76,5 +77,6 @@ $S/stop.sh $RUN
 | `scripts/ingest.sh <RUN> <batch> [name]` | POST /ingest + 증거 저장 |
 | `scripts/get.sh <RUN> <path> [name]` | GET + 증거 저장 |
 | `scripts/order-check.sh <RUN> <events.json> [name]` | 순서 무관 증명(runId 접미사 `-ordered`/`-shuffled`) |
+| `scripts/run-sample.sh <RUN> [batchSize]` | 러너 샘플을 HTTP Reporter 로 흘려보냄 |
 | `scripts/stop.sh <RUN>` | 우리가 띄운 pid 만 종료 |
 | `scripts/sample-events.json` | 완료된 run 1개의 이벤트 5개 |

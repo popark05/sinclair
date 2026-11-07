@@ -155,4 +155,10 @@ describe('Reporter', () => {
     vexpect(report.tests[0]!.result).toBe('passed');
     vexpect(report.warnings?.some((w) => w.includes('flush'))).toBe(true);
   });
+
+  it('Reporter 가 warnings 를 가지면 flush 뒤 리포트 경고에 합쳐진다', async () => {
+    const reporter: Reporter = { onEvent: () => {}, warnings: ['이벤트 e9 거부: kind'] };
+    const report = await runTests([fixture('sample.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 200, reporter });
+    vexpect(report.warnings).toEqual(['이벤트 e9 거부: kind']);
+  });
 });
