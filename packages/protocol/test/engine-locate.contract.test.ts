@@ -49,6 +49,20 @@ describe('locateInTree 매칭 규칙', () => {
     expect(locateInTree(tree, { role: 'button', nth: 5 })).toEqual([]);
   });
 
+  it('exact 는 name/text 문자열을 대소문자 구분 정확 일치로 바꾸고 정규식에는 영향이 없다', () => {
+    expect(locateInTree(tree, { role: 'button', name: '로그인', exact: true }).map((n) => n.ref)).toEqual(['@e3', '@e6']);
+    expect(locateInTree(tree, { role: 'button', name: '로그', exact: true })).toEqual([]);
+    expect(locateInTree(tree, { text: 'sinclair', exact: true })).toEqual([]);
+    expect(locateInTree(tree, { text: /sinclair/i, exact: true }).map((n) => n.ref)).toEqual(['@e2']);
+  });
+
+  it('within 뒤에 nth 가 적용되고, g 플래그 정규식도 노드마다 새로 검사한다', () => {
+    expect(locateInTree(tree, { role: 'button', within: '@e0', nth: 2 }).map((n) => n.ref)).toEqual(['@e7']);
+    const sticky = /로그/g;
+    expect(locateInTree(tree, { name: sticky }).map((n) => n.ref)).toEqual(['@e3', '@e6']);
+    expect(locateInTree(tree, { name: sticky }).map((n) => n.ref)).toEqual(['@e3', '@e6']);
+  });
+
   it('secure 노드는 찾을 수는 있지만 text/value 가 제거된 채 돌아온다', () => {
     const [pw] = locateInTree(tree, { testId: 'password' });
     expect(pw).toMatchObject({ ref: '@e5', role: 'textbox', placeholder: '비밀번호', states: { secure: true } });

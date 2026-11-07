@@ -1,77 +1,40 @@
 // 메모리 SemanticNode 트리로 동작하는 Engine. 러너·엔진 테스트의 기준 구현이며 계약 스위트를 통과한다.
-import { EngineError, locateInTree, NODE_ACTIONS, type Engine, type LocatorQuery, type NodeAction, type Observation, type SemanticNode } from '../engine.ts';
+import { EngineError, findNodeByRef, locateInTree, NODE_ACTIONS, redactTree, type Engine, type LocatorQuery, type NodeAction, type Observation, type SemanticNode } from '../engine.ts';
 
 export interface FakeEngineOptions {
   root: SemanticNode;
   /** tap 된 노드에 대한 화면 반응. 새 루트를 돌려주면 화면이 바뀐다. */
   onTap?: (node: SemanticNode, engine: FakeEngine) => SemanticNode | void;
-  /** 노드를 찾을 때 적용되는 지연(ms). "나중에 나타나는 요소" 시나리오용. */
-  appearAfterMs?: Record<string, number>;
 }
 
-function clone<T>(v: T): T {
-  return JSON.parse(JSON.stringify(v)) as T;
-}
+const clone = <T>(v: T): T => structuredClone(v);
 
-function findMutable(root: SemanticNode, ref: string): SemanticNode | undefined {
-  if (root.ref === ref) return root;
-  for (const c of root.children ?? []) {
-    const f = findMutable(c, ref);
-    if (f) return f;
-  }
-  return undefined;
-}
-
-/** observe 는 secure 노드의 내용을 주지 않는다(계약). */
-function redactTree(node: SemanticNode): SemanticNode {
-  const { children, ...rest } = node;
-  const base = rest.states?.secure ? (({ text: _t, value: _v, ...r }) => r)(rest) : rest;
-  return children ? { ...base, children: children.map(redactTree) } : base;
-}
+/** FakeEngine 이 지원하는 액션. drag 는 메모리 트리에 의미가 없어 빼며, 그래서 계약 스위트의 unsupported-action 케이스가 실제로 돈다. */
+const FAKE_ACTIONS: readonly NodeAction[] = NODE_ACTIONS.filter((a) => a !== 'drag');
 
 export class FakeEngine implements Engine {
   readonly name = 'fake';
   readonly spiVersion = 1;
-  readonly actions: readonly NodeAction[] = NODE_ACTIONS;
-  /** 수행된 액션 기록(테스트 검증용). */
-  readonly performed: Array<{ ref: string; action: NodeAction; arg?: string }> = [];
+  readonly actions: readonly NodeAction[] = FAKE_ACTIONS;
+  /** 수행된 액션 기록(테스트 검증용). performAt 은 ref 대신 좌표 `@x,y` 로 기록한다. */
+  readonly performed: Array<{ ref: string; action: string; arg?: string }> = [];
   readonly typed: string[] = [];
   readonly pressed: string[] = [];
   private root: SemanticNode;
   private closed = false;
-  private readonly startedAt = Date.now();
   private sessionTarget: string | undefined;
 
   constructor(private readonly options: FakeEngineOptions) {
     this.root = clone(options.root);
   }
 
-  /** 화면을 통째로 바꾼다(앱 전환 시뮬레이션). */
-  setRoot(root: SemanticNode): void {
-    this.root = clone(root);
-  }
-
-  /** 현재 화면의 노드를 테스트에서 직접 고친다. */
-  mutate(ref: string, patch: Partial<SemanticNode>): void {
-    const n = findMutable(this.root, ref);
-    if (!n) throw new Error(`FakeEngine: ${ref} 없음`);
-    Object.assign(n, patch);
-  }
-
   private assertOpen(): void {
     if (this.closed) throw new EngineError('engine-closed', 'FakeEngine 은 dispose 됐다');
   }
 
+  /** 지금 보이는 트리. 티켓 03 의 "나중에 나타나는 요소" 시나리오가 필요해지면 여기서 가지치기한다. */
   private visibleRoot(): SemanticNode {
-    const delays = this.options.appearAfterMs;
-    if (!delays) return this.root;
-    const elapsed = Date.now() - this.startedAt;
-    const prune = (n: SemanticNode): SemanticNode | undefined => {
-      if ((delays[n.ref] ?? 0) > elapsed) return undefined;
-      const children = n.children?.map(prune).filter((c): c is SemanticNode => c !== undefined);
-      return children ? { ...n, children } : n;
-    };
-    return prune(this.root) ?? { ref: this.root.ref, role: this.root.role };
+    return this.root;
   }
 
   async observe(): Promise<Observation> {
@@ -87,10 +50,11 @@ export class FakeEngine implements Engine {
   async perform(ref: string, action: NodeAction, arg?: string): Promise<void> {
     this.assertOpen();
     if (!this.actions.includes(action)) throw new EngineError('unsupported-action', `지원하지 않는 액션: ${action}`);
-    const node = findMutable(this.visibleRoot(), ref);
+    // 판정은 "지금 보이는" 트리로, 변경은 원본 트리에. 둘은 ref 로 대응한다.
+    const node = findNodeByRef(this.visibleRoot(), ref);
     if (!node) throw new EngineError('not-found', `ref 가 현재 화면에 없음: ${ref}`, { ref });
     if (node.states?.disabled) throw new EngineError('not-actionable', `비활성 노드: ${ref}`, { ref });
-    const live = findMutable(this.root, ref)!;
+    const live = findNodeByRef(this.root, ref)!;
     this.performed.push(arg === undefined ? { ref, action } : { ref, action, arg });
     switch (action) {
       case 'type': {
@@ -120,8 +84,9 @@ export class FakeEngine implements Engine {
     }
   }
 
-  async performAt(): Promise<void> {
+  async performAt(x: number, y: number, action: 'tap' | 'long_press' | 'drag_to'): Promise<void> {
     this.assertOpen();
+    this.performed.push({ ref: `@${x},${y}`, action });
   }
 
   readonly keyboard = {

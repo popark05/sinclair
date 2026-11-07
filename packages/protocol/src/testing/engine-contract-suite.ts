@@ -1,7 +1,7 @@
 // 엔진 계약 스위트: 어떤 Engine 구현이든 같은 시나리오로 "러너가 기대하는 대로 동작하는가" 를 검사한다.
 // 사용자 경로(observe → locate → perform → 재관찰)로만 검증하고 엔진 내부를 보지 않는다.
 import { describe, it, expect, afterEach } from 'vitest';
-import { capabilitiesOf, EngineError, type Engine, type SemanticNode } from '../engine.ts';
+import { capabilitiesOf, EngineError, NODE_ACTIONS, type Engine, type SemanticNode } from '../engine.ts';
 
 /**
  * 엔진이 열렸을 때 보이는 화면에 대한 기대. 실제 엔진은 샘플 앱의 한 화면으로, FakeEngine 은 메모리 트리로 만족시킨다.
@@ -25,7 +25,12 @@ export interface EngineContractOptions {
   /** 매 테스트마다 새 엔진(시작 화면 상태)을 만든다 */
   makeEngine: () => Promise<Engine> | Engine;
   scenario: ContractScenario;
+  /** 탭 뒤 화면 전환을 기다리는 상한(ms). 기본 10초: 실기기 앱 전환은 보통 1~3초, 콜드 스타트는 그 이상. FakeEngine 은 즉시 */
+  navTimeoutMs?: number;
 }
+
+/** 전환 대기 중 재조회 간격. 실기기 observe 비용(수십~수백 ms)과 반응성의 절충 */
+const NAV_POLL_MS = 200;
 
 async function only(engine: Engine, query: Parameters<Engine['locate']>[0], label: string): Promise<SemanticNode> {
   const found = await engine.locate(query);
@@ -33,7 +38,7 @@ async function only(engine: Engine, query: Parameters<Engine['locate']>[0], labe
   return found[0]!;
 }
 
-export function engineContractSuite(name: string, { makeEngine, scenario }: EngineContractOptions): void {
+export function engineContractSuite(name: string, { makeEngine, scenario, navTimeoutMs = 10_000 }: EngineContractOptions): void {
   describe(`엔진 계약: ${name}`, () => {
     const engines: Engine[] = [];
     const fresh = async (): Promise<Engine> => {
@@ -61,6 +66,21 @@ export function engineContractSuite(name: string, { makeEngine, scenario }: Engi
       expect(await e.locate({ role: scenario.navButton.role, name: 'sinclair-없는-이름-' + Date.now() })).toEqual([]);
     });
 
+    it('locate 매칭 규칙(엔진 경로): 정규식 name, within 루트, nth 는 문서 순서, exact 는 정확 일치', async () => {
+      const e = await fresh();
+      const nav = scenario.navButton;
+      const byName = await only(e, { role: nav.role, name: nav.name, exact: true }, 'exact');
+      const escaped = nav.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      expect((await e.locate({ role: nav.role, name: new RegExp(`^${escaped}$`) })).map((n) => n.ref)).toEqual([byName.ref]);
+      const root = (await e.observe()).root;
+      const all = await e.locate({ role: nav.role });
+      expect((await e.locate({ role: nav.role, within: root.ref })).map((n) => n.ref)).toEqual(all.filter((n) => n.ref !== root.ref).map((n) => n.ref));
+      for (let i = 0; i < Math.min(all.length, 3); i++) {
+        expect((await e.locate({ role: nav.role, nth: i })).map((n) => n.ref), `nth ${i}`).toEqual([all[i]!.ref]);
+      }
+      expect(await e.locate({ role: nav.role, nth: all.length })).toEqual([]);
+    });
+
     it('locate 는 testId 로 입력 필드를 찾는다', async () => {
       const e = await fresh();
       const tb = await only(e, { testId: scenario.textbox.testId }, 'textbox');
@@ -80,11 +100,11 @@ export function engineContractSuite(name: string, { makeEngine, scenario }: Engi
       const e = await fresh();
       const btn = await only(e, { role: scenario.navButton.role, name: scenario.navButton.name }, 'navButton');
       await e.perform(btn.ref, 'tap');
-      const deadline = Date.now() + 10_000;
+      const deadline = Date.now() + navTimeoutMs;
       let found: SemanticNode[] = [];
       while (found.length === 0 && Date.now() < deadline) {
         found = await e.locate({ text: scenario.afterNavText });
-        if (found.length === 0) await new Promise((r) => setTimeout(r, 200));
+        if (found.length === 0) await new Promise((r) => setTimeout(r, NAV_POLL_MS));
       }
       expect(found.length, `탭 뒤 "${scenario.afterNavText}" 가 보여야 함`).toBeGreaterThan(0);
     });
@@ -95,14 +115,34 @@ export function engineContractSuite(name: string, { makeEngine, scenario }: Engi
       await expect(e.perform(n.ref, 'type', 'x')).rejects.toMatchObject({ code: 'not-actionable' });
     });
 
-    it('현재 화면에 없는 ref 는 not-found 이고, 지원하지 않는 액션은 unsupported-action 이다', async () => {
+    it('역할이 맞지 않는 노드에 check/select 하면 not-actionable 이다(버튼에 check, 버튼에 select)', async () => {
       const e = await fresh();
-      await expect(e.perform('@no-such-ref', 'tap')).rejects.toMatchObject({ code: 'not-found' });
       const btn = await only(e, { role: scenario.navButton.role, name: scenario.navButton.name }, 'navButton');
-      const unsupported = (['drag', 'scroll_to', 'select', 'check', 'press', 'double_tap', 'long_press', 'scroll'] as const).find((a) => !e.actions.includes(a));
-      if (unsupported) await expect(e.perform(btn.ref, unsupported)).rejects.toMatchObject({ code: 'unsupported-action' });
+      for (const action of ['check', 'select'] as const) {
+        if (!e.actions.includes(action)) continue; // unsupported-action 은 별도 케이스가 검사한다
+        await expect(e.perform(btn.ref, action, action === 'select' ? 'x' : undefined), action).rejects.toMatchObject({ code: 'not-actionable' });
+      }
     });
 
+    it('현재 화면에 없는 ref 는 not-found 다', async () => {
+      const e = await fresh();
+      await expect(e.perform('@no-such-ref', 'tap')).rejects.toMatchObject({ code: 'not-found' });
+    });
+
+    it('actions 에 없는 액션은 unsupported-action 이고, actions 에 있는 액션은 그 코드로 거부되지 않는다', async () => {
+      const e = await fresh();
+      const btn = await only(e, { role: scenario.navButton.role, name: scenario.navButton.name }, 'navButton');
+      const unsupported = NODE_ACTIONS.filter((a) => !e.actions.includes(a));
+      for (const a of unsupported) await expect(e.perform(btn.ref, a)).rejects.toMatchObject({ code: 'unsupported-action' });
+      // 광고한 액션은 전제(역할 등) 때문에 거부될 수는 있어도 unsupported-action 이어서는 안 된다
+      for (const a of e.actions) {
+        const r = await e.perform(btn.ref, a, a === 'type' ? 'x' : undefined).then(() => undefined, (err: unknown) => err);
+        if (r instanceof EngineError) expect(r.code, `액션 ${a}`).not.toBe('unsupported-action');
+        if (e.session) await e.session.back();
+      }
+    });
+
+    if (!scenario.disabled) it.skip('비활성 노드를 탭하면 not-actionable 이다 (scenario.disabled 없음: 검사 생략)', () => {});
     if (scenario.disabled) {
       const disabled = scenario.disabled;
       it('비활성 노드를 탭하면 not-actionable 이다', async () => {
@@ -113,6 +153,7 @@ export function engineContractSuite(name: string, { makeEngine, scenario }: Engi
       });
     }
 
+    if (!scenario.secure) it.skip('secure 노드는 observe/locate 어디서도 text/value 를 주지 않는다 (scenario.secure 없음: 검사 생략)', () => {});
     if (scenario.secure) {
       const secure = scenario.secure;
       it('secure 노드는 observe/locate 어디서도 text/value 를 주지 않는다', async () => {

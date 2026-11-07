@@ -34,6 +34,8 @@ export interface LocatorQuery {
   placeholder?: string;
   within?: string;
   nth?: number;
+  /** true 면 name/text 문자열을 대소문자 구분 정확 일치로 본다(기본은 대소문자 무시 부분 일치). 정규식에는 영향 없음 */
+  exact?: boolean;
 }
 
 export interface Engine {
@@ -64,10 +66,11 @@ export function capabilitiesOf(engine: Engine): Capability[] {
 // ---- 오류 ----
 
 /**
- * 엔진이 러너에게 돌려주는 실패 종류. 러너의 locator/expect 는 이 코드로 재시도·메시지를 결정한다.
- * not-found: 질의에 맞는 노드 없음 / ambiguous: strict 질의에 둘 이상 / not-actionable: 있지만 비활성·가려짐 /
- * secure-read: secure 노드의 내용 읽기 시도 / unsupported-action: 엔진이 그 액션·capability 를 지원하지 않음 /
- * timeout: 엔진 내부 대기 초과 / engine-closed: dispose 뒤 호출 / device-unavailable: 기기·헬퍼 없음
+ * 엔진·러너가 쓰는 실패 종류. 러너의 locator/expect 는 이 코드로 재시도·메시지를 결정한다. 어느 층이 내는지:
+ * - 엔진: not-found(perform 의 ref 가 현재 화면에 없음), not-actionable(비활성·편집 불가·가려짐), unsupported-action,
+ *   timeout(엔진 내부 대기 초과), engine-closed(dispose 뒤 호출), device-unavailable(기기·헬퍼 없음)
+ * - 러너(locator/expect, 티켓 03·04): not-found(기한까지 0개), ambiguous(strict 질의에 둘 이상), secure-read(secure 노드 내용 읽기)
+ * 상세: specs/0002-engine-contract.md
  */
 export const ENGINE_ERROR_CODES = [
   'not-found', 'ambiguous', 'not-actionable', 'secure-read', 'unsupported-action', 'timeout', 'engine-closed', 'device-unavailable',
@@ -83,10 +86,15 @@ export class EngineError extends Error {
 
 // ---- locate 매칭 규칙 (FakeEngine 과 engine-mobile 이 공유하는 단일 소스) ----
 
-/** 문자열은 대소문자 무시 부분 일치, 정규식은 정규식. 비교 대상이 없으면 불일치. */
-function matchText(actual: string | undefined, expected: string | RegExp): boolean {
+/**
+ * 문자열은 대소문자 무시 부분 일치(exact 면 정확 일치), 정규식은 정규식. 비교 대상이 없으면 불일치.
+ * 정규식의 g/y 플래그는 lastIndex 상태 때문에 두 번째 노드부터 오탐하므로 떼고 쓴다.
+ */
+function matchText(actual: string | undefined, expected: string | RegExp, exact: boolean): boolean {
   if (actual === undefined) return false;
-  return typeof expected === 'string' ? actual.toLowerCase().includes(expected.toLowerCase()) : expected.test(actual);
+  if (typeof expected === 'string') return exact ? actual === expected : actual.toLowerCase().includes(expected.toLowerCase());
+  const re = /[gy]/.test(expected.flags) ? new RegExp(expected.source, expected.flags.replace(/[gy]/g, '')) : expected;
+  return re.test(actual);
 }
 
 /** testId 는 전체(`com.app:id/username`)와 짧은 이름(`username`) 모두 정확 일치로 본다(resource-id 관례). */
@@ -99,25 +107,36 @@ function matchTestId(actual: string | undefined, expected: string): boolean {
 
 export function matchesQuery(node: SemanticNode, query: LocatorQuery): boolean {
   if (query.role !== undefined && node.role !== query.role) return false;
-  if (query.name !== undefined && !matchText(node.name, query.name)) return false;
-  if (query.text !== undefined && !matchText(node.text, query.text)) return false;
+  if (query.name !== undefined && !matchText(node.name, query.name, query.exact === true)) return false;
+  if (query.text !== undefined && !matchText(node.text, query.text, query.exact === true)) return false;
   if (query.testId !== undefined && !matchTestId(node.testId, query.testId)) return false;
   if (query.placeholder !== undefined && node.placeholder !== query.placeholder) return false;
   return true;
 }
 
-/** 위치 결과: 부분 트리가 아니므로 children 을 뺀다. secure 노드는 내용(text/value)을 러너에게 주지 않는다. */
-function toLocated(node: SemanticNode): SemanticNode {
-  const { children: _children, ...rest } = node;
-  if (!rest.states?.secure) return rest;
-  const { text: _text, value: _value, ...redacted } = rest;
+/** secure 노드의 내용(text/value)은 러너·에이전트에게 주지 않는다(REVIEW.md 차단 항목). 자식은 건드리지 않는다. */
+export function redactSecure(node: SemanticNode): SemanticNode {
+  if (!node.states?.secure) return node;
+  const { text: _text, value: _value, ...redacted } = node;
   return redacted;
 }
 
-function findByRef(root: SemanticNode, ref: string): SemanticNode | undefined {
+/** observe 결과 전체에 redactSecure 를 적용한 복사본. */
+export function redactTree(node: SemanticNode): SemanticNode {
+  const base = redactSecure(node);
+  return node.children ? { ...base, children: node.children.map(redactTree) } : base;
+}
+
+/** 위치 결과: 부분 트리가 아니므로 children 을 뺀다. */
+function toLocated(node: SemanticNode): SemanticNode {
+  const { children: _children, ...rest } = node;
+  return redactSecure(rest);
+}
+
+export function findNodeByRef(root: SemanticNode, ref: string): SemanticNode | undefined {
   if (root.ref === ref) return root;
   for (const c of root.children ?? []) {
-    const found = findByRef(c, ref);
+    const found = findNodeByRef(c, ref);
     if (found) return found;
   }
   return undefined;
@@ -125,12 +144,12 @@ function findByRef(root: SemanticNode, ref: string): SemanticNode | undefined {
 
 /**
  * 트리에서 질의에 맞는 노드를 문서 순서(DFS)로 돌려준다. within 은 그 ref 의 자손(자기 자신 제외)으로 제한하고,
- * nth 는 0부터 세는 문서 순서 인덱스다(범위 밖이면 빈 배열).
+ * nth 는 within 적용 뒤의 결과에서 0부터 세는 문서 순서 인덱스다(범위 밖이면 빈 배열).
  */
 export function locateInTree(root: SemanticNode, query: LocatorQuery): SemanticNode[] {
   let scope: SemanticNode | undefined = root;
   if (query.within !== undefined) {
-    scope = findByRef(root, query.within);
+    scope = findNodeByRef(root, query.within);
     if (!scope) return [];
   }
   const out: SemanticNode[] = [];

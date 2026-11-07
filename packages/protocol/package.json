@@ -2,7 +2,7 @@
   "name": "@sinclair/protocol",
   "version": "0.0.0",
   "private": true,
-  "description": "이벤트 스키마, Run/Attempt 상태, 엔진 계약, 디바이스 JSON-RPC 타입",
+  "description": "이벤트 스키마, Run/Attempt 상태, 엔진 계약, 디바이스 JSON-RPC 타입. ./testing 서브패스(계약 스위트)는 vitest 가 있을 때만 쓴다",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -12,5 +12,13 @@
   "exports": {
     ".": "./src/index.ts",
     "./testing": "./src/testing/index.ts"
+  },
+  "peerDependencies": {
+    "vitest": "^3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    }
   }
 }
