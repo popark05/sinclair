@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 스키마 가드 증명: DB 의 user_version 을 더 새로운 값으로 올린 뒤 서버 기동이 "스키마 버전" 메시지로 거부되는지 본다.
+# 스키마 가드 증명: DB 의 user_version 을 더 새로운 값으로 올린 뒤 서버 기동(제품 bin)이 "스키마 버전" 메시지로 거부되는지 본다.
 # 사용: scripts/schema-check.sh <RUN_DIR>   (서버는 내려가 있어야 한다. 끝나면 버전을 되돌린다)
 set -uo pipefail
 RUN_DIR=${1:?RUN_DIR 필요}

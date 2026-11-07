@@ -1,0 +1,59 @@
+// 서버 엔트리: 설정 → 저장소 → HTTP → READY 로그 → 신호에 정상 종료. bin/sinclair-control-plane.mjs 가 부른다.
+// 종료 코드: 0 정상, 2 설정 오류·DB 열기 실패(스키마 버전 등).
+import { parseConfig, ConfigError, HELP, type ControlPlaneConfig } from './config.ts';
+import { createMemoryEventStore } from './store.ts';
+import { createMemoryCycleStore } from './cycle-store.ts';
+import { createSqliteCycleStore, createSqliteEventStore, openSqlite, SQLITE_SCHEMA_VERSION } from './sqlite-store.ts';
+import { serveControlPlane, type ControlPlaneServer } from './http.ts';
+
+export interface RunningControlPlane { server: ControlPlaneServer; config: ControlPlaneConfig; close(): Promise<void> }
+
+/** 설정대로 저장소를 열고 서버를 띄운다. 테스트와 bin 이 같이 쓴다 */
+export async function startControlPlane(config: ControlPlaneConfig): Promise<RunningControlPlane> {
+  const db = config.store === 'sqlite' ? openSqlite(config.db) : undefined;
+  const events = db ? createSqliteEventStore(db) : createMemoryEventStore();
+  const cycles = db ? createSqliteCycleStore(db) : createMemoryCycleStore();
+  const server = await serveControlPlane(events, { host: config.host, port: config.port, cycles });
+  let closed = false;
+  return {
+    server, config,
+    async close() {
+      if (closed) return;
+      closed = true;
+      await server.close();
+      await events.close?.();
+    },
+  };
+}
+
+export async function main(argv = process.argv.slice(2), env = process.env): Promise<number> {
+  let config: ControlPlaneConfig;
+  try {
+    const parsed = parseConfig(argv, env);
+    if ('help' in parsed) { process.stdout.write(HELP); return 0; }
+    config = parsed;
+  } catch (err) {
+    if (err instanceof ConfigError) { console.error(`설정 오류: ${err.message}\n\n${HELP}`); return 2; }
+    throw err;
+  }
+
+  let running: RunningControlPlane;
+  try {
+    running = await startControlPlane(config);
+  } catch (err) {
+    console.error(`기동 실패: ${err instanceof Error ? err.message : String(err)}`);
+    return 2;
+  }
+  const storeDesc = config.store === 'sqlite' ? `sqlite db=${config.db} schema=${SQLITE_SCHEMA_VERSION}` : 'memory';
+  // verify-ingest 의 start.sh 가 이 줄을 파싱한다: READY 로 시작, port=<n>
+  console.log(`READY http://${config.host}:${running.server.port} port=${running.server.port} store=${storeDesc} pid=${process.pid}`);
+
+  return new Promise<number>((resolve) => {
+    const stop = (signal: string) => {
+      console.log(`${signal} 수신, 종료 중`);
+      void running.close().then(() => resolve(0), (err: unknown) => { console.error(`종료 중 오류: ${err instanceof Error ? err.message : String(err)}`); resolve(1); });
+    };
+    process.once('SIGTERM', () => stop('SIGTERM'));
+    process.once('SIGINT', () => stop('SIGINT'));
+  });
+}

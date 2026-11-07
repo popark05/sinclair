@@ -4,10 +4,15 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] 실행 파일(워크스페이스 `bin`)이 `--port`, `--host`, `--store memory|sqlite`, `--db <path>` 와 같은 이름의 환경변수를 받고, 기본은 127.0.0.1·sqlite·OS 데이터 디렉터리 아래 파일이다. 상수마다 이유 주석
-- [ ] 기동 시 한 줄 로그(주소, 저장소, DB 경로, 스키마 버전)와 종료 시 정상 close. 잘못된 설정(없는 저장소 이름, 열 수 없는 DB)은 0 이 아닌 종료 코드와 한국어 메시지
-- [ ] 다른 스키마 버전의 DB 로 기동하면 거부 메시지를 내고 종료한다(ADR 0004)
-- [ ] 테스트: 자식 프로세스로 띄워 `/health` 와 `POST /ingest` → 재기동 뒤 `GET /runs/:id` 유지(sqlite), memory 모드에서는 사라짐
-- [ ] `verify-ingest` 스킬의 `start.sh` 가 이 엔트리를 쓰도록 전환하고 features 를 갱신한다
+- [x] 실행 파일(워크스페이스 `bin`)이 `--port`, `--host`, `--store memory|sqlite`, `--db <path>` 와 같은 이름의 환경변수를 받고, 기본은 127.0.0.1·sqlite·OS 데이터 디렉터리 아래 파일이다. 상수마다 이유 주석
+- [x] 기동 시 한 줄 로그(주소, 저장소, DB 경로, 스키마 버전)와 종료 시 정상 close. 잘못된 설정(없는 저장소 이름, 열 수 없는 DB)은 0 이 아닌 종료 코드와 한국어 메시지
+- [x] 다른 스키마 버전의 DB 로 기동하면 거부 메시지를 내고 종료한다(ADR 0004)
+- [x] 테스트: 자식 프로세스로 띄워 `/health` 와 `POST /ingest` → 재기동 뒤 `GET /runs/:id` 유지(sqlite), memory 모드에서는 사라짐
+- [x] `verify-ingest` 스킬의 `start.sh` 가 이 엔트리를 쓰도록 전환하고 features 를 갱신한다
+
+## Comments
+
+- 2026-11-07: 완료. `apps/control-plane/src/config.ts` `parseConfig(argv, env, platform)`(플래그 > `SINCLAIR_CP_*` > 기본값; 기본 127.0.0.1:4780, sqlite, OS 데이터 디렉터리/sinclair/control-plane.db; `--key=value` 도 허용; 잘못된 값은 `ConfigError`; `--help`), `src/main.ts` `startControlPlane(config)` + `main()`(READY 한 줄 로그: 주소·포트·저장소·DB·스키마 버전·pid, SIGTERM/SIGINT 에 서버·DB close, 종료 코드 0/2), `bin/sinclair-control-plane.mjs`(`--experimental-transform-types` 없으면 자신을 재실행, 신호 전달; package.json `bin`). 테스트: config 표 12개, 자식 프로세스 bin 4개(sqlite 재기동 유지·환경변수 DB, memory 소실, 설정 오류·스키마 99 거부 코드 2, --help). `verify-ingest` `start.sh` 가 bin 으로 전환(`serve.ts` 삭제, doctor 는 셸 자식의 포트 소유 허용). 전 feature(memory·sqlite·order·run-sample·cycle·persistence·schema-guard)를 bin 으로 구동 확인.
+- 결정: 기본 포트 4780(흔한 개발 포트와 충돌 회피). bin 은 ExperimentalWarning 을 끈다(`--no-warnings=ExperimentalWarning`).

@@ -14,5 +14,8 @@
   },
   "devDependencies": {
     "@sinclair/runner": "workspace:*"
+  },
+  "bin": {
+    "sinclair-control-plane": "./bin/sinclair-control-plane.mjs"
   }
 }

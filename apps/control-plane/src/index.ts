@@ -7,3 +7,5 @@ export { createSqliteEventStore, createSqliteCycleStore, openSqlite, SQLITE_SCHE
 export { createMemoryCycleStore, type CycleStore, type CycleRecord, type RunRegistration } from './cycle-store.ts';
 export { computeCycle, tagsOf, type CycleView, type CaseCell } from './verdict.ts';
 export { buildCycleView, type CycleViewWithWarnings } from './cycle-view.ts';
+export { parseConfig, defaultDataDir, ConfigError, HELP, type ControlPlaneConfig } from './config.ts';
+export { startControlPlane, main, type RunningControlPlane } from './main.ts';
