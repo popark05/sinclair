@@ -49,11 +49,15 @@ export async function main(argv = process.argv.slice(2), env = process.env): Pro
   console.log(`READY http://${config.host}:${running.server.port} port=${running.server.port} store=${storeDesc} pid=${process.pid}`);
 
   return new Promise<number>((resolve) => {
+    let stopping = false;
     const stop = (signal: string) => {
+      if (stopping) { console.log(`${signal} 두 번째 수신, 즉시 종료`); resolve(130); return; }
+      stopping = true;
       console.log(`${signal} 수신, 종료 중`);
-      void running.close().then(() => resolve(0), (err: unknown) => { console.error(`종료 중 오류: ${err instanceof Error ? err.message : String(err)}`); resolve(1); });
+      void running.close().then(() => { console.log('종료 완료(연결·DB 닫힘)'); resolve(0); }, (err: unknown) => { console.error(`종료 중 오류: ${err instanceof Error ? err.message : String(err)}`); resolve(1); });
     };
-    process.once('SIGTERM', () => stop('SIGTERM'));
-    process.once('SIGINT', () => stop('SIGINT'));
+    // Windows 에는 SIGTERM 이 없고 SIGINT(Ctrl-C)만 온다. bin 셸이 자식을 kill 하면 정상 close 없이 끝난다
+    process.on('SIGTERM', () => stop('SIGTERM'));
+    process.on('SIGINT', () => stop('SIGINT'));
   });
 }

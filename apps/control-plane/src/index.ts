@@ -8,4 +8,4 @@ export { createMemoryCycleStore, type CycleStore, type CycleRecord, type RunRegi
 export { computeCycle, tagsOf, type CycleView, type CaseCell } from './verdict.ts';
 export { buildCycleView, type CycleViewWithWarnings } from './cycle-view.ts';
 export { parseConfig, defaultDataDir, ConfigError, HELP, type ControlPlaneConfig } from './config.ts';
-export { startControlPlane, main, type RunningControlPlane } from './main.ts';
+export { startControlPlane, type RunningControlPlane } from './main.ts'; // main() 은 bin 만 쓴다(프로세스 제어)

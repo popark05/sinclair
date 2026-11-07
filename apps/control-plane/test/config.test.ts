@@ -33,6 +33,7 @@ describe('parseConfig', () => {
     [['--db', ''], /db/],
     [['--bogus'], /모르는 옵션/],
     [['--port'], /port.*값/],
+    [['extra'], /모르는 인자/],
   ])('잘못된 값 %j 은 ConfigError', (argv, pattern) => {
     expect(() => parseConfig([...argv], env(), 'linux')).toThrow(ConfigError);
     expect(() => parseConfig([...argv], env(), 'linux')).toThrow(pattern);

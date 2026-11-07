@@ -128,5 +128,6 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
   });
   await new Promise<void>((r) => server.listen(opts.port ?? 0, opts.host ?? '127.0.0.1', r));
   const addr = server.address();
-  return { port: typeof addr === 'object' && addr ? addr.port : 0, close: () => new Promise<void>((r) => server.close(() => r())) };
+  // keep-alive 로 남은 유휴 연결 때문에 close 가 매달리지 않도록 함께 끊는다
+  return { port: typeof addr === 'object' && addr ? addr.port : 0, close: () => new Promise<void>((r) => { server.closeAllConnections(); server.close(() => r()); }) };
 }

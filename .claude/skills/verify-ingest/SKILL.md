@@ -18,12 +18,12 @@ RUN=.e2e/verify-ingest/$(date +%Y%m%d-%H%M%S)-<목적>
 
 ```bash
 $S/start.sh $RUN
-# 출력 마지막 줄: READY port=<n> store=memory runDir=<RUN>
+# 출력 마지막 줄: READY http://127.0.0.1:<n> port=<n> store=memory pid=<pid>
 SINCLAIR_INGEST_STORE=sqlite $S/start.sh $RUN
-# READY port=<n> store=sqlite db=<RUN>/control-plane.db runDir=<RUN>
+# READY http://127.0.0.1:<n> port=<n> store=sqlite db=<RUN>/control-plane.db schema=<v> pid=<pid>
 ```
 
-- `start.sh` 가 제품 엔트리 `apps/control-plane/bin/sinclair-control-plane.mjs` 를 `--port 0 --store <kind> --db <file>` 로 띄운다(서버가 쓰는 코드와 같은 경로). 준비 완료 기준은 `server.out` 의 `READY` 줄이며 그때 `$RUN/server.json`(port, pid, store, sqlite 면 db) 이 있다. bin 은 `--experimental-transform-types` 로 자신을 다시 띄우므로 `server.pid` 는 셸 프로세스이고, 그 자식이 서버다(stop.sh 의 SIGTERM 이 전달된다).
+- `start.sh` 가 서버 엔트리 `apps/control-plane/bin/sinclair-control-plane.mjs`(루트 `pnpm control-plane` 과 같은 것)를 `--port 0 --store <kind> --db <file>` 로 띄운다. 이 엔트리는 아직 리포 체크아웃 안에서만 돈다(설치형 번들은 패키징 티켓). 준비 완료 기준은 `server.out` 의 `READY` 줄이며 그때 `$RUN/server.json`(port, pid, store, sqlite 면 db) 이 있다. bin 은 `--experimental-transform-types` 로 자신을 다시 띄우므로 `server.pid` 는 셸 프로세스이고, 그 자식이 서버다(stop.sh 의 SIGTERM 이 전달된다).
 - **SQLite 모드:** `SINCLAIR_INGEST_STORE=sqlite`. DB 파일은 `$RUN/control-plane.db`(`SINCLAIR_INGEST_DB` 로 변경). 같은 `$RUN` 으로 `stop.sh` → `start.sh` 하면 같은 파일을 다시 열어 이전 run 이 보인다(`features/persistence.md`).
 - 시드 데이터 없음. 빈 저장소로 시작하므로 멱등 증명은 한 RUN 안에서 한다.
 - 인증 없음(아직 범위 밖). 127.0.0.1 에만 바인딩한다. 설정 오류·스키마 불일치면 종료 코드 2 와 메시지가 `server.out` 에 남고 start.sh 가 실패한다.
@@ -34,7 +34,7 @@ SINCLAIR_INGEST_STORE=sqlite $S/start.sh $RUN
 $S/doctor.sh $RUN
 ```
 
-읽기 전용. pid 생존, 포트 소유자가 그 pid 인지, `/health` 200, 배열 아닌 본문에 400 을 확인하고 `DOCTOR OK` 또는 `DOCTOR FAIL: <이유>` 를 출력한다.
+읽기 전용. pid 생존, 포트 소유자가 그 pid 이거나 그 자식(셸이 재실행한 서버)인지, `/health` 200, 배열 아닌 본문에 400 을 확인하고 `DOCTOR OK` 또는 `DOCTOR FAIL: <이유>` 를 출력한다.
 
 ## Drive
 

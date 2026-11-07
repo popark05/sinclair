@@ -15,7 +15,7 @@ control-plane 은 Ingest 로 들어온 RunEvent 를 eventId 로 멱등 저장하
 ## 결정
 `node:sqlite` 의 SQLite 로 시작한다. 저장소는 `EventStore` 인터페이스 뒤에 있고(`apps/control-plane/src/store.ts`) 모든 구현이 같은 공유 스위트(`test/event-store-suite.ts`)를 통과해야 하므로 교체 비용은 구현 파일 하나다. 스키마 버전은 `PRAGMA user_version` 으로 관리하고(현재 2: 1 이벤트, 2 Cycle/Run 등록), 단계별 SQL 배열(`SQLITE_MIGRATIONS`)을 트랜잭션 하나씩 적용해 올린다. 더 새로운 버전의 파일이나 다른 앱의 DB 파일은 열지 않는다. 저널은 WAL(조회와 ingest 가 서로 막지 않음).
 
-테스트는 인메모리 저장소가 기본, 실행(`verify-ingest` 의 `SINCLAIR_INGEST_STORE=sqlite`, 이후 runner-agent/서버 배포)은 SQLite 가 기본이다. 제품용 서버 엔트리(저장소·DB 경로 설정)는 아직 없고 배포 티켓에서 만든다. 지금은 `serveControlPlane(store)` 에 저장소를 주입한다.
+테스트는 인메모리 저장소가 기본, 실행(`verify-ingest` 의 `SINCLAIR_INGEST_STORE=sqlite`, 이후 runner-agent/서버 배포)은 SQLite 가 기본이다. 서버 엔트리 `sinclair-control-plane`(runner-agent 티켓 01)이 `--store`/`--db` 로 고르고 기본은 sqlite 다. 엔트리는 ExperimentalWarning 을 끄므로 Node 를 올릴 때 `node:sqlite` API 변경을 CHANGELOG 로 확인한다. 설치형 번들은 패키징 티켓에서.
 
 ## 이유
 - 설치형·사내망 제약에서 네이티브 모듈 확보가 가장 큰 위험이라 내장 모듈이 유리하다. experimental 표시는 `EventStore` 뒤에 가둬 교체 가능하게 하는 것으로 감수한다.

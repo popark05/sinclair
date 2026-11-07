@@ -10,7 +10,7 @@ KIND=${SINCLAIR_INGEST_STORE:-memory}
 DB=${SINCLAIR_INGEST_DB:-$RUN_DIR/control-plane.db}
 node "$BIN" --port 0 --store "$KIND" --db "$DB" >"$RUN_DIR/server.out" 2>&1 &
 echo $! >"$RUN_DIR/server.pid"
-for _ in $(seq 1 50); do
+for _ in $(seq 1 50); do  # 0.1s × 50 = 5초: 셸 재실행 + TS 변환 로드에 보통 1초 미만
   if grep -q '^READY' "$RUN_DIR/server.out" 2>/dev/null; then
     PORT=$(sed -n 's/^READY .*port=\([0-9]*\).*/\1/p' "$RUN_DIR/server.out" | head -1)
     node -e 'const [dir,port,pid,kind,db]=process.argv.slice(1);require("fs").writeFileSync(`${dir}/server.json`,JSON.stringify({port:Number(port),pid:Number(pid),store:kind,...(kind==="sqlite"?{db}:{})}))' "$RUN_DIR" "$PORT" "$(cat "$RUN_DIR/server.pid")" "$KIND" "$DB"

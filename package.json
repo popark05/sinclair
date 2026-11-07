@@ -4,14 +4,17 @@
   "description": "Sinclair: 모바일/웹 앱을 위한 에이전트 기반 E2E 검증 플랫폼",
   "type": "module",
   "packageManager": "pnpm@12.14.0",
-  "engines": { "node": ">=22.13" },
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
     "build": "pnpm -r --filter './packages/**' run build",
     "typecheck": "pnpm -r run typecheck",
     "test": "vitest run",
     "lint": "oxlint",
     "fetch-usb": "node scripts/fetch-usb-binaries.mjs",
-    "check": "pnpm run lint && pnpm run typecheck && pnpm run test"
+    "check": "pnpm run lint && pnpm run typecheck && pnpm run test",
+    "control-plane": "node apps/control-plane/bin/sinclair-control-plane.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

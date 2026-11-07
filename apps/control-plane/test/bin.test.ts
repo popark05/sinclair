@@ -26,7 +26,7 @@ function start(args: string[], env: Record<string, string> = {}) {
     check();
     child.stdout!.on('data', check);
     void exited.then((code) => reject(new Error(`READY 전에 종료됨(code ${code}): ${out}`)));
-    setTimeout(() => reject(new Error(`READY 대기 시간 초과: ${out}`)), 15_000).unref();
+    setTimeout(() => reject(new Error(`READY 대기 시간 초과: ${out}`)), 15_000).unref(); // 셸 재실행 + TS 변환 로드가 느린 CI 에서도 넉넉히
   });
   return { child, ready, exited, output: () => out, stop: async () => { child.kill('SIGTERM'); return exited; } };
 }
@@ -44,6 +44,7 @@ describe('sinclair-control-plane bin', () => {
       const view = await (await fetch(`http://127.0.0.1:${port}/runs/r1`)).text();
       expect(await a.stop()).toBe(0);
       expect(a.output()).toContain('SIGTERM 수신');
+      expect(a.output()).toContain('종료 완료');
 
       const b = start(['--port=0'], { SINCLAIR_CP_DB: db }); // 환경변수로도 같은 DB
       const port2 = await b.ready();
@@ -79,6 +80,20 @@ describe('sinclair-control-plane bin', () => {
       expect(await future.exited).toBe(2);
       expect(future.output()).toMatch(/기동 실패: .*스키마 버전 99/);
     } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('쓸 수 없는 디렉터리의 DB 는 기동 실패 코드 2 다', async () => {
+    if (process.getuid?.() === 0) return; // root 는 권한 검사를 통과한다
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sinclair-bin-'));
+    try {
+      fs.chmodSync(dir, 0o500);
+      const locked = start(['--port', '0', '--db', path.join(dir, 'sub', 'cp.db')]);
+      expect(await locked.exited).toBe(2);
+      expect(locked.output()).toMatch(/기동 실패: /);
+    } finally {
+      fs.chmodSync(dir, 0o700);
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
