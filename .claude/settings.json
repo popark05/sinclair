@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm install)",
+      "Bash(pnpm test *)",
+      "Bash(pnpm test)",
+      "Bash(pnpm typecheck)",
+      "Bash(pnpm lint)",
+      "Bash(pnpm check)",
+      "Bash(pnpm build)",
+      "Bash(npx vitest *)",
+      "Bash(git status *)",
+      "Bash(git status)",
+      "Bash(git diff *)",
+      "Bash(git diff)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(.claude/skills/verify-device-layer/scripts/*)"
+    ],
+    "deny": [
+      "Edit(reference/**)"
+    ]
+  }
+}
