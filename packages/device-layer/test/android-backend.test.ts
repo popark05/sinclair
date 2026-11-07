@@ -222,3 +222,29 @@ describe('AndroidBackend 앱·URL·스크린샷 (adb shell 경로)', () => {
     expect(phone.shellCommands).toEqual(['screencap -p']);
   });
 });
+
+describe('AndroidBackend 셸 경로 안전성', () => {
+  async function ready() {
+    const s = setup();
+    await s.backend.listDevices();
+    s.phone.shellCommands.length = 0;
+    return s;
+  }
+
+  it('keys 의 키 이름은 KEYCODE_* 또는 숫자만 허용해 셸 명령을 끼워 넣을 수 없다', async () => {
+    const { backend, phone } = await ready();
+    await expect(backend.keys('PHONE1', ['KEYCODE_A; reboot'])).rejects.toThrow(/키 이름/);
+    await expect(backend.keys('PHONE1', ['$(id)'])).rejects.toThrow(/키 이름/);
+    expect(phone.shellCommands).toEqual([]);
+    await backend.keys('PHONE1', ['KEYCODE_ENTER', '66']);
+    expect(phone.shellCommands).toEqual(['input keyevent KEYCODE_ENTER 66']);
+  });
+
+  it('screenshot 이 실패해도 셸 스트림을 닫는다(스트림 누수 없음)', async () => {
+    const { backend, phone, usbDevice } = await ready();
+    phone.failInput = 'screencap: permission denied';
+    await expect(backend.screenshot('PHONE1')).rejects.toThrow(/permission denied/);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(usbDevice.adb.streams.size).toBe(0);
+  });
+});

@@ -36,6 +36,7 @@ Preconditions:
 
 - 실기기 `device.io.text` 는 ASCII 만 받는다. 한글 등 비ASCII 는 `-32602 input text 는 ASCII 만 지원합니다` 로 거부된다(조용히 깨지지 않음). 접근성 헬퍼 경로(티켓 06)가 맡는다.
 - 실기기 `input` 은 종료 코드가 0 이 아니면 `-32603` 에 stderr 가 담긴다.
+- `device.io.keys` 는 `KEYCODE_*` 또는 숫자 키코드만 받는다(그 외 `-32602`). `device.io.text` 의 리터럴 `%s` 는 `input text` 가 공백으로 바꾼다.
 
 - 스와이프 파라미터 키는 `fromX/fromY/toX/toY` camelCase 로 확정(2026-11-07, 티켓 02). 소문자 `fromx` 를 보내면 `-32602 fromX 가 필요합니다`.
 

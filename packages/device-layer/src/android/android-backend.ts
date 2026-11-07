@@ -22,6 +22,9 @@ const BUTTON_KEYCODES: Record<Parameters<DeviceBackend['button']>[1], string> = 
   volume_down: 'KEYCODE_VOLUME_DOWN',
 };
 
+/** `input keyevent` 에 넘길 수 있는 키 이름: KEYCODE_* 상수 또는 숫자 키코드 */
+const KEY_NAME = /^(KEYCODE_[A-Z0-9_]+|\d{1,4})$/;
+
 /** 셸 인자 하나를 작은따옴표로 감싼다. */
 function shellQuote(arg: string): string {
   return `'${arg.replace(/'/g, `'\\''`)}'`;
@@ -171,7 +174,8 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
     return r.allOutput;
   }
 
-  const input = (deviceId: string, args: string) => run(deviceId, `input ${args}`).then(() => undefined);
+  const runVoid = (deviceId: string, command: string) => run(deviceId, command).then(() => undefined);
+  const input = (deviceId: string, args: string) => runVoid(deviceId, `input ${args}`);
 
   /** am/monkey 는 실패해도 종료 코드 0 으로 "Error: ..." 만 출력하는 경우가 있어 출력으로도 판정한다. */
   async function runActivityManager(deviceId: string, command: string): Promise<void> {
@@ -185,13 +189,17 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
     const stream = await dadbFor(deviceId).openShell(command);
     const out: Buffer[] = [];
     const err: Buffer[] = [];
-    for (;;) {
-      const packet = await stream.read();
-      if (packet.type === 'exit') {
-        if (packet.exitCode !== 0) throw new Error(`셸 명령 실패(exit ${packet.exitCode}): ${command}\n${Buffer.concat(err).toString('utf-8').trim()}`);
-        return Buffer.concat(out);
+    try {
+      for (;;) {
+        const packet = await stream.read();
+        if (packet.type === 'exit') {
+          if (packet.exitCode !== 0) throw new Error(`셸 명령 실패(exit ${packet.exitCode}): ${command}\n${Buffer.concat(err).toString('utf-8').trim()}`);
+          return Buffer.concat(out);
+        }
+        (packet.type === 'stdout' ? out : err).push(packet.payload);
       }
-      (packet.type === 'stdout' ? out : err).push(packet.payload);
+    } finally {
+      await stream.close();
     }
   }
 
@@ -205,7 +213,7 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
       const entry = entries.get(deviceId);
       if (entry) return toInfo(deviceId, entry);
       const found = (await refresh()).find((d) => d.id === deviceId);
-      if (!found) throw new Error(`기기를 찾을 수 없음: ${deviceId}`);
+      if (!found) throw new RpcError(RPC_ERRORS.deviceNotFound, `기기를 찾을 수 없음: ${deviceId}`);
       return found;
     },
     screenshot: (id) => runBinary(id, 'screencap -p'),
@@ -215,16 +223,22 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
     swipe: (id, from, to, durationMs) => input(id, `swipe ${from.x} ${from.y} ${to.x} ${to.y} ${durationMs}`),
     text: async (id, text) => {
       // `input text` 는 ASCII 만 받는다(비ASCII 는 기기에서 무시되거나 깨진다). 한글 등은 접근성 헬퍼 경로(setText)가 맡는다.
+      // 알려진 한계: `input text` 는 `%s` 를 공백으로 해석하므로 리터럴 "%s" 는 전달할 수 없다(이스케이프 수단 없음).
       if (!/^[\x20-\x7e]*$/.test(text)) {
         throw new RpcError(RPC_ERRORS.invalidParams, 'input text 는 ASCII 만 지원합니다. 비ASCII 텍스트는 접근성 헬퍼가 필요합니다');
       }
       return input(id, `text ${shellQuote(text.replace(/ /g, '%s'))}`);
     },
-    keys: (id, keys) => input(id, `keyevent ${keys.join(' ')}`),
+    keys: async (id, keys) => {
+      // 키 이름은 인용 없이 보간되므로 화이트리스트로만 허용한다(셸 명령 삽입 방지).
+      const bad = keys.find((k) => !KEY_NAME.test(k));
+      if (bad !== undefined) throw new RpcError(RPC_ERRORS.invalidParams, `허용되지 않는 키 이름: ${bad} (KEYCODE_* 또는 숫자 키코드만)`);
+      return input(id, `keyevent ${keys.join(' ')}`);
+    },
     button: (id, name) => input(id, `keyevent ${BUTTON_KEYCODES[name]}`),
     // appId 만 받으므로 액티비티 이름이 필요한 `am start -n` 대신 런처 카테고리로 여는 monkey 를 쓴다.
     launchApp: (id, appId) => runActivityManager(id, `monkey -p ${shellQuote(appId)} -c android.intent.category.LAUNCHER 1`),
-    terminateApp: (id, appId) => run(id, `am force-stop ${shellQuote(appId)}`).then(() => undefined),
+    terminateApp: (id, appId) => runVoid(id, `am force-stop ${shellQuote(appId)}`),
     openUrl: (id, url) => runActivityManager(id, `am start -W -a android.intent.action.VIEW -d ${shellQuote(url)}`),
     invalidate(): void {
       lastList = undefined;

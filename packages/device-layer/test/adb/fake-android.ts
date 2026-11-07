@@ -99,7 +99,7 @@ export class FakeAndroid {
       if (m[1]!.startsWith('nothing://')) return { stdout: 'Starting: Intent { act=android.intent.action.VIEW }\nError: Activity not started, unable to resolve Intent\n' };
       return { stdout: 'Starting: Intent { act=android.intent.action.VIEW }\nStatus: ok\n' };
     }
-    if (command === 'screencap -p') return { stdout: this.screenshotPng };
+    if (command === 'screencap -p') return this.failInput ? { stderr: `${this.failInput}\n`, exit: 1 } : { stdout: this.screenshotPng };
     if ((m = /^fail (\d+) (.*)$/.exec(command))) return { stderr: `${m[2]}\n`, exit: Number(m[1]) };
     if ((m = /^(?:cmd package|pm) uninstall (\S+)$/.exec(command))) {
       if (this.packages.delete(m[1]!)) return { stdout: 'Success\n' };

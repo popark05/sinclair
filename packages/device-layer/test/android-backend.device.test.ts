@@ -8,6 +8,8 @@
  *     (1 = 아무 기기, 또는 시리얼. 처음 보는 키면 기기에서 60초 안에 "USB 디버깅 허용")
  */
 import { describe, it, expect, afterAll } from 'vitest';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import { createAndroidBackend } from '../src/index.ts';
 
 const target = process.env.SINCLAIR_TEST_USB;
@@ -29,14 +31,26 @@ describe.skipIf(!target)('AndroidBackend 실기기', () => {
 });
 
 describe.skipIf(!target)('AndroidBackend 실기기 입력·스크린샷 (adb shell 경로)', () => {
-  it('홈 버튼 → 탭 → 스크린샷이 PNG 로 온다', async () => {
+  it('홈 → 스크린샷 A → 최근 앱 키 → 스크린샷 B 가 서로 다르고(화면 변화 증거), 두 장이 .e2e/ 에 남는다', async () => {
     const [device] = await backend.listDevices();
     const id = target === '1' ? device!.id : target!;
+    const dir = path.resolve(import.meta.dirname, '../../../.e2e/device-proof');
+    await fs.mkdir(dir, { recursive: true });
     await backend.button(id, 'home');
-    await backend.tap(id, { x: 100, y: 300 });
-    const png = await backend.screenshot(id);
-    expect(Buffer.from(png.subarray(0, 8))).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
-    expect(png.length).toBeGreaterThan(10_000);
+    await new Promise((r) => setTimeout(r, 500));
+    const before = await backend.screenshot(id);
+    await backend.keys(id, ['KEYCODE_APP_SWITCH']);
+    await new Promise((r) => setTimeout(r, 800));
+    const after = await backend.screenshot(id);
+    await backend.button(id, 'back');
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    await fs.writeFile(path.join(dir, `${stamp}-before.png`), before);
+    await fs.writeFile(path.join(dir, `${stamp}-after.png`), after);
+    for (const png of [before, after]) {
+      expect(Buffer.from(png.subarray(0, 8))).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+      expect(png.length).toBeGreaterThan(10_000);
+    }
+    expect(Buffer.from(before).equals(Buffer.from(after)), `증거: ${dir}/${stamp}-{before,after}.png`).toBe(false);
     await backend.text(id, 'hello world');
     await backend.keys(id, ['KEYCODE_BACK']);
   }, APPROVAL_WAIT_MS + 10_000);
