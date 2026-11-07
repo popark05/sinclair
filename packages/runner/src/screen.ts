@@ -25,6 +25,8 @@ export interface Locator {
   count(): Promise<number>;
   /** 지금 화면에 정확히 하나 있으면 true(대기·예외 없음). 활성 여부는 보지 않는다(expect.toBeDisabled 가 따로 본다) */
   isVisible(): Promise<boolean>;
+  /** 지금 화면에서 맞는 노드들(대기 없음). expect 의 폴링이 쓴다. within 부모는 기한 안에 strict 로 푼다 */
+  probe(): Promise<SemanticNode[]>;
   /** 노드의 text. secure 노드는 secure-read */
   text(): Promise<string | undefined>;
   /** 노드의 value. secure 노드는 secure-read */
@@ -155,6 +157,7 @@ export function createScreen(engine: Engine, options: ScreenOptions = {}): Scree
       nth: (index) => make({ ...spec, query: { ...spec.query, nth: index } }),
       first: () => self.nth(0),
       count: async () => (await queryNow(spec, Date.now() + timeoutMs)).nodes.length,
+      probe: async () => (await queryNow(spec, Date.now() + timeoutMs)).nodes,
       isVisible: async () => (await queryNow(spec, Date.now() + timeoutMs)).nodes.length === 1,
       text: () => read('text'),
       value: () => read('value'),
