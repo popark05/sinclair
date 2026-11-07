@@ -20,12 +20,19 @@ export class FakeEngine implements Engine {
   readonly performed: Array<{ ref: string; action: string; arg?: string }> = [];
   readonly typed: string[] = [];
   readonly pressed: string[] = [];
+  /** locate 호출 횟수(locator 가 lazy 인지·재조회하는지 검증용). */
+  locateCalls = 0;
   private root: SemanticNode;
   private closed = false;
   private sessionTarget: string | undefined;
 
   constructor(private readonly options: FakeEngineOptions) {
     this.root = clone(options.root);
+  }
+
+  /** 화면을 통째로 바꾼다(나중에 나타나는 요소·활성화 같은 시간 의존 시나리오용). */
+  setRoot(root: SemanticNode): void {
+    this.root = clone(root);
   }
 
   private assertOpen(): void {
@@ -44,6 +51,7 @@ export class FakeEngine implements Engine {
 
   async locate(query: LocatorQuery): Promise<SemanticNode[]> {
     this.assertOpen();
+    this.locateCalls++;
     return locateInTree(this.visibleRoot(), query);
   }
 

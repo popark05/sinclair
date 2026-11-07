@@ -75,3 +75,28 @@ describe('locateInTree 매칭 규칙', () => {
     expect(header).not.toHaveProperty('children');
   });
 });
+
+describe('within 의 bounds 포함 fallback (specs/0001)', () => {
+  // 시각적으로는 카드 안에 있지만 트리에서는 형제인 버튼(오버레이·커스텀 레이아웃에서 흔함)
+  const overlay: SemanticNode = {
+    ref: '@e0', role: 'root', rect: { x: 0, y: 0, width: 1080, height: 2400 }, children: [
+      { ref: '@e1', role: 'group', testId: 'card', rect: { x: 0, y: 500, width: 1080, height: 600 }, children: [
+        { ref: '@e2', role: 'text', text: '카드 제목', rect: { x: 40, y: 520, width: 600, height: 60 } },
+      ] },
+      { ref: '@e3', role: 'button', name: '더보기', rect: { x: 800, y: 1000, width: 240, height: 80 } },
+      { ref: '@e4', role: 'button', name: '더보기', rect: { x: 800, y: 2000, width: 240, height: 80 } },
+    ],
+  };
+
+  it('트리 자손으로 찾으면 그것을 쓰고, 없으면 scope 의 rect 안에 놓인 노드로 다시 찾는다', () => {
+    expect(locateInTree(overlay, { role: 'text', within: '@e1' }).map((n) => n.ref)).toEqual(['@e2']);
+    expect(locateInTree(overlay, { role: 'button', name: '더보기', within: '@e1' }).map((n) => n.ref)).toEqual(['@e3']);
+  });
+
+  it('rect 가 없는 scope 나 rect 밖의 노드는 fallback 으로도 맞지 않고, scope 자신은 제외된다', () => {
+    expect(locateInTree(overlay, { role: 'button', name: '없음', within: '@e1' })).toEqual([]);
+    expect(locateInTree(overlay, { role: 'group', within: '@e1' })).toEqual([]);
+    const noRect: SemanticNode = { ref: '@r', role: 'root', children: [{ ref: '@g', role: 'group' }, { ref: '@b', role: 'button', rect: { x: 0, y: 0, width: 1, height: 1 } }] };
+    expect(locateInTree(noRect, { role: 'button', within: '@g' })).toEqual([]);
+  });
+});

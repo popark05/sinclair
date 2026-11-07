@@ -19,7 +19,7 @@
 | `name`, `text` | 문자열: 대소문자 무시 부분 일치. `exact: true` 면 대소문자 구분 정확 일치. 정규식: 정규식(g/y 플래그는 무시) |
 | `testId` | 정확 일치. Android resource-id 는 전체(`com.app:id/x`)와 짧은 이름(`x`) 모두 허용 |
 | `placeholder` | 정확 일치 |
-| `within` | 그 ref 의 자손(자기 자신 제외)으로 제한. 없으면 빈 결과 |
+| `within` | 그 ref 의 자손(자기 자신 제외)으로 제한. 자손에서 못 찾으면 scope 의 rect 안에 완전히 놓인 노드로 다시 찾는다(bounds 체이닝 fallback). scope 가 없으면 빈 결과 |
 | `nth` | within 적용 뒤 결과에서 0부터 세는 문서(DFS) 순서. 범위 밖이면 빈 결과 |
 
 기본이 부분 일치인 이유: 모바일 접근성 이름은 "로그인 버튼" 처럼 꾸밈말이 붙는 경우가 많다. strict 모드에서 `ambiguous` 가 나면 `exact` 나 `testId` 로 좁힌다.
@@ -37,10 +37,6 @@
 ## 오류 코드
 
 `not-found`, `ambiguous`, `not-actionable`, `secure-read`, `unsupported-action`, `timeout`, `engine-closed`, `device-unavailable`, `device-error`(그 밖의 디바이스 레이어 실패). 엔진이 내는 것과 러너가 내는 것의 구분은 `engine.ts` 의 주석에 있다.
-
-## 미결
-
-- specs/0001 의 "bounds 기반 체이닝 fallback"(트리 중첩이 시각적 포함과 다를 때 `within` 을 rect 포함으로 판정)은 아직 없다. 러너 locator(티켓 03)에서 필요성이 확인되면 `locateInTree` 에 추가한다.
 
 ## capability
 

@@ -154,21 +154,45 @@ export function findNodeByRef(root: SemanticNode, ref: string): SemanticNode | u
  * 트리에서 질의에 맞는 노드를 문서 순서(DFS)로 돌려준다. within 은 그 ref 의 자손(자기 자신 제외)으로 제한하고,
  * nth 는 within 적용 뒤의 결과에서 0부터 세는 문서 순서 인덱스다(범위 밖이면 빈 배열).
  */
+function rectContains(outer: NonNullable<SemanticNode['rect']>, inner: NonNullable<SemanticNode['rect']>): boolean {
+  return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width && inner.y + inner.height <= outer.y + outer.height;
+}
+
+/**
+ * 트리에서 질의에 맞는 노드를 문서 순서(DFS)로 돌려준다. within 은 그 ref 의 자손(자기 자신 제외)으로 제한하고,
+ * 자손에서 못 찾으면 scope 의 rect 안에 완전히 놓인 노드로 다시 찾는다(bounds 체이닝 fallback, specs/0001: 오버레이·커스텀
+ * 레이아웃은 시각적 포함이 트리 중첩과 다르다). nth 는 within 적용 뒤의 결과에서 0부터 세는 문서 순서 인덱스다(범위 밖이면 빈 배열).
+ */
 export function locateInTree(root: SemanticNode, query: LocatorQuery): SemanticNode[] {
-  let scope: SemanticNode | undefined = root;
-  if (query.within !== undefined) {
-    scope = findNodeByRef(root, query.within);
+  let out: SemanticNode[] = [];
+  if (query.within === undefined) {
+    const walk = (n: SemanticNode): void => {
+      if (matchesQuery(n, query)) out.push(toLocated(n));
+      for (const c of n.children ?? []) walk(c);
+    };
+    walk(root);
+  } else {
+    const scope = findNodeByRef(root, query.within);
     if (!scope) return [];
+    const descendants = (n: SemanticNode): void => {
+      for (const c of n.children ?? []) {
+        if (matchesQuery(c, query)) out.push(toLocated(c));
+        descendants(c);
+      }
+    };
+    descendants(scope);
+    if (out.length === 0 && scope.rect) {
+      const bounds = scope.rect;
+      const byBounds = (n: SemanticNode): void => {
+        if (n.ref !== scope.ref && n.rect && rectContains(bounds, n.rect) && matchesQuery(n, query)) out.push(toLocated(n));
+        for (const c of n.children ?? []) byBounds(c);
+      };
+      byBounds(root);
+    }
   }
-  const out: SemanticNode[] = [];
-  const walk = (n: SemanticNode, isScopeRoot: boolean): void => {
-    if (!(isScopeRoot && query.within !== undefined) && matchesQuery(n, query)) out.push(toLocated(n));
-    for (const c of n.children ?? []) walk(c, false);
-  };
-  walk(scope, true);
   if (query.nth !== undefined) {
     const picked = out[query.nth];
-    return picked ? [picked] : [];
+    out = picked ? [picked] : [];
   }
   return out;
 }
