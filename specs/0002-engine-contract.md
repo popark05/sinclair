@@ -44,7 +44,7 @@
 
 ## 계약 스위트
 
-`engineContractSuite(name, { makeEngine, scenario, navTimeoutMs? })`. `scenario` 는 엔진의 시작 화면에 대한 기대(전환 버튼과 전환 뒤 텍스트, 입력 필드 testId, 비활성·secure·편집 불가 노드)라 FakeEngine 은 로그인 화면으로, engine-mobile 은 샘플 앱 화면으로 만족시킨다. 스위트는 사용자 경로(observe → locate → perform → 재관찰)만 쓴다.
+`engineContractSuite(name, { makeEngine, scenario, navTimeoutMs? })`. `scenario` 는 엔진의 시작 화면에 대한 기대를 `LocatorQuery` 로 적은 것(전환 노드와 전환 뒤 질의, 입력 필드와 그 필드가 받는 글자, 비활성·secure·편집 불가 노드)이라 FakeEngine 은 로그인 화면으로, engine-mobile 은 실기기 앱 화면(Samsung 전화 앱: `digits` 입력 필드, 검색 버튼 → `search_src_text`)으로 만족시킨다. 비활성·secure 노드가 없는 시나리오는 그 검사를 `it.skip` 으로 드러낸다. 스위트는 사용자 경로(observe → locate → perform → 재관찰)만 쓴다.
 
 ## 스위트 자체의 검증 (실패 가능성)
 

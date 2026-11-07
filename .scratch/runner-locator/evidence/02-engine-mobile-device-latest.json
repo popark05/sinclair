@@ -1,0 +1,25 @@
+{
+  "at": "2026-11-07T04:40:30.727Z",
+  "deviceId": "R3CR10LXLZW",
+  "app": "com.samsung.android.dialer",
+  "scenario": {
+    "navButton": {
+      "role": "button",
+      "name": "검색",
+      "exact": true
+    },
+    "afterNav": {
+      "testId": "search_src_text"
+    },
+    "textbox": {
+      "testId": "digits",
+      "typeText": "12"
+    },
+    "nonEditable": {
+      "role": "button",
+      "name": "통화",
+      "exact": true
+    }
+  },
+  "note": "계약 스위트 전체를 실기기에서 실행. 결과는 vitest 출력 참고"
+}

@@ -3,6 +3,7 @@ package io.sinclair.helper;
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.GestureDescription;
 import android.graphics.Path;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.accessibility.AccessibilityNodeInfo;
 
@@ -76,7 +77,9 @@ final class AccessibilityInput {
         AccessibilityNodeInfo target = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
         if (target == null || !target.isEditable()) target = findFocusedEditable(root);
         if (target == null) return Outcome.refused("포커스된 입력 필드가 없음");
-        CharSequence existing = target.isPassword() ? "" : target.getText();
+        // 빈 필드의 getText 는 힌트다(isShowingHintText): 힌트에 덧붙이면 "검색wifi" 가 된다(실기기에서 관찰).
+        boolean showingHint = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && target.isShowingHintText();
+        CharSequence existing = (target.isPassword() || showingHint) ? "" : target.getText();
         String merged = (existing == null ? "" : existing.toString()) + text;
         Bundle args = new Bundle();
         args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, merged);

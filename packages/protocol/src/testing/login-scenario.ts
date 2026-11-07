@@ -22,7 +22,7 @@ export const HOME_SCREEN: SemanticNode = {
 
 export const LOGIN_SCENARIO: ContractScenario = {
   navButton: { role: 'button', name: '로그인' },
-  afterNavText: '환영합니다',
+  afterNav: { text: '환영합니다' },
   textbox: { testId: 'username' },
   disabled: { role: 'button', name: '회원가입' },
   secure: { testId: 'password' },

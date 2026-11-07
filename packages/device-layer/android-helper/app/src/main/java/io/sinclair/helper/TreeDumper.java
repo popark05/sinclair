@@ -50,7 +50,9 @@ final class TreeDumper {
         CharSequence desc = node.getContentDescription();
         if (desc != null && desc.length() > 0) o.put("name", desc.toString());
         CharSequence text = node.getText();
-        if (text != null && text.length() > 0) {
+        // 빈 입력 필드는 getText 가 힌트를 돌려준다(isShowingHintText). 힌트는 placeholder 로만 내보내고 내용으로 치지 않는다.
+        boolean showingHint = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && node.isShowingHintText();
+        if (text != null && text.length() > 0 && !showingHint) {
             // 입력 필드의 내용은 value, 그 외 보이는 글자는 text (e2e locator/expect 관례).
             // 비밀번호 필드의 내용은 에이전트에게 노출하지 않는다(REVIEW.md: secure 필드 redaction).
             String content = node.isPassword() ? "" : text.toString();

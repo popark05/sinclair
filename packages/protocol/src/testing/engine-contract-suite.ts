@@ -1,24 +1,31 @@
 // 엔진 계약 스위트: 어떤 Engine 구현이든 같은 시나리오로 "러너가 기대하는 대로 동작하는가" 를 검사한다.
 // 사용자 경로(observe → locate → perform → 재관찰)로만 검증하고 엔진 내부를 보지 않는다.
 import { describe, it, expect, afterEach } from 'vitest';
-import { capabilitiesOf, EngineError, NODE_ACTIONS, type Engine, type SemanticNode } from '../engine.ts';
+import { capabilitiesOf, EngineError, NODE_ACTIONS, type Engine, type LocatorQuery, type SemanticNode } from '../engine.ts';
 
 /**
  * 엔진이 열렸을 때 보이는 화면에 대한 기대. 실제 엔진은 샘플 앱의 한 화면으로, FakeEngine 은 메모리 트리로 만족시킨다.
- * 모든 질의는 정확히 하나의 노드에 맞아야 한다.
+ * 모든 질의는 정확히 하나의 노드에 맞아야 한다(LocatorQuery 로 적는다).
  */
 export interface ContractScenario {
-  /** 탭하면 화면이 바뀌는 버튼과, 바뀐 화면에서만 보이는 텍스트 */
-  navButton: { role: string; name: string };
-  afterNavText: string;
-  /** 글자를 넣을 수 있는 입력 필드 */
-  textbox: { testId: string };
+  /** 탭하면 화면이 바뀌는 노드 */
+  navButton: LocatorQuery;
+  /** 바뀐 화면에서만 맞는 질의(전환 확인용) */
+  afterNav: LocatorQuery;
+  /** 글자를 넣을 수 있는 입력 필드. typeText 는 그 필드가 받는 글자(기본 영문+숫자, 전화 번호 필드는 숫자만 등) */
+  textbox: LocatorQuery & { typeText?: string };
   /** 비활성 노드(있으면 not-actionable 검사) */
-  disabled?: { role: string; name: string };
+  disabled?: LocatorQuery;
   /** secure 입력 필드(있으면 내용 제거 검사) */
-  secure?: { testId: string };
+  secure?: LocatorQuery;
   /** 편집할 수 없는 노드(type → not-actionable) */
-  nonEditable: { role: string; name?: string; text?: string };
+  nonEditable: LocatorQuery;
+}
+
+/** scenario 의 질의에서 typeText 같은 부가 필드를 뺀 순수 LocatorQuery */
+function q(query: LocatorQuery & { typeText?: string }): LocatorQuery {
+  const { typeText: _t, ...rest } = query;
+  return rest;
 }
 
 export interface EngineContractOptions {
@@ -41,10 +48,20 @@ async function only(engine: Engine, query: Parameters<Engine['locate']>[0], labe
 export function engineContractSuite(name: string, { makeEngine, scenario, navTimeoutMs = 10_000 }: EngineContractOptions): void {
   describe(`엔진 계약: ${name}`, () => {
     const engines: Engine[] = [];
+    /**
+     * 시작 화면이 준비된 엔진. session 이 있으면 restart(없거나 미지원이면 open)로 앱을 처음 상태로 돌리고,
+     * 전환 노드가 보일 때까지 기다린다(실기기 앱 기동은 수백 ms~수 초). 테스트끼리 화면 상태를 물려받지 않게 한다.
+     */
     const fresh = async (): Promise<Engine> => {
       const e = await makeEngine();
       engines.push(e);
-      if (e.session) await e.session.open();
+      if (e.session) {
+        await e.session.restart().catch(() => e.session!.open());
+        const deadline = Date.now() + navTimeoutMs;
+        while ((await e.locate(scenario.navButton)).length === 0 && Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, NAV_POLL_MS));
+        }
+      }
       return e;
     };
     afterEach(async () => {
@@ -59,19 +76,23 @@ export function engineContractSuite(name: string, { makeEngine, scenario, navTim
       expect(o.root.children?.length ?? 0).toBeGreaterThan(0);
     });
 
-    it('locate 는 role/name 으로 시나리오의 버튼을 정확히 하나 찾고, 없는 것은 빈 배열이다', async () => {
+    it('locate 는 시나리오의 전환 노드를 정확히 하나 찾고, 없는 것은 빈 배열이다', async () => {
       const e = await fresh();
-      const btn = await only(e, { role: scenario.navButton.role, name: scenario.navButton.name }, 'navButton');
-      expect(btn.role).toBe(scenario.navButton.role);
-      expect(await e.locate({ role: scenario.navButton.role, name: 'sinclair-없는-이름-' + Date.now() })).toEqual([]);
+      const btn = await only(e, scenario.navButton, 'navButton');
+      if (scenario.navButton.role) expect(btn.role).toBe(scenario.navButton.role);
+      expect(await e.locate({ ...scenario.navButton, name: 'sinclair-없는-이름-' + Date.now() })).toEqual([]);
     });
 
-    it('locate 매칭 규칙(엔진 경로): 정규식 name, within 루트, nth 는 문서 순서, exact 는 정확 일치', async () => {
+    it('locate 매칭 규칙(엔진 경로): 정규식 name/text, within 루트, nth 는 문서 순서, exact 는 정확 일치', async () => {
       const e = await fresh();
-      const nav = scenario.navButton;
-      const byName = await only(e, { role: nav.role, name: nav.name, exact: true }, 'exact');
-      const escaped = nav.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      expect((await e.locate({ role: nav.role, name: new RegExp(`^${escaped}$`) })).map((n) => n.ref)).toEqual([byName.ref]);
+      const nav = await only(e, scenario.navButton, 'navButton');
+      const label = nav.name ?? nav.text;
+      if (typeof label === 'string' && label.length > 0) {
+        const field = nav.name !== undefined ? 'name' : 'text';
+        const byExact = await only(e, { role: nav.role, [field]: label, exact: true }, 'exact');
+        const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        expect((await e.locate({ role: nav.role, [field]: new RegExp(`^${escaped}$`) })).map((n) => n.ref)).toEqual([byExact.ref]);
+      }
       const root = (await e.observe()).root;
       const all = await e.locate({ role: nav.role });
       expect((await e.locate({ role: nav.role, within: root.ref })).map((n) => n.ref)).toEqual(all.filter((n) => n.ref !== root.ref).map((n) => n.ref));
@@ -81,32 +102,38 @@ export function engineContractSuite(name: string, { makeEngine, scenario, navTim
       expect(await e.locate({ role: nav.role, nth: all.length })).toEqual([]);
     });
 
-    it('locate 는 testId 로 입력 필드를 찾는다', async () => {
+    it('locate 는 입력 필드를 정확히 하나 찾는다', async () => {
       const e = await fresh();
-      const tb = await only(e, { testId: scenario.textbox.testId }, 'textbox');
+      const tb = await only(e, q(scenario.textbox), 'textbox');
       expect(tb.rect ?? { width: 1 }).toBeTruthy();
     });
 
     it('perform type 뒤 재조회하면 value 에 글자가 들어 있다', async () => {
       const e = await fresh();
-      const tb = await only(e, { testId: scenario.textbox.testId }, 'textbox');
-      const text = 'sinclair' + (Date.now() % 1000);
+      const tb = await only(e, q(scenario.textbox), 'textbox');
+      const text = scenario.textbox.typeText ?? 'sinclair' + (Date.now() % 1000);
       await e.perform(tb.ref, 'type', text);
-      const after = await only(e, { testId: scenario.textbox.testId }, 'textbox(after type)');
+      // 실기기는 입력 뒤 트리에 반영되기까지 수백 ms 걸린다. 기한 안에 한 번이라도 보이면 된다.
+      const deadline = Date.now() + navTimeoutMs;
+      let after = await only(e, q(scenario.textbox), 'textbox(after type)');
+      while (!(after.value ?? '').includes(text) && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, NAV_POLL_MS));
+        after = await only(e, q(scenario.textbox), 'textbox(after type)');
+      }
       expect(after.value ?? '').toContain(text);
     });
 
-    it('perform tap 으로 화면이 바뀌면 재관찰에서 새 텍스트가 보인다', async () => {
+    it('perform tap 으로 화면이 바뀌면 재관찰에서 전환 뒤 노드가 보인다', async () => {
       const e = await fresh();
-      const btn = await only(e, { role: scenario.navButton.role, name: scenario.navButton.name }, 'navButton');
+      const btn = await only(e, scenario.navButton, 'navButton');
       await e.perform(btn.ref, 'tap');
       const deadline = Date.now() + navTimeoutMs;
       let found: SemanticNode[] = [];
       while (found.length === 0 && Date.now() < deadline) {
-        found = await e.locate({ text: scenario.afterNavText });
+        found = await e.locate(scenario.afterNav);
         if (found.length === 0) await new Promise((r) => setTimeout(r, NAV_POLL_MS));
       }
-      expect(found.length, `탭 뒤 "${scenario.afterNavText}" 가 보여야 함`).toBeGreaterThan(0);
+      expect(found.length, `탭 뒤 ${JSON.stringify(scenario.afterNav)} 가 보여야 함`).toBeGreaterThan(0);
     });
 
     it('편집할 수 없는 노드에 type 하면 not-actionable 이다', async () => {
@@ -115,9 +142,9 @@ export function engineContractSuite(name: string, { makeEngine, scenario, navTim
       await expect(e.perform(n.ref, 'type', 'x')).rejects.toMatchObject({ code: 'not-actionable' });
     });
 
-    it('역할이 맞지 않는 노드에 check/select 하면 not-actionable 이다(버튼에 check, 버튼에 select)', async () => {
+    it('역할이 맞지 않는 노드에 check/select 하면 not-actionable 이다(전환 노드에 check, select)', async () => {
       const e = await fresh();
-      const btn = await only(e, { role: scenario.navButton.role, name: scenario.navButton.name }, 'navButton');
+      const btn = await only(e, scenario.navButton, 'navButton');
       for (const action of ['check', 'select'] as const) {
         if (!e.actions.includes(action)) continue; // unsupported-action 은 별도 케이스가 검사한다
         await expect(e.perform(btn.ref, action, action === 'select' ? 'x' : undefined), action).rejects.toMatchObject({ code: 'not-actionable' });
@@ -131,7 +158,7 @@ export function engineContractSuite(name: string, { makeEngine, scenario, navTim
 
     it('actions 에 없는 액션은 unsupported-action 이고, actions 에 있는 액션은 그 코드로 거부되지 않는다', async () => {
       const e = await fresh();
-      const btn = await only(e, { role: scenario.navButton.role, name: scenario.navButton.name }, 'navButton');
+      const btn = await only(e, scenario.navButton, 'navButton');
       const unsupported = NODE_ACTIONS.filter((a) => !e.actions.includes(a));
       for (const a of unsupported) await expect(e.perform(btn.ref, a)).rejects.toMatchObject({ code: 'unsupported-action' });
       // 광고한 액션은 전제(역할 등) 때문에 거부될 수는 있어도 unsupported-action 이어서는 안 된다
@@ -158,7 +185,7 @@ export function engineContractSuite(name: string, { makeEngine, scenario, navTim
       const secure = scenario.secure;
       it('secure 노드는 observe/locate 어디서도 text/value 를 주지 않는다', async () => {
         const e = await fresh();
-        const n = await only(e, { testId: secure.testId }, 'secure');
+        const n = await only(e, secure, 'secure');
         expect(n.states?.secure).toBe(true);
         expect(n).not.toHaveProperty('value');
         expect(n).not.toHaveProperty('text');
