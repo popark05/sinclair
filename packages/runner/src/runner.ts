@@ -5,18 +5,29 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { EngineError, type AttemptFinished, type AttemptResult, type Engine, type RunEvent, type StepRecorded } from '@sinclair/protocol';
+import { EngineError, parseRunEvent, type AttemptFinished, type AttemptResult, type Engine, type RunEvent, type StepRecorded } from '@sinclair/protocol';
 import { createScreen, type StepEvent } from './screen.ts';
 import { expect as makeExpect, AssertionError } from './expect.ts';
 import { drainRegistry, type Fixtures, type TestCase } from './test.ts';
 
+/** 러너가 내는 RunEvent 를 발생 즉시 받는 쪽(제어 평면 Ingest 전송 등). 던지거나 느려도 테스트 실행은 멈추지 않는다 */
+export interface Reporter {
+  onEvent(event: RunEvent): void | Promise<void>;
+  /** run 이 끝날 때 한 번. 보류 중인 전송을 마친다 */
+  flush?(): Promise<void>;
+}
+
 export interface RunOptions {
   engine: Engine;
+  /** 이벤트 수신자. 없으면 리포트의 events[] 에만 쌓인다 */
+  reporter?: Reporter;
+  /** reporter.flush 와 보류 중인 onEvent 를 기다리는 기한(ms, 기본 10초). 넘기면 경고를 남기고 리포트를 돌려준다 */
+  reporterFlushTimeoutMs?: number;
   /** 실패 시 스냅샷(PNG + 트리 JSON)을 쓰는 디렉터리. 없으면 아티팩트를 남기지 않는다 */
   artifactsDir?: string;
   /** locator 액션 기한(ms, 기본 10초). 판정(expect) 기한은 그 절반: 판정은 화면이 이미 그 상태여야 하므로 액션보다 짧게 잡아 실패를 빨리 드러낸다 */
   timeoutMs?: number;
-  /** 식별자(제어 평면의 Run/Cycle 과 맞출 때). 없으면 생성 */
+  /** 식별자(제어 평면의 Run/Cycle 과 맞출 때). runId 는 없으면 생성, cycleId/deviceId 는 모르면 이벤트에서 생략 */
   runId?: string;
   cycleId?: string;
   targetId?: string;
@@ -44,17 +55,39 @@ export interface RunReport {
   summary: { passed: number; failed: number; blocked: number; skipped: number };
   /** protocol RunEvent 순서대로(run.started → attempt.* → run.finished). Ingest 로 보내는 모양 */
   events: RunEvent[];
+  /** 결과에 영향 없는 run 수준 경고(Reporter 실패, 검증기에 걸린 이벤트 등) */
+  warnings?: string[];
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+/** 전송은 보통 수십 ms 지만, 마지막 배치 재시도까지 감안해 넉넉히 잡는다 */
+const DEFAULT_FLUSH_TIMEOUT_MS = 10_000;
 
 export async function runTests(files: string[], options: RunOptions): Promise<RunReport> {
   const { engine } = options;
   const runId = options.runId ?? randomUUID();
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const events: RunEvent[] = [];
+  const warnings: string[] = [];
+  const pending: Promise<void>[] = [];
   const base = () => ({ schema: 1 as const, eventId: randomUUID(), runId, at: new Date().toISOString() });
-  events.push({ ...base(), type: 'run.started', cycleId: options.cycleId ?? '', targetId: options.targetId ?? engine.name, deviceId: options.deviceId ?? '' });
+  // 발생 즉시 Reporter 로 넘긴다. Reporter 의 실패·지연이 테스트 실행을 막지 않도록 기다리지 않고 run 끝에 모아서 기다린다
+  const emit = (event: RunEvent): void => {
+    events.push(event);
+    const parsed = parseRunEvent(event);
+    if (!parsed.ok) warnings.push(`이벤트 ${event.type} 검증 실패: ${parsed.errors.join(', ')}`);
+    if (!options.reporter) return;
+    try {
+      const r = options.reporter.onEvent(event);
+      if (r) pending.push(r.catch((err: unknown) => { warnings.push(`Reporter onEvent(${event.type}) 실패: ${message(err)}`); }));
+    } catch (err) {
+      warnings.push(`Reporter onEvent(${event.type}) 실패: ${message(err)}`);
+    }
+  };
+  emit({
+    ...base(), type: 'run.started', targetId: options.targetId ?? engine.name,
+    ...(options.cycleId ? { cycleId: options.cycleId } : {}), ...(options.deviceId ? { deviceId: options.deviceId } : {}),
+  });
 
   const tests: TestResult[] = [];
 
@@ -70,8 +103,23 @@ export async function runTests(files: string[], options: RunOptions): Promise<Ru
   const summary = { passed: 0, failed: 0, blocked: 0, skipped: 0 };
   for (const t of tests) summary[t.result]++;
   // blocked(기기·헬퍼 불가)는 테스트 판정이 아니라 인프라 문제라 Run 은 infra-failed
-  events.push({ ...base(), type: 'run.finished', state: summary.blocked > 0 ? 'infra-failed' : 'finished' });
-  return { runId, tests, summary, events };
+  emit({ ...base(), type: 'run.finished', state: summary.blocked > 0 ? 'infra-failed' : 'finished' });
+  await flushReporter();
+  return { runId, tests, summary, events, ...(warnings.length ? { warnings } : {}) };
+
+  async function flushReporter(): Promise<void> {
+    if (!options.reporter) return;
+    const limit = options.reporterFlushTimeoutMs ?? DEFAULT_FLUSH_TIMEOUT_MS;
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<'timeout'>((resolve) => { timer = setTimeout(() => resolve('timeout'), limit); });
+    const work = (async () => {
+      await Promise.all(pending);
+      await options.reporter!.flush?.();
+    })().then(() => 'done' as const, (err: unknown) => { warnings.push(`Reporter flush 실패: ${message(err)}`); return 'done' as const; });
+    const outcome = await Promise.race([work, timeout]);
+    clearTimeout(timer);
+    if (outcome === 'timeout') warnings.push(`Reporter flush 가 ${limit}ms 안에 끝나지 않아 기다리지 않음`);
+  }
 
   async function runOne(tc: TestCase, file: string): Promise<TestResult> {
     const attemptId = randomUUID();
@@ -79,11 +127,11 @@ export async function runTests(files: string[], options: RunOptions): Promise<Ru
     const artifacts: AttemptFinished['artifacts'] = [];
     const warnings: string[] = [];
     const started = Date.now();
-    events.push({ ...base(), type: 'attempt.started', attemptId, testId: tc.name, attemptNo: 1 });
+    emit({ ...base(), type: 'attempt.started', attemptId, testId: tc.name, attemptNo: 1 });
 
     const finish = (result: AttemptResult, error?: Error): TestResult => {
       const errorCode = error instanceof EngineError ? error.code : error instanceof AssertionError ? 'assertion' : error ? 'error' : undefined;
-      events.push({ ...base(), type: 'attempt.finished', attemptId, result, ...(errorCode ? { errorCode } : {}), artifacts });
+      emit({ ...base(), type: 'attempt.finished', attemptId, result, ...(errorCode ? { errorCode } : {}), artifacts });
       return {
         name: tc.name, file, result, durationMs: Date.now() - started, steps, artifacts,
         ...(error ? { error: error.message } : {}), ...(errorCode ? { errorCode } : {}), ...(warnings.length ? { warnings } : {}),
@@ -98,7 +146,7 @@ export async function runTests(files: string[], options: RunOptions): Promise<Ru
         instruction: step.error ? `${step.instruction} → 실패: ${step.error}` : step.instruction, modelCalls: 0, durationMs: step.durationMs,
       };
       steps.push(ev);
-      events.push(ev);
+      emit(ev);
     };
     const screen = createScreen(engine, { timeoutMs, onStep });
     const fixtures: Fixtures = {
@@ -150,4 +198,8 @@ export async function runTests(files: string[], options: RunOptions): Promise<Ru
       }
     }
   }
+}
+
+function message(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }

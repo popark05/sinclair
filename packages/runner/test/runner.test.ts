@@ -3,9 +3,9 @@ import { describe, it, expect as vexpect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { EngineError, RUN_EVENT_TYPES, type Engine, type RunEvent, type SemanticNode } from '@sinclair/protocol';
+import { EngineError, RUN_EVENT_TYPES, parseRunEvent, type Engine, type RunEvent, type SemanticNode } from '@sinclair/protocol';
 import { FakeEngine, HOME_SCREEN, LOGIN_SCREEN } from '@sinclair/protocol/testing';
-import { runTests } from '../src/index.ts';
+import { runTests, type Reporter } from '../src/index.ts';
 
 const SETTINGS_SCREEN: SemanticNode = {
   ref: '@s0', role: 'root', rect: { x: 0, y: 0, width: 1080, height: 2400 }, children: [
@@ -96,5 +96,52 @@ describe('runTests', () => {
     vexpect(report.tests.map((t) => t.result)).toEqual(['blocked']);
     vexpect(report.summary).toEqual({ passed: 0, failed: 0, blocked: 1, skipped: 0 });
     vexpect(report.events.at(-1)).toMatchObject({ type: 'run.finished', state: 'infra-failed' });
+  });
+
+  it('run.started 는 모르는 cycleId/deviceId 를 빈 문자열로 채우지 않는다', async () => {
+    const report = await runTests([fixture('sample.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 200 });
+    const started = report.events[0] as Extract<RunEvent, { type: 'run.started' }>;
+    vexpect(started.targetId).toBe('fake');
+    vexpect('cycleId' in started).toBe(false);
+    vexpect('deviceId' in started).toBe(false);
+  });
+});
+
+describe('Reporter', () => {
+  it('이벤트가 발생 순서대로 Reporter 에 도착하고 모두 검증기를 통과하며, run 끝에 flush 가 한 번 불린다', async () => {
+    const received: RunEvent[] = [];
+    const calls: string[] = [];
+    const reporter: Reporter = {
+      onEvent: (e) => { received.push(e); calls.push(e.type); },
+      flush: async () => { calls.push('flush'); },
+    };
+    const report = await runTests([fixture('mixed.sinclair.ts')], { engine: engineWithApps(), artifactsDir, timeoutMs: 200, reporter });
+    vexpect(received).toEqual(report.events); // 기본 리포트 배열은 그대로
+    vexpect(calls.at(-1)).toBe('flush');
+    vexpect(calls.filter((c) => c === 'flush')).toHaveLength(1);
+    for (const e of received) vexpect(parseRunEvent(e)).toEqual({ ok: true, event: e });
+    vexpect(report.warnings).toBeUndefined();
+  });
+
+  it('Reporter 가 던지거나 거부해도 테스트 결과는 바뀌지 않고 경고로 남는다', async () => {
+    let n = 0;
+    const reporter: Reporter = {
+      onEvent: async (e) => { n++; if (e.type === 'attempt.started') throw new Error('전송 실패'); },
+      flush: async () => { throw new Error('flush 실패'); },
+    };
+    const report = await runTests([fixture('mixed.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 200, reporter });
+    vexpect(report.summary).toEqual({ passed: 2, failed: 1, blocked: 0, skipped: 1 });
+    vexpect(n).toBe(report.events.length); // 한 번 실패해도 다음 이벤트는 계속 전달
+    vexpect(report.warnings?.filter((w) => w.includes('전송 실패'))).toHaveLength(4); // attempt.started 4개
+    vexpect(report.warnings?.some((w) => w.includes('flush 실패'))).toBe(true);
+  });
+
+  it('flush 가 기한 안에 끝나지 않으면 경고와 함께 리포트를 돌려준다', async () => {
+    const reporter: Reporter = { onEvent: () => {}, flush: () => new Promise(() => {}) };
+    const started = Date.now();
+    const report = await runTests([fixture('sample.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 200, reporter, reporterFlushTimeoutMs: 100 });
+    vexpect(Date.now() - started).toBeLessThan(2000);
+    vexpect(report.tests[0]!.result).toBe('passed');
+    vexpect(report.warnings?.some((w) => w.includes('flush'))).toBe(true);
   });
 });

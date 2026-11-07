@@ -13,9 +13,11 @@ interface Base {
 
 export interface RunStarted extends Base {
   type: 'run.started';
-  cycleId: string;
+  /** 제어 평면의 Cycle. 로컬(Studio) 실행에는 없다 */
+  cycleId?: string;
   targetId: string;
-  deviceId: string;
+  /** 기기 식별자. 모르면 생략한다('' 로 채우지 않는다) */
+  deviceId?: string;
 }
 
 export interface AttemptStarted extends Base {
@@ -29,24 +31,32 @@ export interface StepRecorded extends Base {
   type: 'step.recorded';
   attemptId: string;
   stepIndex: number;
-  kind: 'locator' | 'act' | 'assert' | 'waitFor' | 'extract';
+  kind: StepKind;
   instruction?: string;
   cache?: CacheDecision;
   modelCalls: number;
   durationMs: number;
 }
 
+export const ARTIFACT_KINDS = ['screenshot', 'video', 'trace', 'ai-trace', 'device-log', 'screen-tree'] as const;
+export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
+
+export const STEP_KINDS = ['locator', 'act', 'assert', 'waitFor', 'extract'] as const;
+export type StepKind = (typeof STEP_KINDS)[number];
+
+export const RUN_FINISHED_STATES = ['finished', 'cancelled', 'infra-failed'] as const;
+
 export interface AttemptFinished extends Base {
   type: 'attempt.finished';
   attemptId: string;
   result: AttemptResult;
   errorCode?: string;
-  artifacts: Array<{ kind: 'screenshot' | 'video' | 'trace' | 'ai-trace' | 'device-log' | 'screen-tree'; key: string }>;
+  artifacts: Array<{ kind: ArtifactKind; key: string }>;
 }
 
 export interface RunFinished extends Base {
   type: 'run.finished';
-  state: 'finished' | 'cancelled' | 'infra-failed';
+  state: (typeof RUN_FINISHED_STATES)[number];
 }
 
 export type RunEvent = RunStarted | AttemptStarted | StepRecorded | AttemptFinished | RunFinished;

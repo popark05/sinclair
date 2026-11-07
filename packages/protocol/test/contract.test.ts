@@ -34,6 +34,12 @@ describe('protocol 계약', () => {
     expect(capabilitiesOf({ ...base, performAt: async () => {} })).toEqual(['pointer']);
   });
 
+  it('run.started 는 targetId 만 필수이고 cycleId/deviceId 는 선택이다 (로컬 실행에는 Cycle 이 없다)', () => {
+    const local: RunEvent = { schema: 1, eventId: 'e0', runId: 'r1', at: '2026-11-07T00:00:00Z', type: 'run.started', targetId: 'fake' };
+    expect(local.type).toBe('run.started');
+    expect('cycleId' in local).toBe(false);
+  });
+
   it('attempt.finished 이벤트는 result 필드가 필수다', () => {
     const ev: RunEvent = {
       schema: 1, eventId: 'e1', runId: 'r1', at: '2026-11-07T00:00:00Z',
