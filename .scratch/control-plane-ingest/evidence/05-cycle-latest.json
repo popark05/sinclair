@@ -1,0 +1,31 @@
+{
+  "at": "2026-11-07T09:10:48.428Z",
+  "store": "memory",
+  "create": {
+    "status": 201
+  },
+  "registerStatus": [
+    201,
+    201
+  ],
+  "mid": {
+    "state": "running",
+    "verdict": "incomplete"
+  },
+  "final": {
+    "state": "finished",
+    "verdict": "verified",
+    "matrix": {
+      "로그인 > 아이디로 로그인한다": {
+        "android": {
+          "verdict": "passed",
+          "attemptId": "and-a1"
+        },
+        "ios": {
+          "verdict": "passed-flaky",
+          "attemptId": "ios-a2"
+        }
+      }
+    }
+  }
+}

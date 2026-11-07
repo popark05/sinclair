@@ -28,3 +28,4 @@
 - `ingest-batch.md` — 배치 저장, 멱등(중복 전송), 순서 무관, 부분 거부, Run 조회.
 - `runner-stream.md` — 러너 → HTTP Reporter → Ingest 흘려보내기.
 - `persistence.md` — SQLite 모드에서 서버 재시작 뒤 조회·멱등.
+- `cycle.md` — Cycle 생성, Run 등록, 매트릭스·Verdict(passed-flaky, verified).

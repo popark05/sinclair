@@ -45,6 +45,7 @@ $S/get.sh $RUN /runs/<runId> [evidence-name]               # RunView
 $S/get.sh $RUN /runs [evidence-name]                        # 요약 목록
 $S/order-check.sh $RUN <events.json> [evidence-name]        # 정순 run 과 역순·분할 run 의 투영 비교 → ORDER-INDEPENDENT
 $S/run-sample.sh $RUN [batchSize]                           # 러너(FakeEngine 샘플) → HTTP Reporter → Ingest. evidence/run-sample.json
+$S/cycle.sh $RUN [name]                                     # Cycle → Run 등록 → 이벤트 → 매트릭스·Verdict. evidence/<name>-*.json
 ```
 
 - `evidence-name` 을 주면 요청+상태+응답을 `$RUN/evidence/<name>.json` 에 저장한다.
@@ -81,6 +82,7 @@ $S/stop.sh $RUN
 | `scripts/get.sh <RUN> <path> [name]` | GET + 증거 저장 |
 | `scripts/order-check.sh <RUN> <events.json> [name]` | 순서 무관 증명(runId 접미사 `-ordered`/`-shuffled`) |
 | `scripts/run-sample.sh <RUN> [batchSize]` | 러너 샘플을 HTTP Reporter 로 흘려보냄 |
+| `scripts/cycle.sh <RUN> [name]` | Cycle 생성 → Run 등록 → 이벤트 → `GET /cycles/:id` (passed-flaky, verified) |
 | `scripts/schema-check.sh <RUN>` | (sqlite, 서버 내린 뒤) 더 새로운 스키마 버전 파일의 기동 거부 증명 |
 | `scripts/stop.sh <RUN>` | 우리가 띄운 pid 만 종료 |
 | `scripts/sample-events.json` | 완료된 run 1개의 이벤트 5개 |

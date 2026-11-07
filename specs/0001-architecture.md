@@ -22,6 +22,8 @@ Reporter 계약(러너 `Reporter`, 2026-11-07 티켓 control-plane-ingest 01/03)
 
 Verdict 규칙: TestCase × 타깃 최종 상태 = 마지막 Attempt. 재시도로 통과하면 `passed(flaky)`. 필수 태그 전부 통과해야 `verified`, 아니면 `blocked`. waive된 Issue는 제외.
 
+Verdict 세부(2026-11-07, control-plane-ingest 티켓 05, `apps/control-plane/src/verdict.ts`): 마지막 Attempt 는 `attemptNo` 최대(끝난 것만). 케이스 집합은 Cycle 의 run 들이 본 testId 합집합. 어떤 타깃의 run 에 없는 케이스는 그 run 이 `infra-failed`/`cancelled` 면 `blocked`, `finished` 면 `skipped`. 태그는 TestCase 레지스트리가 생기기 전까지 테스트 이름의 `@태그` 토큰(e2e/Playwright 관례)이고 `requiredTags` 가 비면 모든 케이스가 필수. Cycle 상태는 run 없음 `draft`, 미종료 run 있음 `running`, 전부 종료 `finished`. Cycle Verdict 는 미종료면 `incomplete`, 필수 케이스 × 모든 타깃이 passed/passed-flaky/waived 면 `verified`, 아니면 `blocked`. Cycle 과 Run 등록은 이벤트가 아닌 레코드(`CycleStore`)로 저장한다.
+
 ## 프런트엔드
 
 - **Studio** (Electron): Device 패널(라이브 스트림, 입력 전달), Inspector(트리 + locator 후보 생성), Agent Session(턴 타임라인, 지시 주입), Recording 편집·코드 내보내기, Test Editor(Monaco), Network(EverMock 연동), Trace Viewer.

@@ -87,7 +87,7 @@ Plan(`intent/`) → Design(`specs/`, `/architect`로 타입 먼저) → Build(`t
 - 결정: `device.io.swipe` 파라미터 키는 `fromX/fromY/toX/toY` camelCase (`durationMs` 와 같은 규칙).
 - android-backend 티켓 01~06 완료(`.scratch/android-backend/`): direct ADB 이식 + AndroidBackend(devices.list, shell 경로 입력·앱·스크린샷), 접근성 헬퍼 APK(`packages/device-layer/android-helper`, `/ping` `/dump`), 헬퍼 온보딩 자동화와 `device.dump.ui`(`device.info.helper` 상태, `-32002`), 원자 스냅샷 `device.snapshot`, 접근성 제스처 입력(`POST /action`, 헬퍼 거부 시 shell fallback, `preferShellInput`). 발견: Samsung Secure Folder 기기는 `settings put` 에 `--user 0` 필수.
 - 미결: 배포 환경의 헬퍼 APK 확보(`helperApkPath`, EverMock ApkManager 패턴)는 runner-agent 패키징 티켓에서.
-- 다음 티켓 순서: (1) Android 백엔드 — 완료(`.scratch/android-backend/`). (2) `packages/runner` locator/expect 와 엔진 계약 — 완료(`.scratch/runner-locator/`: 계약 스위트·FakeEngine, engine-mobile, screen locator, expect, test()/runTests + `verify-runner` 스킬). (3) control-plane Ingest(이벤트 멱등 저장)와 커스텀 Reporter.
+- 다음 티켓 순서: (1) Android 백엔드 — 완료(`.scratch/android-backend/`). (2) `packages/runner` locator/expect 와 엔진 계약 — 완료(`.scratch/runner-locator/`: 계약 스위트·FakeEngine, engine-mobile, screen locator, expect, test()/runTests + `verify-runner` 스킬). (3) control-plane Ingest 와 커스텀 Reporter — 완료(`.scratch/control-plane-ingest/` 01~05: `parseRunEvent` 런타임 검증기, 러너 `Reporter` 훅, Ingest 멱등 저장 + 투영, HTTP Reporter(배치·재시도·413 분할·close), SQLite(`node:sqlite`, ADR 0004), Cycle API + Verdict; `verify-ingest` 스킬). 다음 후보: runner-agent 데몬(기기 노드에서 러너 실행, run 마다 HTTP Reporter, 디스크 스풀·재시도 상한, 헬퍼 APK 배포 경로), 아티팩트 블롭 업로드, Scheduler/기기 lease, Console.
 
 ## Agent skills
 
