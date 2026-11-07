@@ -1,7 +1,10 @@
 // Android DeviceBackend: adb 바이너리 없이 직접 USB(src/adb)로 기기를 찾고 상태를 판정한다.
 // 상태 판정 패턴은 EverMock의 direct-adb-adapter를 따른다.
-import type { DeviceButton } from '@sinclair/protocol';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import type { DeviceButton, HelperInfo, SemanticNode } from '@sinclair/protocol';
 import type { DeviceBackend, DeviceInfo } from '../backend.ts';
+import { HELPER_PACKAGE, HELPER_SERVICE, HelperHttpError, HelperSession } from './helper-client.ts';
 import { Dadb, type DadbListOptions } from '../adb/dadb.ts';
 import { AdbAuthException, AdbUsbAccessException } from '../adb/errors.ts';
 import type { UsbBackend } from '../adb/transport/usb-discovery.ts';
@@ -13,6 +16,11 @@ const FIRST_PROBE_WAIT_MS = 1_500;
 const AUTH_TIMEOUT_MS = 15_000;
 /** 이 시간 안의 listDevices 재호출은 USB를 다시 열거하지 않는다(디스패처의 기기 탐색이 호출마다 부른다). */
 const LIST_CACHE_MS = 2_000;
+/** 접근성 서비스를 켠 뒤 헬퍼 HTTP 서버가 뜨기까지 기다리는 상한. 실기기에서 보통 1~3초. */
+const HELPER_START_TIMEOUT_MS = 8_000;
+const HELPER_POLL_MS = 250;
+/** 리포 안에서 빌드한 헬퍼 APK(android-helper README 의 빌드 절차). 배포 시에는 helperApkPath 로 넘긴다. */
+const DEFAULT_HELPER_APK = fileURLToPath(new URL('../../android-helper/app/build/outputs/apk/debug/app-debug.apk', import.meta.url));
 
 /** `device.io.button` 이름 → Android 키코드 */
 const BUTTON_KEYCODES: Record<DeviceButton, string> = {
@@ -40,6 +48,8 @@ export interface AndroidBackendOptions {
   listCacheMs?: number;
   /** 첫 목록 응답에서 연결 판정을 기다리는 시간(ms). */
   probeWaitMs?: number;
+  /** 기기에 설치할 헬퍼 APK 경로. 기본은 리포 안 디버그 빌드. */
+  helperApkPath?: string;
 }
 
 /** 발견한 기기 하나의 연결과 판정 상태. */
@@ -50,6 +60,8 @@ interface TrackedDevice {
   model?: string | undefined;
   osVersion?: string | undefined;
   probe?: Promise<void> | undefined;
+  helper?: HelperInfo | undefined;
+  session?: HelperSession | undefined;
 }
 
 export interface AndroidBackend extends DeviceBackend {
@@ -95,6 +107,8 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
           entry.state = 'device';
           entry.detail = undefined;
         })
+        // 연결 판정 직후 헬퍼 온보딩. 실패는 helper 상태로 드러내고 연결 상태에는 영향을 주지 않는다.
+        .then(() => onboardHelper(entry))
         .catch((e) => classify(entry, e))
         .finally(() => {
           entry.probe = undefined;
@@ -127,6 +141,7 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
       osVersion: entry.osVersion ?? '',
       state: entry.state,
       ...(entry.detail === undefined ? {} : { stateDetail: entry.detail }),
+      ...(entry.helper === undefined ? {} : { helper: entry.helper }),
     };
   }
 
@@ -156,6 +171,79 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
     const devices = [...entries.entries()].map(([id, entry]) => toInfo(id, entry));
     lastList = { at: Date.now(), devices };
     return devices;
+  }
+
+  /**
+   * 헬퍼 온보딩: 설치 → 접근성 서비스 활성화(--user 0) → 포워드 → 토큰 → /ping. 결과는 entry.helper 에 남는다.
+   * 어느 단계가 실패해도 던지지 않고 상태(not-installed/disabled/unreachable)로 기록한다.
+   */
+  async function onboardHelper(entry: TrackedDevice): Promise<void> {
+    const sh = async (command: string) => (await entry.dadb.shell(command)).output;
+    const fail = (state: HelperInfo['state'], detail: string) => { entry.helper = { state, detail }; };
+    try {
+      if (!(await sh(`pm path ${shellQuote(HELPER_PACKAGE)}`)).includes('package:')) {
+        const apk = options.helperApkPath ?? DEFAULT_HELPER_APK;
+        if (!existsSync(apk)) return fail('not-installed', `헬퍼 APK 가 없음: ${apk} (android-helper 를 빌드하거나 helperApkPath 를 지정)`);
+        const installed = await entry.dadb.install(apk, '-r');
+        if (!installed.success) return fail('not-installed', `헬퍼 설치 실패: ${installed.reason}`);
+      }
+
+      // Secure Folder 가 있는 Samsung 은 --user 0 이 없으면 다른 사용자에 쓰여 서비스가 켜지지 않는다.
+      const current = (await sh('settings get --user 0 secure enabled_accessibility_services')).trim();
+      if (!current.includes(HELPER_SERVICE)) {
+        const list = current && current !== 'null' ? `${current}:${HELPER_SERVICE}` : HELPER_SERVICE;
+        await sh(`settings put --user 0 secure enabled_accessibility_services ${shellQuote(list)}`);
+      }
+      await sh('settings put --user 0 secure accessibility_enabled 1');
+      if (!(await sh('settings get --user 0 secure enabled_accessibility_services')).includes(HELPER_SERVICE)) {
+        return fail('disabled', '접근성 서비스 활성화 설정이 적용되지 않음(settings put --user 0 거부). 기기의 접근성 설정에서 Sinclair Helper 를 켜세요');
+      }
+
+      entry.session ??= await HelperSession.open(entry.dadb);
+      await entry.session.sendToken();
+
+      const deadline = Date.now() + HELPER_START_TIMEOUT_MS;
+      let last: unknown;
+      let tokenResent = false;
+      for (;;) {
+        try {
+          const ping = await entry.session.ping();
+          entry.helper = { state: 'ready', version: ping.version };
+          return;
+        } catch (e) {
+          last = e;
+          // 서버는 떠 있다(HTTP 응답). 401 이면 토큰이 사라진 것일 수 있어 한 번 다시 보내고, 그래도 401 이면 기다릴 이유가 없다.
+          if (e instanceof HelperHttpError) {
+            if (e.status !== 401 || tokenResent) break;
+            tokenResent = true;
+            await entry.session.sendToken();
+          }
+          if (Date.now() >= deadline) break;
+          await new Promise((r) => setTimeout(r, HELPER_POLL_MS));
+        }
+      }
+      if (last instanceof HelperHttpError) return fail('unreachable', `헬퍼가 응답했지만 요청을 거부함(HTTP ${last.status}): ${last.body}`);
+      return fail('disabled', `접근성 서비스가 켜졌지만 헬퍼 서버가 뜨지 않음: ${last instanceof Error ? last.message : String(last)}`);
+    } catch (e) {
+      return fail('unreachable', `헬퍼 온보딩 실패: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  async function dumpUi(deviceId: string): Promise<SemanticNode> {
+    const entry = entries.get(deviceId);
+    if (!entry) throw new RpcError(RPC_ERRORS.deviceNotFound, `기기를 찾을 수 없음: ${deviceId}`);
+    if (entry.helper?.state !== 'ready') await onboardHelper(entry);
+    if (entry.helper?.state === 'ready' && entry.session) {
+      try {
+        return await entry.session.dump();
+      } catch (e) {
+        // 서비스가 꺼졌거나 토큰이 사라진 경우: 온보딩을 다시 돌려 상태를 갱신하고 한 번 더 시도한다.
+        await onboardHelper(entry);
+        if (entry.helper?.state === 'ready' && entry.session) return entry.session.dump();
+        void e;
+      }
+    }
+    throw new RpcError(RPC_ERRORS.helperUnavailable, `헬퍼 사용 불가(${entry.helper?.state}): ${entry.helper?.detail ?? ''}`);
   }
 
   const notImplemented = (name: string) => async (..._args: unknown[]): Promise<never> => {
@@ -218,7 +306,7 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
       return found;
     },
     screenshot: (id) => runBinary(id, 'screencap -p'),
-    dumpUi: notImplemented('dumpUi'),
+    dumpUi,
     tap: (id, p) => input(id, `tap ${p.x} ${p.y}`),
     longPress: (id, p, durationMs) => input(id, `swipe ${p.x} ${p.y} ${p.x} ${p.y} ${durationMs}`),
     swipe: (id, from, to, durationMs) => input(id, `swipe ${from.x} ${from.y} ${to.x} ${to.y} ${durationMs}`),
@@ -248,6 +336,7 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
       const all = [...entries.values()];
       entries.clear();
       lastList = undefined;
+      await Promise.allSettled(all.map((e) => e.session?.close()));
       await Promise.allSettled(all.map((e) => e.dadb.close()));
     },
   };

@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   RUN_EVENT_TYPES, DEVICE_RPC_METHODS, ATTEMPT_RESULTS, CACHE_DECISIONS, NETWORK_MODES,
   capabilitiesOf, type Engine, type RunEvent,
-  DEVICE_CONNECTION_STATES, DEVICE_PLATFORMS, DEVICE_BUTTONS, type DeviceInfo, type DeviceRpcParams,
+  DEVICE_CONNECTION_STATES, DEVICE_PLATFORMS, DEVICE_BUTTONS, HELPER_STATES, type DeviceInfo, type DeviceRpcParams,
 } from '../src/index.ts';
 
 describe('protocol 계약', () => {
@@ -74,5 +74,15 @@ describe('디바이스 RPC 파라미터 계약', () => {
     const launch: DeviceRpcParams['device.apps.launch'] = { deviceId: 'D', appId: 'com.example' };
     const url: DeviceRpcParams['device.url'] = { deviceId: 'D', url: 'myapp://home' };
     for (const p of [keys, launch, url]) expect(p.deviceId).toBe('D');
+  });
+});
+
+describe('DeviceInfo.helper 계약 (온디바이스 헬퍼 상태)', () => {
+  it('헬퍼 상태는 not-installed/disabled/unreachable/ready 이고 ready 가 아니면 detail 로 원인을 준다', () => {
+    expect(HELPER_STATES).toEqual(['not-installed', 'disabled', 'unreachable', 'ready']);
+    const ready: DeviceInfo = { id: 'D', platform: 'android', model: 'M', osVersion: '14', state: 'device', helper: { state: 'ready', version: '0.1.0' } };
+    const off: DeviceInfo = { ...ready, helper: { state: 'disabled', detail: '접근성 서비스가 꺼져 있음' } };
+    expect(ready.helper?.state).toBe('ready');
+    expect(off.helper?.detail).toContain('접근성');
   });
 });

@@ -12,6 +12,26 @@ export class FakeAndroid {
   isRoot = false;
   /** 설정하면 input 명령이 이 메시지로 실패한다(종료 코드 1). */
   failInput: string | undefined;
+  /** `settings put/get --user 0 secure` 저장소. */
+  readonly secureSettings = new Map<string, string>();
+  /** true 면 settings put 이 조용히 무시된다(Secure Folder 기기에서 --user 0 을 빠뜨린 상황 흉내). */
+  ignoreSettingsPut = false;
+  /** install 이 성공하면 이 패키지가 설치된 것으로 기록한다. */
+  installPackageName = 'com.example.app';
+  /** 설정하면 install 이 이 사유로 실패한다. */
+  failInstall: string | undefined;
+  /** 온디바이스 헬퍼(접근성 서비스) 흉내. 설치(packages)·활성화(secureSettings)·토큰이 갖춰져야 tcp:38300 이 응답한다. */
+  readonly helper = {
+    pkg: 'io.sinclair.helper',
+    service: 'io.sinclair.helper/io.sinclair.helper.SinclairAccessibilityService',
+    port: 38300,
+    token: undefined as string | undefined,
+    /** true 면 SET_TOKEN 브로드캐스트를 무시한다(토큰 불일치 상황). */
+    dropToken: false,
+    version: '0.1.0',
+    tree: { ref: '@e0', role: 'group', rect: { x: 0, y: 0, width: 1080, height: 2400 }, children: [{ ref: '@e1', role: 'button', name: '로그인', rect: { x: 10, y: 20, width: 100, height: 40 } }] } as unknown,
+    requests: [] as string[],
+  };
   /** screencap -p 가 돌려줄 PNG. 시그니처 + 멀티바이트 안전성 확인용 0x80 이상 바이트를 포함한다. */
   screenshotPng: Buffer = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from([0xff, 0xfe, 0x00, 0xc3, 0x28, 0x80])]);
   /** getprop 응답. */
@@ -47,6 +67,10 @@ export class FakeAndroid {
       return (s) => void this.reverse(s, destination.slice('reverse:'.length));
     }
     const tcp = /^tcp:(\d+)$/.exec(destination);
+    if (tcp && Number(tcp[1]) === this.helper.port) {
+      // 접근성 서비스가 켜져 있을 때만 서버가 떠 있다. 아니면 연결 거부(CLSE).
+      return this.helperServing() ? (s) => void this.helperHttp(s) : undefined;
+    }
     if (tcp) return (s) => void this.upperEcho(s);
     return undefined;
   };
@@ -119,6 +143,18 @@ export class FakeAndroid {
     }
     if (command === 'getprop service.adb.root') return { stdout: this.isRoot ? '1\n' : '\n' };
     if ((m = /^getprop (\S+)$/.exec(command))) return { stdout: `${this.props.get(m[1]!) ?? ''}\n` };
+    if ((m = /^pm path '([^']+)'$/.exec(command))) {
+      return this.packages.has(m[1]!) ? { stdout: `package:/data/app/${m[1]}/base.apk\n` } : { exit: 1 };
+    }
+    if ((m = /^settings get --user 0 secure (\S+)$/.exec(command))) return { stdout: `${this.secureSettings.get(m[1]!) ?? 'null'}\n` };
+    if ((m = /^settings put --user 0 secure (\S+) '?([^']*)'?$/.exec(command))) {
+      if (!this.ignoreSettingsPut) this.secureSettings.set(m[1]!, m[2]!);
+      return {};
+    }
+    if ((m = /^am broadcast -a io\.sinclair\.helper\.SET_TOKEN -n \S+ --es token '([^']*)'$/.exec(command))) {
+      if (!this.helper.dropToken) this.helper.token = m[1] || undefined;
+      return { stdout: 'Broadcast completed: result=0\n' };
+    }
     return { stderr: `sh: ${command}: not found\n`, exit: 127 };
   }
 
@@ -186,7 +222,8 @@ export class FakeAndroid {
       }
       const apk = (await s.readBytes(size)) ?? Buffer.alloc(0);
       if (apk.subarray(0, 2).toString() !== 'PK') return reply('Failure [INSTALL_FAILED_INVALID_APK]\n');
-      this.packages.add('com.example.app');
+      if (this.failInstall) return reply(`Failure [${this.failInstall}]\n`);
+      this.packages.add(this.installPackageName);
       return reply('Success\n');
     }
     if (verb === 'install-create') {
@@ -280,6 +317,37 @@ export class FakeAndroid {
   }
 
   /** 기기 쪽 TCP 서버 흉내: 받은 데이터를 대문자로 돌려준다. */
+  helperServing(): boolean {
+    return this.packages.has(this.helper.pkg) && (this.secureSettings.get('enabled_accessibility_services') ?? '').includes(this.helper.service)
+      && this.secureSettings.get('accessibility_enabled') === '1';
+  }
+
+  /** 실제 헬퍼 HelperServer 와 같은 계약의 최소 HTTP: Bearer 토큰, /ping, /dump, 연결마다 닫음. */
+  private async helperHttp(s: FakeDeviceStream): Promise<void> {
+    let raw = '';
+    while (!raw.endsWith('\r\n\r\n') && raw.length < 16384) {
+      const b = await s.readBytes(1);
+      if (!b) return;
+      raw += b.toString('latin1');
+    }
+    const [requestLine = '', ...headers] = raw.split('\r\n');
+    const [method = '', pathWithQuery = '/'] = requestLine.split(' ');
+    const path = pathWithQuery.split('?')[0]!;
+    this.helper.requests.push(`${method} ${path}`);
+    const auth = headers.find((h) => h.toLowerCase().startsWith('authorization:'))?.split(':').slice(1).join(':').trim();
+    const respond = async (status: number, body: unknown) => {
+      const json = Buffer.from(JSON.stringify(body), 'utf8');
+      await s.send(`HTTP/1.1 ${status} X\r\nContent-Type: application/json\r\nContent-Length: ${json.length}\r\nConnection: close\r\n\r\n`);
+      await s.send(json);
+      s.close();
+    };
+    if (!this.helper.token || auth !== `Bearer ${this.helper.token}`) return respond(401, { error: this.helper.token ? '토큰 불일치' : '세션 토큰이 설정되지 않음' });
+    if (method !== 'GET') return respond(405, { error: 'GET 만 지원' });
+    if (path === '/ping') return respond(200, { ok: true, version: this.helper.version, sdk: 33, service: 'ready' });
+    if (path === '/dump') return respond(200, this.helper.tree);
+    return respond(404, { error: `알 수 없는 경로: ${path}` });
+  }
+
   private async upperEcho(s: FakeDeviceStream): Promise<void> {
     for (;;) {
       const chunk = await s.readBytes(1);

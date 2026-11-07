@@ -10,6 +10,8 @@ export const RPC_ERRORS = {
   internal: -32603,
   deviceNotFound: -32000,
   deviceBusy: -32001,
+  /** 온디바이스 헬퍼(접근성 서비스)가 준비되지 않아 UI 트리·제스처를 쓸 수 없다 */
+  helperUnavailable: -32002,
 } as const;
 
 export class RpcError extends Error {

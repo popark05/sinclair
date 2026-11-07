@@ -52,6 +52,21 @@ export type DevicePlatform = (typeof DEVICE_PLATFORMS)[number];
 export const DEVICE_CONNECTION_STATES = ['device', 'unauthorized', 'offline'] as const;
 export type DeviceConnectionState = (typeof DEVICE_CONNECTION_STATES)[number];
 
+/**
+ * 온디바이스 헬퍼(접근성 서비스) 상태. ready 가 아니면 UI 트리·제스처를 쓸 수 없어 러너는 Run 을 blocked 처리한다.
+ * not-installed: APK 없음 / disabled: 설치됐지만 접근성 서비스 꺼짐 / unreachable: 켜졌지만 응답 없음 / ready
+ */
+export const HELPER_STATES = ['not-installed', 'disabled', 'unreachable', 'ready'] as const;
+export type HelperState = (typeof HELPER_STATES)[number];
+
+export interface HelperInfo {
+  state: HelperState;
+  /** ready 일 때 헬퍼 버전 */
+  version?: string;
+  /** ready 가 아닐 때 원인 */
+  detail?: string;
+}
+
 /** `devices.list` 의 원소이자 `device.info` 의 결과. */
 export interface DeviceInfo {
   id: string;
@@ -63,6 +78,8 @@ export interface DeviceInfo {
   stateDetail?: string;
   /** 기기가 Sinclair CA를 신뢰하는지. 프록시 모드 blocked 판정에 쓴다 */
   caTrusted?: boolean;
+  /** 온디바이스 헬퍼 상태(Android). 연결 판정 뒤 온보딩이 끝나면 채워진다 */
+  helper?: HelperInfo;
 }
 
 /** `device.io.*` 의 좌표 */
