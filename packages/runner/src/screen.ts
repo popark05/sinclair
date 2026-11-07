@@ -8,7 +8,12 @@ export interface ScreenOptions {
   timeoutMs?: number;
   /** 재조회 간격(ms). 실기기 dump 비용(수십~수백 ms)보다 짧게 두면 의미가 없어 100ms */
   pollMs?: number;
+  /** locator 액션 한 건이 끝날 때(성공·실패 모두) 알린다. 러너가 스텝 기록에 쓴다 */
+  onStep?: (step: StepEvent) => void;
 }
+
+/** 스텝 기록용 이벤트. instruction 은 사람이 읽는 한 줄, error 는 실패 시 메시지 */
+export interface StepEvent { kind: 'locator' | 'assert'; instruction: string; durationMs: number; error?: string }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_POLL_MS = 100;
@@ -131,8 +136,17 @@ export function createScreen(engine: Engine, options: ScreenOptions = {}): Scree
 
   function make(spec: LocatorSpec): Locator {
     const act = async (action: NodeAction, arg?: string): Promise<void> => {
-      const node = await resolveActionable(spec);
-      await engine.perform(node.ref, action, arg);
+      const started = Date.now();
+      // secure 노드의 입력값은 스텝 기록에 남기지 않는다
+      const instruction = `${action}${arg !== undefined && action !== 'type' ? `(${JSON.stringify(arg)})` : action === 'type' ? '(…)' : ''} ${self.describe()}`;
+      try {
+        const node = await resolveActionable(spec);
+        await engine.perform(node.ref, action, arg);
+        options.onStep?.({ kind: 'locator', instruction, durationMs: Date.now() - started });
+      } catch (e) {
+        options.onStep?.({ kind: 'locator', instruction, durationMs: Date.now() - started, error: e instanceof Error ? e.message : String(e) });
+        throw e;
+      }
     };
     const read = async (field: 'text' | 'value'): Promise<string | undefined> => {
       const node = await resolveOne(spec, Date.now() + timeoutMs);

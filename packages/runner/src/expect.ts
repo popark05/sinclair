@@ -1,6 +1,6 @@
 // 판정: `await expect(locator).toHaveText('…')`. 기한 안에 재관찰하며 통과하는 순간 끝난다. 화면을 바꾸지 않는다(locate 만).
 import { EngineError, type SemanticNode } from '@sinclair/protocol';
-import type { Locator } from './screen.ts';
+import type { Locator, StepEvent } from './screen.ts';
 import { summarize } from './summary.ts';
 
 export interface ExpectOptions {
@@ -8,6 +8,8 @@ export interface ExpectOptions {
   timeoutMs?: number;
   /** 재관찰 간격(ms). locator 와 같은 이유로 100ms */
   pollMs?: number;
+  /** 판정 한 건이 끝날 때(성공·실패 모두) 알린다. 러너가 스텝 기록에 쓴다 */
+  onStep?: (step: StepEvent) => void;
 }
 
 const DEFAULT_TIMEOUT_MS = 5_000;
@@ -65,6 +67,18 @@ export function expect(locator: Locator, options: ExpectOptions = {}): LocatorAs
 
   function build(negated: boolean): LocatorAssertions {
     async function run(name: string, expected: unknown, matcher: Matcher): Promise<void> {
+      const instruction = `expect ${locator.describe()} ${negated ? 'not.' : ''}${name}${expected === undefined ? '' : `(${expected instanceof RegExp ? String(expected) : JSON.stringify(expected)})`}`;
+      const started = Date.now();
+      try {
+        await runInner(name, expected, matcher);
+        options.onStep?.({ kind: 'assert', instruction, durationMs: Date.now() - started });
+      } catch (e) {
+        options.onStep?.({ kind: 'assert', instruction, durationMs: Date.now() - started, error: e instanceof Error ? e.message : String(e) });
+        throw e;
+      }
+    }
+
+    async function runInner(name: string, expected: unknown, matcher: Matcher): Promise<void> {
       const deadline = Date.now() + timeoutMs;
       const started = Date.now();
       let nodes: SemanticNode[] = [];

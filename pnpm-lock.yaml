@@ -241,6 +241,13 @@ importers:
       '@sinclair/protocol':
         specifier: workspace:*
         version: link:../protocol
+    devDependencies:
+      '@sinclair/device-layer':
+        specifier: workspace:*
+        version: link:../device-layer
+      '@sinclair/engine-mobile':
+        specifier: workspace:*
+        version: link:../engine-mobile
 
   packages/ui:
     dependencies:

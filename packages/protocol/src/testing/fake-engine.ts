@@ -5,6 +5,8 @@ export interface FakeEngineOptions {
   root: SemanticNode;
   /** tap 된 노드에 대한 화면 반응. 새 루트를 돌려주면 화면이 바뀐다. */
   onTap?: (node: SemanticNode, engine: FakeEngine) => SemanticNode | void;
+  /** session.open(target) 이 띄우는 화면(앱 id → 시작 화면). 없는 target 은 root 로 돌아간다. */
+  screens?: Record<string, SemanticNode>;
 }
 
 const clone = <T>(v: T): T => structuredClone(v);
@@ -22,6 +24,8 @@ export class FakeEngine implements Engine {
   readonly pressed: string[] = [];
   /** locate 호출 횟수(locator 가 lazy 인지·재조회하는지 검증용). */
   locateCalls = 0;
+  /** session 호출 순서(러너가 테스트마다 open 하고 실패 뒤 restart 하는지 검증용). */
+  readonly sessionCalls: string[] = [];
   private root: SemanticNode;
   private closed = false;
   private sessionTarget: string | undefined;
@@ -44,9 +48,14 @@ export class FakeEngine implements Engine {
     return this.root;
   }
 
-  async observe(): Promise<Observation> {
+  async observe(opts?: { pixels?: boolean }): Promise<Observation> {
     this.assertOpen();
-    return { root: redactTree(clone(this.visibleRoot())), ...(this.sessionTarget ? { location: this.sessionTarget } : {}) };
+    return {
+      root: redactTree(clone(this.visibleRoot())),
+      ...(this.sessionTarget ? { location: this.sessionTarget } : {}),
+      // 페이크의 픽셀: PNG 시그니처만. 아티팩트 저장 경로 검증용
+      ...(opts?.pixels ? { pixels: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), atomic: true } : {}),
+    };
   }
 
   async locate(query: LocatorQuery): Promise<SemanticNode[]> {
@@ -103,11 +112,15 @@ export class FakeEngine implements Engine {
     dismiss: async (): Promise<void> => { this.assertOpen(); },
   };
 
+  private screenFor(target: string | undefined): SemanticNode {
+    return clone((target && this.options.screens?.[target]) || this.options.root);
+  }
+
   readonly session = {
-    open: async (target?: string): Promise<void> => { this.assertOpen(); this.sessionTarget = target; this.root = clone(this.options.root); },
-    back: async (): Promise<void> => { this.assertOpen(); this.root = clone(this.options.root); },
-    restart: async (): Promise<void> => { this.assertOpen(); this.root = clone(this.options.root); },
-    reset: async (): Promise<void> => { this.assertOpen(); this.root = clone(this.options.root); },
+    open: async (target?: string): Promise<void> => { this.assertOpen(); this.sessionCalls.push('open'); this.sessionTarget = target; this.root = this.screenFor(target); },
+    back: async (): Promise<void> => { this.assertOpen(); this.sessionCalls.push('back'); this.root = this.screenFor(this.sessionTarget); },
+    restart: async (): Promise<void> => { this.assertOpen(); this.sessionCalls.push('restart'); this.root = this.screenFor(this.sessionTarget); },
+    reset: async (): Promise<void> => { this.assertOpen(); this.sessionCalls.push('reset'); this.root = this.screenFor(this.sessionTarget); },
   };
 
   async dispose(): Promise<void> {
