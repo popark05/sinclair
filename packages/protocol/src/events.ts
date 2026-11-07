@@ -16,8 +16,10 @@ export interface RunStarted extends Base {
   /** 제어 평면의 Cycle. 로컬(Studio) 실행에는 없다 */
   cycleId?: string;
   targetId: string;
-  /** 기기 식별자. 모르면 생략한다('' 로 채우지 않는다) */
+  /** 기기 식별자(시리얼 등). 모르면 생략한다('' 로 채우지 않는다) */
   deviceId?: string;
+  /** 러너를 돌린 노드(runner-agent) 식별자. 로컬 실행에는 없다 */
+  agentId?: string;
 }
 
 export interface AttemptStarted extends Base {

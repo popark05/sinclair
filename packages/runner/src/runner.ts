@@ -36,6 +36,7 @@ export interface RunOptions {
   cycleId?: string;
   targetId?: string;
   deviceId?: string;
+  agentId?: string;
 }
 
 export interface TestResult {
@@ -91,7 +92,7 @@ export async function runTests(files: string[], options: RunOptions): Promise<Ru
   };
   emit({
     ...base(), type: 'run.started', targetId: options.targetId ?? engine.name,
-    ...(options.cycleId ? { cycleId: options.cycleId } : {}), ...(options.deviceId ? { deviceId: options.deviceId } : {}),
+    ...(options.cycleId ? { cycleId: options.cycleId } : {}), ...(options.deviceId ? { deviceId: options.deviceId } : {}), ...(options.agentId ? { agentId: options.agentId } : {}),
   });
 
   const tests: TestResult[] = [];

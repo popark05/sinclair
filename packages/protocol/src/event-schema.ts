@@ -36,7 +36,7 @@ const BASE: Record<string, FieldRule> = {
 };
 
 const BY_TYPE: Record<RunEventType, Record<string, FieldRule>> = {
-  'run.started': { cycleId: { required: false, check: str }, targetId: { required: true, check: str }, deviceId: { required: false, check: str } } satisfies Rules<RunStarted>,
+  'run.started': { cycleId: { required: false, check: str }, targetId: { required: true, check: str }, deviceId: { required: false, check: str }, agentId: { required: false, check: str } } satisfies Rules<RunStarted>,
   'attempt.started': { attemptId: { required: true, check: str }, testId: { required: true, check: str }, attemptNo: { required: true, check: (v) => (Number.isInteger(v) && (v as number) >= 1 ? undefined : '1 이상의 정수여야 함') } } satisfies Rules<AttemptStarted>,
   'step.recorded': {
     attemptId: { required: true, check: str }, stepIndex: { required: true, check: int }, kind: { required: true, check: oneOf(STEP_KINDS) },

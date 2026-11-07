@@ -77,7 +77,9 @@ export function computeCycle(cycle: CycleRecord, registrations: RunRegistration[
   let verdict: CycleVerdict;
   if (state !== 'finished') verdict = 'incomplete';
   else {
-    const ok = required.every((t) => cycle.targets.every((target) => {
+    // infra-failed/cancelled 로 끝난 run 이 있으면 돌지 못한 케이스가 있을 수 있으므로(케이스 집합을 모르더라도) verified 가 아니다
+    const allRunsFinished = runRows.every((r) => r.state === 'finished');
+    const ok = allRunsFinished && required.every((t) => cycle.targets.every((target) => {
       const v = matrix[t]?.[target]?.verdict;
       return v === 'passed' || v === 'passed-flaky' || v === 'waived';
     }));

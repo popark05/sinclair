@@ -127,3 +127,8 @@ export class FakeEngine implements Engine {
     this.closed = true;
   }
 }
+
+/** session.open 이 device-unavailable 을 내는 엔진(기기가 빠진 상황). 러너·에이전트 테스트가 같이 쓴다 */
+export function withDeviceUnavailable<E extends Engine>(engine: E): E {
+  return Object.create(engine, { session: { value: { ...engine.session, open: async () => { throw new EngineError('device-unavailable', '기기 없음'); } } } }) as E;
+}

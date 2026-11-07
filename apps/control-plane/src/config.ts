@@ -58,7 +58,9 @@ export function parseConfig(argv: string[], env: NodeJS.ProcessEnv, platform: No
   if (values.help) return { help: true };
   const resolve = (name: (typeof OPTIONS)[number]['name'], fallback: string): string => {
     const flag = values[name];
-    return typeof flag === 'string' ? flag : env[OPTIONS.find((o) => o.name === name)!.env] ?? fallback;
+    if (typeof flag === 'string') return flag;
+    const fromEnv = env[OPTIONS.find((o) => o.name === name)!.env];
+    return fromEnv ? fromEnv : fallback; // 빈 환경변수는 미설정으로 본다(runner-agent 와 같은 규칙)
   };
 
   const host = resolve('host', '127.0.0.1');

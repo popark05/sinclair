@@ -43,5 +43,5 @@ describe('sinclair-agent bin', () => {
     expect(help.output()).toContain('사용법: sinclair-agent run');
     cp.child.kill('SIGTERM');
     await cp.exited;
-  }, 30_000);
+  }, 30_000); // 셸 재실행 bin 4개(control-plane 1 + agent 3) × TS 변환 로드
 });

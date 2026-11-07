@@ -19,6 +19,8 @@ export interface RunArgs {
   artifacts?: string;
   /** locator 액션 기한(ms). 없으면 러너 기본 10초 */
   timeoutMs?: number;
+  /** 이 노드의 식별자(run.started.agentId). 기본 호스트명 */
+  agent?: string;
 }
 
 export class AgentConfigError extends Error {}
@@ -36,6 +38,7 @@ const OPTIONS = [
   { name: 'app', key: 'app', env: 'SINCLAIR_AGENT_APP', required: false, help: 'mobile: session.open 이 띄울 앱 id' },
   { name: 'artifacts', key: 'artifacts', env: 'SINCLAIR_AGENT_ARTIFACTS', required: false, help: '실패 스냅샷 디렉터리' },
   { name: 'timeout', key: 'timeoutMs', env: 'SINCLAIR_AGENT_TIMEOUT', required: false, help: 'locator 액션 기한 ms (기본 10000)' },
+  { name: 'agent', key: 'agent', env: 'SINCLAIR_AGENT_ID', required: false, help: '이 노드의 id (기본 호스트명). run.started.agentId' },
 ] as const;
 
 export const RUN_HELP = `사용법: sinclair-agent run [옵션]

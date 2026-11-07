@@ -87,6 +87,17 @@ describe('computeCycle', () => {
     expect(v.matrix.A).toEqual({ android: { verdict: 'passed', attemptId: 'A#1' } });
   });
 
+  it('run 하나가 infra-failed 로 끝나고 케이스를 하나도 보고하지 못했어도 Cycle 은 blocked 다', () => {
+    const v = computeCycle(cycle, [reg('r1', 'android'), reg('r2', 'ios')], [
+      run('r1', 'android', 'finished', [attempt('A', 1, 'passed')]),
+      run('r2', 'ios', 'infra-failed', []),
+    ]);
+    expect(v).toMatchObject({ state: 'finished', verdict: 'blocked' });
+    expect(v.matrix.A).toEqual({ android: { verdict: 'passed', attemptId: 'A#1' }, ios: { verdict: 'blocked' } });
+    const w = computeCycle(single, [reg('r1', 'android')], [run('r1', 'android', 'infra-failed', [])]);
+    expect(w).toMatchObject({ state: 'finished', verdict: 'blocked', matrix: {} });
+  });
+
   it('등록에 없는 cycleId 의 run 은 무시하고, 타깃 순서는 Cycle 의 targets 순이다', () => {
     const v = computeCycle(cycle, [reg('r1', 'android'), reg('r2', 'ios')], [
       run('r2', 'ios', 'finished', [attempt('A', 1, 'passed')]),

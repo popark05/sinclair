@@ -1,7 +1,8 @@
 {
-  "at": "2026-11-07T15:35:36.409Z",
+  "at": "2026-11-07T15:41:32.467Z",
   "exitCode": 0,
-  "device": "SM-N981N (…XLZW) Android 13",
+  "device": "…XLZW",
+  "agentId": "(호스트명, 생략)",
   "cycle": {
     "state": "finished",
     "verdict": "verified",
@@ -9,7 +10,7 @@
       "설정 앱 > 열면 \"설정\" 제목이 보인다": {
         "android": {
           "verdict": "passed",
-          "attemptId": "794556b6-d3da-473d-b8b4-c5a1417e2ecb"
+          "attemptId": "46665e8a-3f63-4c8b-865b-bfbb69059fc4"
         }
       }
     }
@@ -22,7 +23,7 @@
     }
   ],
   "log": [
-    "run b9667cae-3541-4cf8-81f8-b102b9afc5b6 등록 (cycle device, target android, 테스트 파일 1개)",
+    "run ec1d7b10-5017-4700-ab25-434b8636c171 등록 (cycle device, target android, 테스트 파일 1개)",
     "기기 SM-N981N (…XLZW) Android 13, 헬퍼 ready",
     "결과: passed 1, failed 0, blocked 0, skipped 0 / 전송 5건(accepted 5, duplicate 0, rejected 0, retries 0)"
   ]

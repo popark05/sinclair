@@ -84,7 +84,7 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         if (b.requiredTags !== undefined && !isStringArray(b.requiredTags)) return json(res, 400, { error: 'requiredTags 는 문자열 배열이어야 함' });
         if (!optionalId(b.cycleId)) return json(res, 400, { error: 'cycleId 는 비어 있지 않은 문자열이어야 함' });
         const cycle = { cycleId: b.cycleId ?? randomUUID(), build: b.build, targets: [...new Set(b.targets)], requiredTags: (b.requiredTags as string[] | undefined) ?? [], createdAt: new Date().toISOString() };
-        if ((await cycles.createCycle(cycle)) === 'duplicate') return json(res, 409, { error: `Cycle ${cycle.cycleId} 가 이미 있음` });
+        if ((await cycles.createCycle(cycle)) === 'duplicate') return json(res, 409, { error: `Cycle ${cycle.cycleId} 가 이미 있음`, code: 'cycle-exists' });
         return json(res, 201, cycle);
       }
       if (req.method === 'GET' && url.pathname === '/cycles') return json(res, 200, await cycles.listCycles());
@@ -94,7 +94,7 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
       }
       if (req.method === 'POST' && parts[0] === 'cycles' && parts.length === 3 && parts[2] === 'runs') {
         const cycle = await cycles.getCycle(parts[1]!);
-        if (!cycle) return json(res, 404, { error: '모르는 Cycle' });
+        if (!cycle) return json(res, 404, { error: '모르는 Cycle', code: 'cycle-not-found' });
         const read = await readJson(req, res);
         if (!read) return;
         const b = read.body;
@@ -102,11 +102,12 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         if (!optionalId(b.runId)) return json(res, 400, { error: 'runId 는 비어 있지 않은 문자열이어야 함' });
         // 끝난 Cycle 의 Verdict 는 바뀌지 않아야 하므로 Run 을 더 받지 않는다
         const current = await buildCycleView(store, cycles, cycle.cycleId);
-        if (current && TERMINAL_CYCLE.has(current.state)) return json(res, 409, { error: `Cycle ${cycle.cycleId} 은 이미 ${current.state} 라 Run 을 등록할 수 없음` });
+        // 클라이언트가 상태 코드만으로 "끝난 Cycle" 과 "이미 있는 Run" 을 가를 수 없으므로 code 를 함께 준다
+        if (current && TERMINAL_CYCLE.has(current.state)) return json(res, 409, { error: `Cycle ${cycle.cycleId} 은 이미 ${current.state} 라 Run 을 등록할 수 없음`, code: 'cycle-finished' });
         const run = { runId: b.runId ?? randomUUID(), cycleId: cycle.cycleId, targetId: b.targetId, createdAt: new Date().toISOString() };
         const outcome = await cycles.registerRun(run);
-        if (outcome === 'duplicate') return json(res, 409, { error: `Run ${run.runId} 이 이미 등록됨` });
-        if (outcome === 'no-cycle') return json(res, 404, { error: '모르는 Cycle' });
+        if (outcome === 'duplicate') return json(res, 409, { error: `Run ${run.runId} 이 이미 등록됨`, code: 'run-exists' });
+        if (outcome === 'no-cycle') return json(res, 404, { error: '모르는 Cycle', code: 'cycle-not-found' });
         return json(res, 201, run);
       }
       if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true });

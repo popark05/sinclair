@@ -14,7 +14,8 @@ export async function registerRun(controlPlane: string, cycleId: string, targetI
     throw new ControlPlaneError(`control-plane 에 연결할 수 없음(${base}): ${err instanceof Error ? err.message : String(err)}`);
   }
   if (res.status === 201) return (await res.json()) as RegisteredRun;
-  const body = (await res.json().catch(() => ({}))) as { error?: string };
-  if (res.status === 409 && runId) return { runId, cycleId, targetId }; // 이미 등록된 Run 을 지정한 경우(재시도·resume)
-  throw new ControlPlaneError(`Run 등록 실패 ${res.status}: ${body.error ?? ''}`, res.status);
+  const body = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+  // 409 는 "끝난 Cycle" 과 "이미 있는 Run" 둘 다라 상태 코드가 아니라 code 로 가른다. 지정한 Run 이 이미 있으면 재사용(재시도·resume)
+  if (res.status === 409 && body.code === 'run-exists' && runId) return { runId, cycleId, targetId };
+  throw new ControlPlaneError(`Run 등록 실패 ${res.status}${body.code ? ` (${body.code})` : ''}: ${body.error ?? ''}`, res.status);
 }

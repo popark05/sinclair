@@ -44,7 +44,7 @@ apps/
   runner-agent/ 워커 데몬 (기기 연결 노드에서 러너 실행, 이벤트 스트리밍)
 ```
 
-의존 방향은 `protocol ← device-layer ← engine-mobile ← runner ← apps`. 역방향 import 금지.
+의존 방향은 `protocol ← device-layer ← engine-mobile ← runner ← apps`. 역방향 import 금지. apps 끼리는 런타임 import 를 하지 않는다(서로 HTTP 로만 대화). 테스트 전용 `devDependencies`(예: runner-agent 테스트가 control-plane 을 인프로세스로 띄움)만 허용.
 
 ## 핵심 설계 결정 (상세는 specs/)
 

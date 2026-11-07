@@ -6,7 +6,7 @@ const base = { schema: 1 as const, eventId: 'e1', runId: 'r1', at: '2026-11-07T0
 
 const VALID: RunEvent[] = [
   { ...base, type: 'run.started', targetId: 'android-SM-N981N' },
-  { ...base, type: 'run.started', cycleId: 'c1', targetId: 't1', deviceId: 'd1' },
+  { ...base, type: 'run.started', cycleId: 'c1', targetId: 't1', deviceId: 'd1', agentId: 'node-1' },
   { ...base, type: 'attempt.started', attemptId: 'a1', testId: '설정 앱 > 열면 "설정" 제목이 보인다', attemptNo: 1 },
   { ...base, type: 'step.recorded', attemptId: 'a1', stepIndex: 0, kind: 'assert', instruction: 'expect { text="설정" } toBeVisible', modelCalls: 0, durationMs: 82 },
   { ...base, type: 'step.recorded', attemptId: 'a1', stepIndex: 1, kind: 'act', cache: 'replayed', modelCalls: 0, durationMs: 10 },

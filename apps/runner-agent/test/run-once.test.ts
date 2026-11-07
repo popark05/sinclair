@@ -2,8 +2,7 @@
 // runOnce: 인프로세스 control-plane + FakeEngine 으로 Run 등록 → 실행 → 보고 → GET /cycles/:id 가 finished. 종료 코드 0/1/2/3.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
-import { EngineError } from '@sinclair/protocol';
-import { FakeEngine, LOGIN_SCREEN } from '@sinclair/protocol/testing';
+import { FakeEngine, LOGIN_SCREEN, withDeviceUnavailable } from '@sinclair/protocol/testing';
 import { startControlPlane, type RunningControlPlane, type CycleView } from '@sinclair/control-plane';
 import { runOnce, EXIT, type RunOnceDeps } from '../src/index.ts';
 
@@ -11,7 +10,7 @@ let cp: RunningControlPlane;
 let url: string;
 const logs: string[] = [];
 const deps = (): RunOnceDeps => ({ log: (line) => logs.push(line) });
-beforeEach(async () => { cp = await startControlPlane({ host: '127.0.0.1', port: 0, store: 'memory', db: '' }); url = `http://127.0.0.1:${cp.server.port}`; logs.length = 0; });
+beforeEach(async () => { cp = await startControlPlane({ host: '127.0.0.1', port: 0, store: 'memory', db: '(memory 모드에서는 무시)' }); url = `http://127.0.0.1:${cp.server.port}`; logs.length = 0; });
 afterEach(async () => { await cp.close(); });
 
 const fixtures = path.resolve(import.meta.dirname, 'fixtures');
@@ -51,11 +50,31 @@ describe('runOnce', () => {
 
   it('기기 불가(device-unavailable)면 blocked 로 보고하고 2', async () => {
     await createCycle();
-    const engine = new FakeEngine({ root: LOGIN_SCREEN });
-    const broken = Object.create(engine, { session: { value: { ...engine.session, open: async () => { throw new EngineError('device-unavailable', '기기 없음'); } } } });
-    const code = await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake' }, { ...deps(), createEngine: async () => ({ engine: broken, dispose: async () => {} }) });
+    const broken = withDeviceUnavailable(new FakeEngine({ root: LOGIN_SCREEN }));
+    const code = await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake', agent: 'node-7' }, { ...deps(), createEngine: async () => ({ engine: broken, dispose: async () => {} }) });
     expect(code).toBe(EXIT.blocked);
-    expect(await view()).toMatchObject({ verdict: 'blocked', runs: [{ state: 'infra-failed' }] });
+    const v = await view();
+    expect(v).toMatchObject({ verdict: 'blocked', runs: [{ state: 'infra-failed' }] });
+    const runView = (await (await fetch(`${url}/runs/${v.runs[0]!.runId}`)).json()) as { agentId?: string };
+    expect(runView.agentId).toBe('node-7');
+  });
+
+  it('엔진을 못 만들면(기기 없음) run.started + infra-failed 만 보고하고 2 — Cycle 에 blocked 가 드러난다', async () => {
+    await createCycle();
+    const code = await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake' }, { ...deps(), createEngine: async () => { throw new Error('꽂힌 Android 기기가 없음'); } });
+    expect(code).toBe(EXIT.blocked);
+    expect(await view()).toMatchObject({ state: 'finished', verdict: 'blocked', runs: [{ state: 'infra-failed' }] });
+    expect(logs.join('\n')).toMatch(/기기 불가.*꽂힌 Android 기기가 없음/);
+  });
+
+  it('--run 을 주고 끝난 Cycle 에 실행하면 재사용이 아니라 설정 오류 3 이고 이벤트를 보내지 않는다', async () => {
+    await createCycle();
+    await fetch(`${url}/cycles/c1/runs`, { method: 'POST', body: JSON.stringify({ targetId: 'android', runId: 'r-done' }) });
+    expect(await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake', run: 'r-done' }, deps())).toBe(EXIT.ok);
+    const before = await (await fetch(`${url}/runs/r-done`)).text();
+    expect(await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'only-login'), engine: 'fake', run: 'r-done' }, deps())).toBe(EXIT.config);
+    expect(logs.join('\n')).toMatch(/cycle-finished/);
+    expect(await (await fetch(`${url}/runs/r-done`)).text()).toBe(before);
   });
 
   it('테스트 디렉터리가 없거나 비어 있으면 설정 오류 3 이고 Run 을 등록하지 않는다', async () => {

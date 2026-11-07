@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { EngineError, RUN_EVENT_TYPES, parseRunEvent, type Engine, type RunEvent, type SemanticNode } from '@sinclair/protocol';
-import { FakeEngine, HOME_SCREEN, LOGIN_SCREEN } from '@sinclair/protocol/testing';
+import { FakeEngine, HOME_SCREEN, LOGIN_SCREEN, withDeviceUnavailable } from '@sinclair/protocol/testing';
 import { runTests, type Reporter } from '../src/index.ts';
 
 const SETTINGS_SCREEN: SemanticNode = {
@@ -90,7 +90,7 @@ describe('runTests', () => {
   it('device-unavailable 은 blocked 로 집계하고 Run 은 infra-failed 로 끝난다', async () => {
     const fake = engineWithApps();
     // 기기가 빠진 상황: session.open 이 device-unavailable 을 낸다
-    const engine: Engine = Object.create(fake, { session: { value: { ...fake.session, open: async () => { throw new EngineError('device-unavailable', '기기 없음'); } } } });
+    const engine: Engine = withDeviceUnavailable(fake);
     const report = await runTests([fixture('sample.sinclair.ts')], { engine, timeoutMs: 200 });
     vexpect(fake.sessionCalls).toEqual([]); // 기기가 없으면 restart 도 시도하지 않는다
     vexpect(report.tests.map((t) => t.result)).toEqual(['blocked']);

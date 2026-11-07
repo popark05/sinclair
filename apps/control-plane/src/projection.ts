@@ -34,6 +34,7 @@ export interface RunView {
   cycleId?: string;
   targetId?: string;
   deviceId?: string;
+  agentId?: string;
   startedAt?: string;
   finishedAt?: string;
   /** startedAt(없으면 finishedAt) 시각 순, 같으면 attemptId 순 */
@@ -89,7 +90,7 @@ export function projectRun(events: RunEvent[]): RunView {
   return defined<RunView>({
     runId,
     state: finished ? finished.state : started ? 'running' : 'queued',
-    cycleId: started?.cycleId, targetId: started?.targetId, deviceId: started?.deviceId,
+    cycleId: started?.cycleId, targetId: started?.targetId, deviceId: started?.deviceId, agentId: started?.agentId,
     startedAt: started?.at, finishedAt: finished?.at, attempts,
   });
 }

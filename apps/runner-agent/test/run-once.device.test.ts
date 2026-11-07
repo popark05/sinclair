@@ -14,7 +14,7 @@ const target = process.env.SINCLAIR_TEST_USB;
 
 describe.skipIf(!target)('실기기 sinclair-agent run', () => {
   it('설정 앱 샘플이 실기기 → control-plane 까지 흐르고 Cycle 이 verified 다', async () => {
-    const cp = await startControlPlane({ host: '127.0.0.1', port: 0, store: 'memory', db: '' });
+    const cp = await startControlPlane({ host: '127.0.0.1', port: 0, store: 'memory', db: '(memory 모드에서는 무시)' });
     const url = `http://127.0.0.1:${cp.server.port}`;
     const logs: string[] = [];
     try {
@@ -24,11 +24,12 @@ describe.skipIf(!target)('실기기 sinclair-agent run', () => {
         tests: path.resolve(import.meta.dirname, 'fixtures/device'), ...(target !== '1' ? { device: target! } : {}),
       }, { log: (l) => logs.push(l) });
       const view = (await (await fetch(`${url}/cycles/device`)).json()) as CycleView & { runs: Array<{ runId: string }> };
-      const runView = await (await fetch(`${url}/runs/${view.runs[0]!.runId}`)).json() as { deviceId?: string; attempts: Array<{ testId?: string; result?: string; steps: unknown[] }> };
+      const runView = await (await fetch(`${url}/runs/${view.runs[0]!.runId}`)).json() as { deviceId?: string; agentId?: string; attempts: Array<{ testId?: string; result?: string; steps: unknown[] }> };
+      const masked = runView.deviceId ? `…${runView.deviceId.slice(-4)}` : undefined; // 증거에는 시리얼을 마스킹한다
       const dir = path.resolve(import.meta.dirname, '../../../.scratch/runner-agent/evidence');
       await fs.mkdir(dir, { recursive: true });
       await fs.writeFile(path.join(dir, '02-run-once-device-latest.json'), JSON.stringify({
-        at: new Date().toISOString(), exitCode: code, device: runView.deviceId, cycle: { state: view.state, verdict: view.verdict, matrix: view.matrix },
+        at: new Date().toISOString(), exitCode: code, device: masked, agentId: runView.agentId ? '(호스트명, 생략)' : undefined, cycle: { state: view.state, verdict: view.verdict, matrix: view.matrix },
         attempts: runView.attempts.map((a) => ({ testId: a.testId, result: a.result, steps: a.steps.length })), log: logs,
       }, null, 2) + '\n');
       expect(code).toBe(EXIT.ok);
@@ -36,5 +37,5 @@ describe.skipIf(!target)('실기기 sinclair-agent run', () => {
     } finally {
       await cp.close();
     }
-  }, 180_000);
+  }, 180_000); // USB 디버깅 승인 60초 + 헬퍼 온보딩 10초 + 설정 앱 테스트 + 여유
 });
