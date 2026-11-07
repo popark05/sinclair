@@ -1,6 +1,7 @@
 // 결정적 locator: `screen.getByRole('button', { name: '로그인' }).tap()`. 설계는 e2e 방식(ADR 0001), 규칙은 specs/0002.
 // lazy 질의, 호출마다 재조회, strict(정확히 하나), 기한 내 자동 대기, secure 읽기 거부. 엔진 내부는 보지 않는다.
 import { EngineError, type Engine, type LocatorQuery, type NodeAction, type SemanticNode } from '@sinclair/protocol';
+import { summarize } from './summary.ts';
 
 export interface ScreenOptions {
   /** 액션·읽기가 요소를 기다리는 상한(ms). 기본 10초: 모바일 화면 전환은 보통 1~3초, 콜드 스타트·네트워크 로딩은 그 이상 */
@@ -11,8 +12,6 @@ export interface ScreenOptions {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_POLL_MS = 100;
-/** 실패 메시지에 넣는 후보 노드 수 */
-const CANDIDATE_SUMMARY_LIMIT = 5;
 
 export interface TextOptions { exact?: boolean }
 export interface RoleOptions extends TextOptions { name?: string | RegExp }
@@ -25,8 +24,11 @@ export interface Locator {
   count(): Promise<number>;
   /** 지금 화면에 정확히 하나 있으면 true(대기·예외 없음). 활성 여부는 보지 않는다(expect.toBeDisabled 가 따로 본다) */
   isVisible(): Promise<boolean>;
-  /** 지금 화면에서 맞는 노드들(대기 없음). expect 의 폴링이 쓴다. within 부모는 기한 안에 strict 로 푼다 */
-  probe(): Promise<SemanticNode[]>;
+  /**
+   * 지금 화면에서 맞는 노드들(대기 없음). expect 의 폴링이 쓴다. within 부모는 deadline(기본 screen 기한)까지 strict 로 풀되,
+   * 부모가 없으면 자식도 없는 것이므로 빈 배열이다(부모 중복은 ambiguous 그대로).
+   */
+  probe(deadline?: number): Promise<SemanticNode[]>;
   /** 노드의 text. secure 노드는 secure-read */
   text(): Promise<string | undefined>;
   /** 노드의 value. secure 노드는 secure-read */
@@ -51,17 +53,6 @@ export interface Screen {
   getByPlaceholder(placeholder: string): Locator;
   /** 접근성 이름(name)으로 */
   getByLabel(label: string | RegExp, options?: TextOptions): Locator;
-}
-
-function summarize(nodes: SemanticNode[]): string {
-  return nodes.slice(0, CANDIDATE_SUMMARY_LIMIT).map((n) => {
-    const bits = [n.ref, n.role];
-    if (n.name) bits.push(`name=${JSON.stringify(n.name)}`);
-    if (n.text) bits.push(`text=${JSON.stringify(n.text)}`);
-    if (n.testId) bits.push(`testId=${n.testId}`);
-    if (n.states?.disabled) bits.push('disabled');
-    return bits.join(' ');
-  }).join('; ') + (nodes.length > CANDIDATE_SUMMARY_LIMIT ? ` … 외 ${nodes.length - CANDIDATE_SUMMARY_LIMIT}개` : '');
 }
 
 function describeQuery(q: LocatorQuery): string {
@@ -157,7 +148,14 @@ export function createScreen(engine: Engine, options: ScreenOptions = {}): Scree
       nth: (index) => make({ ...spec, query: { ...spec.query, nth: index } }),
       first: () => self.nth(0),
       count: async () => (await queryNow(spec, Date.now() + timeoutMs)).nodes.length,
-      probe: async () => (await queryNow(spec, Date.now() + timeoutMs)).nodes,
+      probe: async (deadline) => {
+        try {
+          return (await queryNow(spec, deadline ?? Date.now() + timeoutMs)).nodes;
+        } catch (e) {
+          if (e instanceof EngineError && e.code === 'not-found' && spec.parent) return [];
+          throw e;
+        }
+      },
       isVisible: async () => (await queryNow(spec, Date.now() + timeoutMs)).nodes.length === 1,
       text: () => read('text'),
       value: () => read('value'),

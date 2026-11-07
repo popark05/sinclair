@@ -49,6 +49,7 @@
 - `getByLabel(label)` 은 접근성 이름(`name`, Android contentDescription / iOS accessibilityLabel) 질의다. `labelFor` 관계는 아직 다루지 않는다.
 - secure 노드는 `text/value` 읽기만 `secure-read` 로 거부하고 `type` 은 허용한다. 입력값이 러너 트레이스에 남지 않는 것은 트레이스가 생기는 티켓(05)에서 검증한다.
 - `within(parent)` 는 부모를 먼저 strict 로 풀되 자식과 같은 기한을 쓴다(중첩 깊이만큼 기한이 늘지 않는다).
+- 판정(`expect`, 기본 5초)도 같은 정책이다: 존재 판정(toBeVisible = 정확히 하나, toBeHidden = 없음)은 둘 이상 맞으면 `.not` 이어도 `ambiguous`, 내용·상태 판정은 노드가 하나일 때만 평가하며 노드가 없으면 `.not` 이어도 통과가 아니라 기한까지 기다린다(공허한 참 금지). `within` 의 부모가 없으면 자식은 "없음" 으로 본다.
 
 ## 계약 스위트
 

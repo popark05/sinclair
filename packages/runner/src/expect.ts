@@ -1,6 +1,7 @@
 // 판정: `await expect(locator).toHaveText('…')`. 기한 안에 재관찰하며 통과하는 순간 끝난다. 화면을 바꾸지 않는다(locate 만).
 import { EngineError, type SemanticNode } from '@sinclair/protocol';
 import type { Locator } from './screen.ts';
+import { summarize } from './summary.ts';
 
 export interface ExpectOptions {
   /** 판정이 통과하기를 기다리는 상한(ms). 기본 5초: 액션(10초)보다 짧게 두어 "안 되는 판정" 이 빨리 드러나게 */
@@ -11,7 +12,6 @@ export interface ExpectOptions {
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_POLL_MS = 100;
-const SUMMARY_LIMIT = 5;
 
 /** 판정 실패. 기대/실제와 마지막 관찰 요약을 담는다. 엔진 문제(ambiguous, secure-read 등)는 EngineError 그대로 */
 export class AssertionError extends Error {
@@ -21,6 +21,12 @@ export class AssertionError extends Error {
   }
 }
 
+/**
+ * 판정 규칙(specs/0002 러너 정책과 같다):
+ * - 존재 판정(toBeVisible = 정확히 하나, toBeHidden = 하나도 없음)은 둘 이상 맞으면 .not 이어도 ambiguous 다(개수는 toHaveCount).
+ * - 내용·상태 판정(toHaveText/…/toBeDisabled)은 노드가 정확히 하나일 때만 평가한다. 노드가 없으면 .not 이어도 "통과" 가
+ *   아니라 기한까지 기다린다(없는 노드에 대한 공허한 참을 막는다).
+ */
 export interface LocatorAssertions {
   readonly not: LocatorAssertions;
   /** 정확히 하나 있다 */
@@ -35,20 +41,8 @@ export interface LocatorAssertions {
   toHaveCount(count: number): Promise<void>;
 }
 
-function summarize(nodes: SemanticNode[]): string {
-  if (nodes.length === 0) return '(없음)';
-  return nodes.slice(0, SUMMARY_LIMIT).map((n) => {
-    const bits = [n.ref, n.role];
-    if (n.name) bits.push(`name=${JSON.stringify(n.name)}`);
-    if (n.text) bits.push(`text=${JSON.stringify(n.text)}`);
-    if (n.value !== undefined && !n.states?.secure) bits.push(`value=${JSON.stringify(n.value)}`);
-    if (n.states) bits.push(Object.entries(n.states).filter(([, v]) => v).map(([k]) => k).join(','));
-    return bits.join(' ');
-  }).join('; ') + (nodes.length > SUMMARY_LIMIT ? ` … 외 ${nodes.length - SUMMARY_LIMIT}개` : '');
-}
-
-/** 한 번의 관찰에 대한 판정 결과. actual 은 메시지용 */
-interface Check { pass: boolean; actual: unknown }
+/** 한 번의 관찰에 대한 판정 결과. evaluable 이 false 면 판정할 대상이 없어(노드 없음) .not 이어도 통과가 아니다 */
+interface Check { pass: boolean; actual: unknown; evaluable?: false }
 
 type Matcher = (nodes: SemanticNode[]) => Check;
 
@@ -76,9 +70,9 @@ export function expect(locator: Locator, options: ExpectOptions = {}): LocatorAs
       let nodes: SemanticNode[] = [];
       let check: Check = { pass: false, actual: undefined };
       for (;;) {
-        nodes = await locator.probe();
+        nodes = await locator.probe(deadline);
         check = matcher(nodes);
-        if (check.pass !== negated) return;
+        if (check.evaluable !== false && check.pass !== negated) return;
         if (Date.now() >= deadline) break;
         await new Promise((r) => setTimeout(r, pollMs));
       }
@@ -91,7 +85,7 @@ export function expect(locator: Locator, options: ExpectOptions = {}): LocatorAs
     /** 노드가 정확히 하나일 때만 읽는 판정. secure 노드의 내용 읽기는 거부 */
     const reading = (name: string, expected: unknown, field: 'text' | 'value', contains: boolean) =>
       run(name, expected, (nodes) => {
-        if (nodes.length === 0) return { pass: false, actual: '(노드 없음)' };
+        if (nodes.length === 0) return { pass: false, actual: '(노드 없음)', evaluable: false };
         const n = single(nodes, locator);
         if (n.states?.secure) throw new EngineError('secure-read', `${locator.describe()} 는 secure 노드라 ${field} 를 판정할 수 없음`, { ref: n.ref });
         return { pass: matchText(n[field], expected as string | RegExp, contains), actual: n[field] };
@@ -99,7 +93,7 @@ export function expect(locator: Locator, options: ExpectOptions = {}): LocatorAs
 
     const state = (name: string, key: 'checked' | 'disabled') =>
       run(name, undefined, (nodes) => {
-        if (nodes.length === 0) return { pass: false, actual: '(노드 없음)' };
+        if (nodes.length === 0) return { pass: false, actual: '(노드 없음)', evaluable: false };
         const n = single(nodes, locator);
         return { pass: n.states?.[key] === true, actual: n.states ?? {} };
       });
@@ -107,7 +101,7 @@ export function expect(locator: Locator, options: ExpectOptions = {}): LocatorAs
     return {
       get not() { return build(!negated); },
       toBeVisible: () => run('toBeVisible', undefined, (nodes) => { if (nodes.length > 1) single(nodes, locator); return { pass: nodes.length === 1, actual: `${nodes.length}개` }; }),
-      toBeHidden: () => run('toBeHidden', undefined, (nodes) => ({ pass: nodes.length === 0, actual: `${nodes.length}개` })),
+      toBeHidden: () => run('toBeHidden', undefined, (nodes) => { if (nodes.length > 1) single(nodes, locator); return { pass: nodes.length === 0, actual: `${nodes.length}개` }; }),
       toHaveText: (text) => reading('toHaveText', text, 'text', false),
       toContainText: (text) => reading('toContainText', text, 'text', true),
       toHaveValue: (value) => reading('toHaveValue', value, 'value', false),
