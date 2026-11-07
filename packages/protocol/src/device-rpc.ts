@@ -42,3 +42,28 @@ export interface JsonRpcResponse<T = unknown> {
   result?: T;
   error?: { code: number; message: string; data?: unknown };
 }
+
+// ---- devices.list / device.info 응답 ----
+
+export const DEVICE_PLATFORMS = ['android', 'ios'] as const;
+export type DevicePlatform = (typeof DEVICE_PLATFORMS)[number];
+
+/** 디바이스 레이어가 보는 연결 상태. 제어 평면의 Device(idle/leased/…)와는 다른 축이다. */
+export const DEVICE_CONNECTION_STATES = ['device', 'unauthorized', 'offline'] as const;
+export type DeviceConnectionState = (typeof DEVICE_CONNECTION_STATES)[number];
+
+/** `devices.list` 의 원소이자 `device.info` 의 결과. */
+export interface DeviceInfo {
+  id: string;
+  platform: DevicePlatform;
+  model: string;
+  osVersion: string;
+  state: DeviceConnectionState;
+  /** unauthorized/offline 일 때 사용자에게 보여줄 원인 */
+  stateDetail?: string;
+  /** 기기가 Sinclair CA를 신뢰하는지. 프록시 모드 blocked 판정에 쓴다 */
+  caTrusted?: boolean;
+}
+
+/** `device.io.*` 의 좌표 */
+export interface Point { x: number; y: number }

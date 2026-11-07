@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   RUN_EVENT_TYPES, DEVICE_RPC_METHODS, ATTEMPT_RESULTS, CACHE_DECISIONS, NETWORK_MODES,
   capabilitiesOf, type Engine, type RunEvent,
+  DEVICE_CONNECTION_STATES, DEVICE_PLATFORMS, type DeviceInfo,
 } from '../src/index.ts';
 
 describe('protocol 계약', () => {
@@ -39,5 +40,20 @@ describe('protocol 계약', () => {
       type: 'attempt.finished', attemptId: 'a1', result: 'passed', artifacts: [],
     };
     expect(ev.type).toBe('attempt.finished');
+  });
+});
+
+describe('디바이스 RPC 응답 계약', () => {
+  it('devices.list 원소(DeviceInfo)는 id/platform/model/osVersion/state 가 필수이고 stateDetail/caTrusted 는 선택이다', () => {
+    // 스펙의 예시 응답. 필드가 빠지거나 이름이 바뀌면 여기서 컴파일 오류가 난다.
+    const minimal: DeviceInfo = { id: 'R3CX', platform: 'android', model: 'SM-F936N', osVersion: '14', state: 'device' };
+    const blocked: DeviceInfo = { ...minimal, state: 'unauthorized', stateDetail: '기기 화면에서 "USB 디버깅 허용"을 승인하세요.' };
+    expect(Object.keys(minimal).sort()).toEqual(['id', 'model', 'osVersion', 'platform', 'state']);
+    expect(blocked.stateDetail).toContain('USB 디버깅 허용');
+  });
+
+  it('연결 상태와 플랫폼 상수는 spec 의 값과 일치한다', () => {
+    expect(DEVICE_CONNECTION_STATES).toEqual(['device', 'unauthorized', 'offline']);
+    expect(DEVICE_PLATFORMS).toEqual(['android', 'ios']);
   });
 });

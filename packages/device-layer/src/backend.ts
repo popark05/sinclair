@@ -1,19 +1,8 @@
 // 플랫폼 백엔드 인터페이스. Android/iOS/페이크가 이 계약을 구현하고, JSON-RPC 서버는 이것만 안다.
-import type { SemanticNode } from '@sinclair/protocol';
+import type { DeviceInfo, Point, SemanticNode } from '@sinclair/protocol';
 
-export interface DeviceInfo {
-  id: string;
-  platform: 'android' | 'ios';
-  model: string;
-  osVersion: string;
-  state: 'device' | 'unauthorized' | 'offline';
-  /** unauthorized/offline 일 때 사용자에게 보여줄 원인 */
-  stateDetail?: string;
-  /** 기기가 Sinclair CA를 신뢰하는지. 프록시 모드 blocked 판정에 쓴다 */
-  caTrusted?: boolean;
-}
-
-export interface Point { x: number; y: number }
+// DeviceInfo/Point 는 와이어 계약이라 @sinclair/protocol 에 있다. 기존 import 호환을 위해 다시 내보낸다.
+export type { DeviceInfo, Point } from '@sinclair/protocol';
 
 export interface DeviceBackend {
   readonly platform: 'android' | 'ios';
