@@ -27,3 +27,17 @@ describe.skipIf(!target)('AndroidBackend 실기기', () => {
     expect((await backend.info(picked!.id)).id).toBe(picked!.id);
   }, APPROVAL_WAIT_MS + 10_000);
 });
+
+describe.skipIf(!target)('AndroidBackend 실기기 입력·스크린샷 (adb shell 경로)', () => {
+  it('홈 버튼 → 탭 → 스크린샷이 PNG 로 온다', async () => {
+    const [device] = await backend.listDevices();
+    const id = target === '1' ? device!.id : target!;
+    await backend.button(id, 'home');
+    await backend.tap(id, { x: 100, y: 300 });
+    const png = await backend.screenshot(id);
+    expect(Buffer.from(png.subarray(0, 8))).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    expect(png.length).toBeGreaterThan(10_000);
+    await backend.text(id, 'hello world');
+    await backend.keys(id, ['KEYCODE_BACK']);
+  }, APPROVAL_WAIT_MS + 10_000);
+});

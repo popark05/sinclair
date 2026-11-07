@@ -24,7 +24,8 @@ export function createDeviceServer(backends: DeviceBackend[]): RpcDispatcher {
     if (dflt !== undefined) return dflt;
     throw new RpcError(RPC_ERRORS.invalidParams, `${k} 가 필요합니다`);
   };
-  const point = (p: Record<string, unknown>, prefix = ''): Point => ({ x: num(p, `${prefix}x`), y: num(p, `${prefix}y`) });
+  // 좌표 키: 접두사가 없으면 x/y, 있으면 fromX/fromY 처럼 camelCase (durationMs 와 같은 규칙).
+  const point = (p: Record<string, unknown>, prefix = ''): Point => ({ x: num(p, prefix ? `${prefix}X` : 'x'), y: num(p, prefix ? `${prefix}Y` : 'y') });
 
   d.register('server.info', async () => ({ version: SERVER_VERSION, platforms: backends.map((b) => b.platform) }));
   d.register('devices.list', async () => (await Promise.all(backends.map((b) => b.listDevices()))).flat());

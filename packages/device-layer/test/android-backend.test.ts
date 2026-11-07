@@ -139,3 +139,86 @@ describe('AndroidBackend 목록 캐시', () => {
     expect(usb.enumerations).toBe(after + 1);
   });
 });
+
+describe('AndroidBackend 입력 (adb shell input 경로)', () => {
+  async function ready() {
+    const s = setup();
+    await s.backend.listDevices();
+    s.phone.shellCommands.length = 0; // getprop 등 준비 호출은 제외
+    return s;
+  }
+
+  it('tap/longPress/swipe 는 input tap/swipe 로 전달되고 호출 순서가 기록된다', async () => {
+    const { backend, phone } = await ready();
+    await backend.tap('PHONE1', { x: 10, y: 20 });
+    await backend.longPress('PHONE1', { x: 5, y: 6 }, 800);
+    await backend.swipe('PHONE1', { x: 0, y: 100 }, { x: 0, y: 10 }, 300);
+    expect(phone.shellCommands).toEqual(['input tap 10 20', 'input swipe 5 6 5 6 800', 'input swipe 0 100 0 10 300']);
+  });
+
+  it('text 는 공백과 셸 특수문자를 깨지지 않게 이스케이프한다', async () => {
+    const { backend, phone } = await ready();
+    await backend.text('PHONE1', "hello world it's $HOME & \"q\" 50%");
+    expect(phone.shellCommands).toEqual(["input text 'hello%sworld%sit'\\''s%s$HOME%s&%s\"q\"%s50%'"]);
+  });
+
+  it('비ASCII 텍스트(한글)는 input text 로 넣을 수 없으므로 명확한 오류로 거부한다', async () => {
+    const { backend, phone } = await ready();
+    await expect(backend.text('PHONE1', '안녕')).rejects.toThrow(/ASCII|헬퍼/);
+    expect(phone.shellCommands).toEqual([]);
+  });
+
+  it('keys 와 button 은 input keyevent 로 전달된다', async () => {
+    const { backend, phone } = await ready();
+    await backend.keys('PHONE1', ['KEYCODE_ENTER', 'KEYCODE_TAB']);
+    await backend.button('PHONE1', 'back');
+    await backend.button('PHONE1', 'volume_up');
+    expect(phone.shellCommands).toEqual(['input keyevent KEYCODE_ENTER KEYCODE_TAB', 'input keyevent KEYCODE_BACK', 'input keyevent KEYCODE_VOLUME_UP']);
+  });
+
+  it('input 이 실패(종료 코드 ≠ 0)하면 출력과 함께 오류가 난다', async () => {
+    const { backend, phone } = await ready();
+    phone.failInput = 'Error: Invalid arguments';
+    await expect(backend.tap('PHONE1', { x: 1, y: 1 })).rejects.toThrow(/Invalid arguments/);
+  });
+});
+
+describe('AndroidBackend 앱·URL·스크린샷 (adb shell 경로)', () => {
+  async function ready() {
+    const s = setup();
+    await s.backend.listDevices();
+    s.phone.shellCommands.length = 0;
+    return s;
+  }
+
+  it('launchApp 은 런처 인텐트로 실행하고 terminateApp 은 force-stop 한다', async () => {
+    const { backend, phone } = await ready();
+    phone.packages.add('com.example.app');
+    await backend.launchApp('PHONE1', 'com.example.app');
+    await backend.terminateApp('PHONE1', 'com.example.app');
+    expect(phone.shellCommands).toEqual([
+      "monkey -p 'com.example.app' -c android.intent.category.LAUNCHER 1",
+      "am force-stop 'com.example.app'",
+    ]);
+  });
+
+  it('설치되지 않은 앱 실행은 monkey 출력으로 판정해 오류를 낸다', async () => {
+    const { backend } = await ready();
+    await expect(backend.launchApp('PHONE1', 'com.missing')).rejects.toThrow(/No activities found|com\.missing/);
+  });
+
+  it('openUrl 은 VIEW 인텐트로 열고, am 이 Error 를 출력하면(종료 코드 0이어도) 오류를 낸다', async () => {
+    const { backend, phone } = await ready();
+    await backend.openUrl('PHONE1', 'myapp://home?x=1&y=2');
+    expect(phone.shellCommands).toEqual(["am start -W -a android.intent.action.VIEW -d 'myapp://home?x=1&y=2'"]);
+    await expect(backend.openUrl('PHONE1', 'nothing://handles-this')).rejects.toThrow(/Error:/);
+  });
+
+  it('screenshot 은 screencap -p 의 바이트를 그대로(PNG 시그니처 포함) 돌려준다', async () => {
+    const { backend, phone } = await ready();
+    const png = await backend.screenshot('PHONE1');
+    expect(Buffer.from(png.subarray(0, 8))).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    expect(png.length).toBe(phone.screenshotPng.length);
+    expect(phone.shellCommands).toEqual(['screencap -p']);
+  });
+});

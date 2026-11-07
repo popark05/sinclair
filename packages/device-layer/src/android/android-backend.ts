@@ -4,6 +4,7 @@ import type { DeviceBackend, DeviceInfo } from '../backend.ts';
 import { Dadb, type DadbListOptions } from '../adb/dadb.ts';
 import { AdbAuthException, AdbUsbAccessException } from '../adb/errors.ts';
 import type { UsbBackend } from '../adb/transport/usb-discovery.ts';
+import { RpcError, RPC_ERRORS } from '../rpc.ts';
 
 /** 첫 목록 응답에서 연결 판정을 기다리는 시간. 넘으면 사용자 승인 대기(unauthorized)로 표시한다. */
 const FIRST_PROBE_WAIT_MS = 1_500;
@@ -11,6 +12,20 @@ const FIRST_PROBE_WAIT_MS = 1_500;
 const AUTH_TIMEOUT_MS = 15_000;
 /** 이 시간 안의 listDevices 재호출은 USB를 다시 열거하지 않는다(디스패처의 기기 탐색이 호출마다 부른다). */
 const LIST_CACHE_MS = 2_000;
+
+/** `device.io.button` 이름 → Android 키코드 */
+const BUTTON_KEYCODES: Record<Parameters<DeviceBackend['button']>[1], string> = {
+  home: 'KEYCODE_HOME',
+  back: 'KEYCODE_BACK',
+  power: 'KEYCODE_POWER',
+  volume_up: 'KEYCODE_VOLUME_UP',
+  volume_down: 'KEYCODE_VOLUME_DOWN',
+};
+
+/** 셸 인자 하나를 작은따옴표로 감싼다. */
+function shellQuote(arg: string): string {
+  return `'${arg.replace(/'/g, `'\\''`)}'`;
+}
 
 export interface AndroidBackendOptions {
   /** Dadb 옵션(테스트에서 가짜 키/타임아웃을 줄 때). */
@@ -143,6 +158,43 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
     throw new Error(`AndroidBackend.${name} 은 아직 구현되지 않았습니다`);
   };
 
+  function dadbFor(deviceId: string): Dadb {
+    const entry = entries.get(deviceId);
+    if (!entry) throw new RpcError(RPC_ERRORS.deviceNotFound, `기기를 찾을 수 없음: ${deviceId}`);
+    return entry.dadb;
+  }
+
+  /** 셸 명령을 실행하고 종료 코드가 0이 아니면 출력을 담아 던진다. */
+  async function run(deviceId: string, command: string): Promise<string> {
+    const r = await dadbFor(deviceId).shell(command);
+    if (r.exitCode !== 0) throw new Error(`셸 명령 실패(exit ${r.exitCode}): ${command}\n${r.allOutput.trim()}`);
+    return r.allOutput;
+  }
+
+  const input = (deviceId: string, args: string) => run(deviceId, `input ${args}`).then(() => undefined);
+
+  /** am/monkey 는 실패해도 종료 코드 0 으로 "Error: ..." 만 출력하는 경우가 있어 출력으로도 판정한다. */
+  async function runActivityManager(deviceId: string, command: string): Promise<void> {
+    const out = await run(deviceId, command);
+    const error = /^(Error:.*|\*\* No activities found.*)$/m.exec(out);
+    if (error) throw new Error(`앱 실행 실패: ${error[0]}`);
+  }
+
+  /** 바이너리 출력을 내는 명령. shell() 은 utf-8 로 디코딩하므로 패킷을 직접 모은다. */
+  async function runBinary(deviceId: string, command: string): Promise<Uint8Array> {
+    const stream = await dadbFor(deviceId).openShell(command);
+    const out: Buffer[] = [];
+    const err: Buffer[] = [];
+    for (;;) {
+      const packet = await stream.read();
+      if (packet.type === 'exit') {
+        if (packet.exitCode !== 0) throw new Error(`셸 명령 실패(exit ${packet.exitCode}): ${command}\n${Buffer.concat(err).toString('utf-8').trim()}`);
+        return Buffer.concat(out);
+      }
+      (packet.type === 'stdout' ? out : err).push(packet.payload);
+    }
+  }
+
   return {
     platform: 'android',
     async listDevices(): Promise<DeviceInfo[]> {
@@ -156,17 +208,24 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
       if (!found) throw new Error(`기기를 찾을 수 없음: ${deviceId}`);
       return found;
     },
-    screenshot: notImplemented('screenshot'),
+    screenshot: (id) => runBinary(id, 'screencap -p'),
     dumpUi: notImplemented('dumpUi'),
-    tap: notImplemented('tap'),
-    longPress: notImplemented('longPress'),
-    swipe: notImplemented('swipe'),
-    text: notImplemented('text'),
-    keys: notImplemented('keys'),
-    button: notImplemented('button'),
-    launchApp: notImplemented('launchApp'),
-    terminateApp: notImplemented('terminateApp'),
-    openUrl: notImplemented('openUrl'),
+    tap: (id, p) => input(id, `tap ${p.x} ${p.y}`),
+    longPress: (id, p, durationMs) => input(id, `swipe ${p.x} ${p.y} ${p.x} ${p.y} ${durationMs}`),
+    swipe: (id, from, to, durationMs) => input(id, `swipe ${from.x} ${from.y} ${to.x} ${to.y} ${durationMs}`),
+    text: async (id, text) => {
+      // `input text` 는 ASCII 만 받는다(비ASCII 는 기기에서 무시되거나 깨진다). 한글 등은 접근성 헬퍼 경로(setText)가 맡는다.
+      if (!/^[\x20-\x7e]*$/.test(text)) {
+        throw new RpcError(RPC_ERRORS.invalidParams, 'input text 는 ASCII 만 지원합니다. 비ASCII 텍스트는 접근성 헬퍼가 필요합니다');
+      }
+      return input(id, `text ${shellQuote(text.replace(/ /g, '%s'))}`);
+    },
+    keys: (id, keys) => input(id, `keyevent ${keys.join(' ')}`),
+    button: (id, name) => input(id, `keyevent ${BUTTON_KEYCODES[name]}`),
+    // appId 만 받으므로 액티비티 이름이 필요한 `am start -n` 대신 런처 카테고리로 여는 monkey 를 쓴다.
+    launchApp: (id, appId) => runActivityManager(id, `monkey -p ${shellQuote(appId)} -c android.intent.category.LAUNCHER 1`),
+    terminateApp: (id, appId) => run(id, `am force-stop ${shellQuote(appId)}`).then(() => undefined),
+    openUrl: (id, url) => runActivityManager(id, `am start -W -a android.intent.action.VIEW -d ${shellQuote(url)}`),
     invalidate(): void {
       lastList = undefined;
     },

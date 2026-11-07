@@ -27,6 +27,8 @@ Preconditions:
 
 ## Gotchas
 
+- 실기기 `device.apps.launch` 는 `am start -n` 이 아니라 `monkey -p <appId> -c android.intent.category.LAUNCHER 1` 이다(appId 만 받으므로). 미설치 앱은 `-32603` 에 `No activities found`. `device.url` 은 `am start -W -a VIEW -d` 이며 처리할 앱이 없으면 종료 코드 0 이어도 `Error:` 출력을 보고 `-32603` 이다.
+
 - `device.apps.install/uninstall/clear/foreground` 는 메서드 목록에는 있지만 미구현이라 `-32601` 이다. 구현되면 이 파일에 추가한다.
 - 페이크는 앱 존재를 확인하지 않는다. 없는 appId 도 성공한다.
 - 2026-11-07 기준 `app-launch-missing` 검증 완료. 나머지는 `device.url`/`terminate` 로그 형식이 `serve.ts` 와 같으므로 동일 경로.

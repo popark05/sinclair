@@ -81,7 +81,7 @@ Plan(`intent/`) → Design(`specs/`, `/architect`로 타입 먼저) → Build(`t
 ### 2026-11-07
 - 모노레포 골격, protocol 계약 패키지(계약 테스트 5개), device-layer JSON-RPC 디스패처·HTTP 전송(테스트 6개), ADR 0001~0003.
 - 검증 스킬 2개 추가: `.claude/skills/verify-device-layer`(JSON-RPC 서버를 페이크 백엔드로 띄워 HTTP 로 구동, 증거는 `.e2e/verify-device-layer/`)와 `.claude/skills/verify-rpc-serialization`(`rpc.ts` 직렬화의 제한 범위 전수 검사, `packages/device-layer/test/rpc-serialization.exhaustive.test.ts`). `rpc.ts` 를 바꾸면 후자의 sync commit 을 갱신한다.
-- 발견: `device.io.swipe` 파라미터 키가 `fromx/fromy/tox/toy` 소문자다 (`server.ts` `point(p,'from')`). 스펙에 키 이름이 없으니 spec 확정 때 정한다.
+- 결정: `device.io.swipe` 파라미터 키는 `fromX/fromY/toX/toY` camelCase (`durationMs` 와 같은 규칙).
 - 다음 티켓 순서: (1) Android 백엔드 실제 구현. EverMock(`../10.development` 리포의 `src/main/adb`)의 direct ADB 레이어를 `packages/device-layer`로 옮기고 접근성 헬퍼 APK와 통신. (2) `packages/runner`의 locator/expect와 엔진 계약 계약 테스트. (3) control-plane Ingest(이벤트 멱등 저장)와 커스텀 Reporter.
 
 ## Agent skills

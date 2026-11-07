@@ -52,3 +52,16 @@ describe('디바이스 JSON-RPC 서버', () => {
     } finally { await srv.close(); }
   });
 });
+
+describe('device.io.swipe 파라미터 키', () => {
+  it('fromX/fromY/toX/toY(camelCase) 를 받고, 소문자 키는 어떤 키가 필요한지 알려주며 -32602 다', async () => {
+    const b = new FakeBackend();
+    const d = createDeviceServer([b]);
+    const ok = await d.handle(req('device.io.swipe', { deviceId: 'FAKE1', fromX: 0, fromY: 100, toX: 0, toY: 10 }));
+    expect(ok.error).toBeUndefined();
+    expect(b.calls).toEqual(['swipe 0,100->0,10']);
+    const bad = await d.handle(req('device.io.swipe', { deviceId: 'FAKE1', fromx: 0, fromy: 100, tox: 0, toy: 10 }));
+    expect(bad.error?.code).toBe(RPC_ERRORS.invalidParams);
+    expect(bad.error?.message).toContain('fromX');
+  });
+});

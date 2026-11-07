@@ -10,6 +10,10 @@ export class FakeAndroid {
   readonly shellCommands: string[] = [];
   readonly installs: Array<{ size: number; options: string[] }> = [];
   isRoot = false;
+  /** 설정하면 input 명령이 이 메시지로 실패한다(종료 코드 1). */
+  failInput: string | undefined;
+  /** screencap -p 가 돌려줄 PNG. 시그니처 + 멀티바이트 안전성 확인용 0x80 이상 바이트를 포함한다. */
+  screenshotPng: Buffer = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from([0xff, 0xfe, 0x00, 0xc3, 0x28, 0x80])]);
   /** getprop 응답. */
   readonly props = new Map<string, string>([['ro.product.model', 'Fake Pixel'], ['ro.build.version.release', '14']]);
   /** root: 응답. "restarting"으로 시작하면 root 상태로 바꾸고 onAdbdRestart를 호출. */
@@ -81,9 +85,21 @@ export class FakeAndroid {
     s.close();
   }
 
-  private run(command: string): { stdout?: string; stderr?: string; exit?: number } {
+  private run(command: string): { stdout?: string | Buffer; stderr?: string; exit?: number } {
     let m: RegExpExecArray | null;
     if ((m = /^echo (.*)$/.exec(command))) return { stdout: `${m[1]}\n` };
+    if (command.startsWith('input ')) return this.failInput ? { stderr: `${this.failInput}\n`, exit: 1 } : {};
+    if ((m = /^monkey -p '([^']+)' -c android\.intent\.category\.LAUNCHER 1$/.exec(command))) {
+      if (this.packages.has(m[1]!)) return { stdout: 'Events injected: 1\n' };
+      return { stderr: `** No activities found to run, monkey aborted.\n`, exit: 252 };
+    }
+    if (/^am force-stop '[^']+'$/.test(command)) return {};
+    if ((m = /^am start -W -a android\.intent\.action\.VIEW -d '([^']+)'$/.exec(command))) {
+      // 실제 am 은 처리할 액티비티가 없어도 종료 코드 0 으로 "Error: ..." 만 출력한다.
+      if (m[1]!.startsWith('nothing://')) return { stdout: 'Starting: Intent { act=android.intent.action.VIEW }\nError: Activity not started, unable to resolve Intent\n' };
+      return { stdout: 'Starting: Intent { act=android.intent.action.VIEW }\nStatus: ok\n' };
+    }
+    if (command === 'screencap -p') return { stdout: this.screenshotPng };
     if ((m = /^fail (\d+) (.*)$/.exec(command))) return { stderr: `${m[2]}\n`, exit: Number(m[1]) };
     if ((m = /^(?:cmd package|pm) uninstall (\S+)$/.exec(command))) {
       if (this.packages.delete(m[1]!)) return { stdout: 'Success\n' };
