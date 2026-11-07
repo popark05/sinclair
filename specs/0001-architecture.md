@@ -18,6 +18,8 @@ Suite, TestCase(안정 ID), Cycle(빌드 + 기기 매트릭스 + Suite 필터), 
 
 흐름: Cycle 생성 → Scheduler가 Run 생성·기기 lease → Runner Agent가 러너 실행, 커스텀 Reporter가 이벤트를 Ingest로 스트리밍(멱등) → 재시도 정책 → Cycle 종료 시 Verdict 계산·알림.
 
+Reporter 계약(러너 `Reporter`, 2026-11-07 티켓 control-plane-ingest 01/03): `onEvent(event)` 는 발생 즉시 불리고 테스트 실행을 막지 않는다. run 끝에 `flush()` 를 기한(`reporterFlushTimeoutMs`) 안에서 기다리고, 그 뒤 `close()` 로 재시도를 멈춘다. Reporter 가 알리고 싶은 문제는 `warnings` 로 노출하고 러너가 `RunReport.warnings` 에 합친다. HTTP Reporter 는 5xx·408·429·연결 오류를 같은 eventId 로 재시도(Ingest 멱등), `rejected[]`·그 밖의 4xx 는 경고, 413 은 배치를 쪼개 재전송한다. 서버가 영구 다운이면 flush 기한 뒤 close 가 남은 큐를 버리고 경고한다(디스크 스풀은 runner-agent 몫).
+
 Verdict 규칙: TestCase × 타깃 최종 상태 = 마지막 Attempt. 재시도로 통과하면 `passed(flaky)`. 필수 태그 전부 통과해야 `verified`, 아니면 `blocked`. waive된 Issue는 제외.
 
 ## 프런트엔드

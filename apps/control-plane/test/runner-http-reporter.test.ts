@@ -47,10 +47,16 @@ describe('러너 → HTTP Reporter → Ingest', () => {
       const report = await runTests([fixture], { engine: engine(), timeoutMs: 200, reporter });
       expect(proxy.dropped()).toBe(2);
       expect(reporter.stats.retries).toBeGreaterThanOrEqual(2);
-      expect(reporter.stats.duplicate).toBeGreaterThanOrEqual(2); // 재전송된 배치는 Ingest 가 duplicate 로 받는다
-      const view = (await (await fetch(`http://127.0.0.1:${server.port}/runs/${report.runId}`)).json()) as RunView;
-      expect(view.attempts.map((a) => [a.testId, a.result, a.steps.length])).toEqual(report.tests.map((t) => [t.name, t.result, t.steps.length]));
-      expect(view.attempts.flatMap((a) => a.steps).length).toBe(report.tests.flatMap((t) => t.steps).length); // 중복 스텝 없음
+      expect(reporter.stats.duplicate).toBeGreaterThanOrEqual(1); // 재전송된 배치는 Ingest 가 duplicate 로 받는다(같은 배치가 두 번 끊기면 성공 응답은 하나)
+      const view = await (await fetch(`http://127.0.0.1:${server.port}/runs/${report.runId}`)).text();
+      // 같은 이벤트를 한 번만 넣은 별도 Ingest 의 투영과 바이트 단위로 같아야 한다
+      const once = await serveControlPlane(createMemoryEventStore());
+      try {
+        await fetch(`http://127.0.0.1:${once.port}/ingest`, { method: 'POST', body: JSON.stringify(report.events) });
+        expect(view).toBe(await (await fetch(`http://127.0.0.1:${once.port}/runs/${report.runId}`)).text());
+      } finally {
+        await once.close();
+      }
     } finally {
       await proxy.close();
     }

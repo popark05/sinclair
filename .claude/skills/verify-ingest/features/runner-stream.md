@@ -24,4 +24,4 @@ $S/get.sh $RUN /runs/$RUNID stream-view              # state finished, attempts 
 ## Gotchas
 
 - FakeEngine 샘플이라 엔진 동작은 증명되지 않는다(실기기는 `verify-runner`). 증명 대상은 Reporter → Ingest 경로다.
-- Reporter 는 5xx·연결 오류를 끝없이 재시도한다. 서버가 없으면 러너의 `reporterFlushTimeoutMs`(기본 10초) 뒤 경고와 함께 끝난다.
+- Reporter 는 5xx·408·429·연결 오류를 끝없이 재시도한다. 서버가 없으면 러너가 `reporterFlushTimeoutMs`(기본 10초) 뒤 `close()` 로 재시도를 멈추고 남은 이벤트 수를 경고로 남긴다. 413 은 배치를 반으로 쪼개 다시 보낸다.

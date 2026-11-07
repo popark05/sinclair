@@ -156,9 +156,20 @@ describe('Reporter', () => {
     vexpect(report.warnings?.some((w) => w.includes('flush'))).toBe(true);
   });
 
-  it('Reporter 가 warnings 를 가지면 flush 뒤 리포트 경고에 합쳐진다', async () => {
-    const reporter: Reporter = { onEvent: () => {}, warnings: ['이벤트 e9 거부: kind'] };
+  it('Reporter 가 warnings 를 가지면 flush·close 뒤 리포트 경고에 합쳐진다', async () => {
+    const calls: string[] = [];
+    const reporter: Reporter = { onEvent: () => {}, flush: async () => { calls.push('flush'); }, close: async () => { calls.push('close'); }, warnings: ['이벤트 e9 거부: kind'] };
     const report = await runTests([fixture('sample.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 200, reporter });
+    vexpect(calls).toEqual(['flush', 'close']);
     vexpect(report.warnings).toEqual(['이벤트 e9 거부: kind']);
+  });
+
+  it('flush 가 기한을 넘기면 close 로 Reporter 를 멈추고 그때까지의 경고를 합친다', async () => {
+    const warnings: string[] = [];
+    let closed = false;
+    const reporter: Reporter = { onEvent: () => {}, flush: () => new Promise(() => {}), close: async () => { closed = true; warnings.push('남은 2건 버림'); }, warnings };
+    const report = await runTests([fixture('sample.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 200, reporter, reporterFlushTimeoutMs: 50 });
+    vexpect(closed).toBe(true);
+    vexpect(report.warnings).toEqual([vexpect.stringContaining('flush'), '남은 2건 버림']);
   });
 });
