@@ -43,3 +43,62 @@ export function cycleStoreSuite(name: string, makeStore: () => Promise<CycleStor
     });
   });
 }
+
+/** claim/heartbeat 계약. makeStore 가 같은 파일을 두 번 열 수 있으면(makeTwin) 두 핸들 경쟁도 본다 */
+export function runClaimSuite(name: string, makeStore: () => Promise<CycleStore> | CycleStore, makeTwin?: (first: CycleStore) => Promise<CycleStore> | CycleStore): void {
+  const T0 = Date.parse('2026-11-08T00:00:00.000Z');
+  const TTL = 60_000;
+  describe(`CycleStore 클레임 계약: ${name}`, () => {
+    let store: CycleStore;
+    beforeEach(async () => {
+      store = await makeStore();
+      await store.createCycle(cycle('c1'));
+      await store.registerRun({ runId: 'r1', cycleId: 'c1', targetId: 'android', createdAt: 'x' });
+      await store.registerRun({ runId: 'r2', cycleId: 'c1', targetId: 'ios', createdAt: 'x' });
+      await store.registerRun({ runId: 'r3', cycleId: 'c1', targetId: 'android', createdAt: 'x' });
+    });
+    afterEach(async () => { await store.close?.(); });
+    const noEvents = async () => false;
+
+    it('타깃이 맞고 이벤트·lease 가 없는 Run 을 등록 순서로 하나씩 lease 와 함께 준다. 없으면 undefined', async () => {
+      const a = await store.claimRun('android', 'agent-1', T0, TTL, noEvents);
+      expect(a).toMatchObject({ runId: 'r1', lease: { agentId: 'agent-1', expiresAt: new Date(T0 + TTL).toISOString() } });
+      const b = await store.claimRun('android', 'agent-2', T0 + 1, TTL, noEvents);
+      expect(b?.runId).toBe('r3');
+      expect(await store.claimRun('android', 'agent-3', T0 + 2, TTL, noEvents)).toBeUndefined();
+      expect((await store.claimRun('ios', 'agent-1', T0, TTL, noEvents))?.runId).toBe('r2');
+      expect((await store.runsForCycle('c1')).map((r) => r.lease?.agentId)).toEqual(['agent-1', 'agent-1', 'agent-2']);
+    });
+
+    it('이미 이벤트가 있는 Run 은 건너뛴다', async () => {
+      const hasEvents = async (runId: string) => runId === 'r1';
+      expect((await store.claimRun('android', 'a', T0, TTL, hasEvents))?.runId).toBe('r3');
+    });
+
+    it('만료된 lease 는 다른 에이전트가 가져가고, 만료 전에는 못 가져간다', async () => {
+      await store.claimRun('ios', 'agent-1', T0, TTL, noEvents);
+      expect(await store.claimRun('ios', 'agent-2', T0 + TTL - 1, TTL, noEvents)).toBeUndefined();
+      const again = await store.claimRun('ios', 'agent-2', T0 + TTL, TTL, noEvents);
+      expect(again).toMatchObject({ runId: 'r2', lease: { agentId: 'agent-2' } });
+    });
+
+    it('heartbeat 는 소유자만 lease 를 연장한다', async () => {
+      await store.claimRun('ios', 'agent-1', T0, TTL, noEvents);
+      expect(await store.heartbeat('r2', 'agent-1', T0 + 10_000, TTL)).toEqual({ outcome: 'ok', expiresAt: new Date(T0 + 10_000 + TTL).toISOString() });
+      expect(await store.heartbeat('r2', 'agent-9', T0 + 10_000, TTL)).toEqual({ outcome: 'not-owner' });
+      expect(await store.heartbeat('없음', 'agent-1', T0, TTL)).toEqual({ outcome: 'no-run' });
+      expect(await store.heartbeat('r1', 'agent-1', T0, TTL)).toEqual({ outcome: 'not-owner' }); // lease 없는 Run
+    });
+
+    if (makeTwin) {
+      it('같은 저장소를 연 두 핸들이 같은 타깃을 동시에 클레임해도 같은 Run 을 두 번 주지 않는다', async () => {
+        const twin = await makeTwin(store);
+        try {
+          const results = await Promise.all([store.claimRun('android', 'a', T0, TTL, noEvents), twin.claimRun('android', 'b', T0, TTL, noEvents), store.claimRun('android', 'c', T0, TTL, noEvents)]);
+          const ids = results.filter((r) => r !== undefined).map((r) => r!.runId).sort();
+          expect(ids).toEqual(['r1', 'r3']);
+        } finally { await twin.close?.(); }
+      });
+    }
+  });
+}

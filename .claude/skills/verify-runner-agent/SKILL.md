@@ -5,7 +5,7 @@ description: "Sinclair runner-agent(apps/runner-agent)의 `sinclair-agent run` �
 
 # verify-runner-agent
 
-`verify-ingest` 의 `start.sh` 로 control-plane 을 띄운 뒤, 이 스킬의 `run-fake.sh` 가 Cycle 을 만들고 `sinclair-agent run --engine fake` 를 자식 프로세스로 실행해 종료 코드·출력·Cycle 뷰를 증거로 남긴다. 실기기 경로는 opt-in 테스트로 증명한다.
+`verify-ingest` 의 `start.sh` 로 control-plane 을 띄운 뒤, 이 스킬의 스크립트가 Cycle 을 만들고 `sinclair-agent run|daemon|resume` 을 실제 bin 으로 실행해 종료 코드·출력·Cycle 뷰를 증거로 남긴다. 실기기 경로는 opt-in 테스트로 증명한다.
 
 모든 명령은 리포 루트에서 실행한다.
 
@@ -36,6 +36,7 @@ node apps/runner-agent/bin/sinclair-agent.mjs run --help    # 사용법이 찍�
 $S/run-fake.sh $RUN [cycleId] [tests-dir]
 # 마지막 줄: AGENT exit=0 cycle=<id> state=finished verdict=verified
 $S/spool-resume.sh $RUN      # RUN exit=0 spool=[…jsonl …meta.json] → RESUME exit=0 spool=[] run.state=finished (약 1분)
+$S/daemon.sh $RUN            # DAEMON … state=finished verdict=verified leases=node-a,node-b exits=0,0
 ```
 
 - 기본 테스트 디렉터리는 `apps/runner-agent/test/fixtures/only-login`(통과 1). `apps/runner-agent/test/fixtures`(통과 1 + 실패 1)를 주면 exit=1, verdict=blocked 가 정상이다.
@@ -64,4 +65,5 @@ $I/stop.sh $RUN
 | --- | --- |
 | `scripts/run-fake.sh <RUN> [cycleId] [tests-dir]` | Cycle 생성 → `sinclair-agent run --engine fake` → 증거 |
 | `scripts/spool-resume.sh <RUN>` | 서버 내린 채 run → 스풀 → 같은 포트 재기동 → `resume` → 증거 |
+| `scripts/daemon.sh <RUN>` | Cycle(타깃 2) + 데몬 2개(bin) → finished/verified → SIGTERM 종료 → 증거 |
 | `verify-ingest/scripts/{start,doctor,stop}.sh` | control-plane 수명 |

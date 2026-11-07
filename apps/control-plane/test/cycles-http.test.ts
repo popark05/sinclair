@@ -115,4 +115,49 @@ describe('Cycle API', () => {
     expect(view.matrix.T).toEqual({ android: { verdict: 'passed', attemptId: 'a-1' }, ios: { verdict: 'blocked' } });
     expect((await fetch(url('/cycles/%E'))).status).toBe(400); // 잘못된 경로 인코딩
   });
+
+  it('POST /cycles 는 suite 필터를 받아 저장하고 GET /cycles/:id 에 돌려준다; 잘못된 suite 는 400', async () => {
+    expect((await post('/cycles', { cycleId: 'cs', build: 'b', targets: ['android'], suite: { tests: 'tests/smoke', tags: ['smoke'] } })).status).toBe(201);
+    expect((await (await fetch(url('/cycles/cs'))).json() as CycleView).suite).toEqual({ tests: 'tests/smoke', tags: ['smoke'] });
+    expect((await post('/cycles', { build: 'b', targets: ['android'], suite: { tags: ['x'] } })).status).toBe(400);
+    expect((await post('/cycles', { build: 'b', targets: ['android'], suite: 'tests' })).status).toBe(400);
+  });
+
+  it('POST /runs/claim 은 대기 중인 Run 을 lease 와 suite 와 함께 주고(200), 없으면 204; heartbeat 는 소유자만(409), 모르는 Run 은 404; lease 가 Cycle 뷰에 보인다', async () => {
+    await post('/cycles', { cycleId: 'cl', build: 'b', targets: ['android', 'ios'], suite: { tests: 'tests/all' } });
+    await post('/cycles/cl/runs', { targetId: 'android', runId: 'r-a' });
+    await post('/cycles/cl/runs', { targetId: 'ios', runId: 'r-i' });
+    const claimed = await post('/runs/claim', { targetId: 'android', agentId: 'node-1' });
+    expect(claimed.status).toBe(200);
+    const body = (await claimed.json()) as { run: { runId: string; lease: { agentId: string; expiresAt: string } }; leaseTtlMs: number; suite?: { tests: string } };
+    expect(body).toMatchObject({ run: { runId: 'r-a', lease: { agentId: 'node-1' } }, leaseTtlMs: 60_000, suite: { tests: 'tests/all' } });
+    expect((await post('/runs/claim', { targetId: 'android', agentId: 'node-2' })).status).toBe(204); // 남은 android 없음
+    expect((await post('/runs/claim', { targetId: 'android' })).status).toBe(400);
+
+    const view = (await (await fetch(url('/cycles/cl'))).json()) as CycleView;
+    expect(view.runs).toEqual([{ runId: 'r-a', targetId: 'android', state: 'queued', lease: { agentId: 'node-1', expiresAt: body.run.lease.expiresAt } }, { runId: 'r-i', targetId: 'ios', state: 'queued' }]);
+
+    const hb = await post('/runs/r-a/heartbeat', { agentId: 'node-1' });
+    expect(hb.status).toBe(200);
+    expect(((await hb.json()) as { expiresAt: string }).expiresAt >= body.run.lease.expiresAt).toBe(true);
+    expect((await post('/runs/r-a/heartbeat', { agentId: 'node-9' })).status).toBe(409);
+    expect((await post('/runs/없음/heartbeat', { agentId: 'node-1' })).status).toBe(404);
+
+    // 이벤트가 들어온 Run 은 lease 가 만료돼도 다시 클레임되지 않는다
+    await post('/ingest', [{ ...base('x0', 0, 'r-i'), type: 'run.started', cycleId: 'cl', targetId: 'ios' }] satisfies RunEvent[]);
+    expect((await post('/runs/claim', { targetId: 'ios', agentId: 'node-2' })).status).toBe(204);
+  });
+
+  it('lease 가 만료되면 다른 에이전트가 같은 Run 을 가져간다 (짧은 TTL 서버)', async () => {
+    await server.close();
+    let now = Date.parse('2026-11-08T00:00:00.000Z');
+    server = await serveControlPlane(createMemoryEventStore(), { leaseTtlMs: 1000, now: () => now });
+    await post('/cycles', { cycleId: 'ce', build: 'b', targets: ['android'] });
+    await post('/cycles/ce/runs', { targetId: 'android', runId: 'r-e' });
+    expect(((await (await post('/runs/claim', { targetId: 'android', agentId: 'a1' })).json()) as { run: { runId: string } }).run.runId).toBe('r-e');
+    now += 999;
+    expect((await post('/runs/claim', { targetId: 'android', agentId: 'a2' })).status).toBe(204);
+    now += 1;
+    expect(((await (await post('/runs/claim', { targetId: 'android', agentId: 'a2' })).json()) as { run: { lease: { agentId: string } } }).run.lease.agentId).toBe('a2');
+  });
 });

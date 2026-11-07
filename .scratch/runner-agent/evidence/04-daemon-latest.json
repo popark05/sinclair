@@ -1,0 +1,38 @@
+{
+  "at": "2026-11-07T23:17:57.898Z",
+  "store": "memory",
+  "state": "finished",
+  "verdict": "verified",
+  "runs": [
+    {
+      "targetId": "android",
+      "state": "finished",
+      "agent": "node-a"
+    },
+    {
+      "targetId": "ios",
+      "state": "finished",
+      "agent": "node-b"
+    }
+  ],
+  "daemons": {
+    "a": {
+      "exit": 0,
+      "lines": [
+        "run afeed809-3854-461f-953d-47e6c7a732c3 클레임 (cycle daemon-1794093476-25986, target android, tests /Users/popark05/01.learning/10.development/sinclair/apps/runner-agent/test/fixtures/only-login)",
+        "결과: passed 1, failed 0, blocked 0, skipped 0 / 전송 6건(accepted 6, duplicate 0, rejected 0, retries 0)",
+        "SIGTERM 수신, 진행 중 run 을 마치고 멈춤",
+        "데몬 종료"
+      ]
+    },
+    "b": {
+      "exit": 0,
+      "lines": [
+        "run df04ac6b-d02a-4fc9-8133-c9853535686b 클레임 (cycle daemon-1794093476-25986, target ios, tests /Users/popark05/01.learning/10.development/sinclair/apps/runner-agent/test/fixtures/only-login)",
+        "결과: passed 1, failed 0, blocked 0, skipped 0 / 전송 6건(accepted 6, duplicate 0, rejected 0, retries 0)",
+        "SIGTERM 수신, 진행 중 run 을 마치고 멈춤",
+        "데몬 종료"
+      ]
+    }
+  }
+}

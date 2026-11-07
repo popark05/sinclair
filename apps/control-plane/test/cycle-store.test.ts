@@ -5,7 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createMemoryCycleStore, createSqliteEventStore, createSqliteCycleStore, openSqlite, SQLITE_SCHEMA_VERSION, SQLITE_MIGRATIONS } from '../src/index.ts';
-import { cycleStoreSuite } from './cycle-store-suite.ts';
+import { cycleStoreSuite, runClaimSuite } from './cycle-store-suite.ts';
 import { ev } from './fixtures.ts';
 
 let dir: string;
@@ -15,6 +15,9 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 cycleStoreSuite('memory', () => createMemoryCycleStore());
 cycleStoreSuite('sqlite', () => createSqliteCycleStore(openSqlite(path.join(dir, `suite-${n++}.db`))));
+runClaimSuite('memory', () => createMemoryCycleStore());
+let lastFile = '';
+runClaimSuite('sqlite', () => { lastFile = path.join(dir, `claim-${n++}.db`); return createSqliteCycleStore(openSqlite(lastFile)); }, () => createSqliteCycleStore(openSqlite(lastFile)));
 
 describe('SQLite 마이그레이션 1→2', () => {
   it('버전 1 파일(events 만 있음)을 열면 2 로 올라가고 이벤트는 보존된다', async () => {

@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { RunEvent } from '@sinclair/protocol';
 import type { EventStore } from './store.ts';
-import type { CycleRecord, CycleStore, RunRegistration } from './cycle-store.ts';
+import { leaseExpired, newLease, type CycleRecord, type CycleStore, type RunRegistration } from './cycle-store.ts';
 
 /** PRAGMA user_version. 스키마를 바꾸면 올리고 SQLITE_MIGRATIONS 에 단계를 더한다 */
 export const SQLITE_SCHEMA_VERSION = 2;
@@ -99,6 +99,10 @@ export function createSqliteCycleStore(source: string | DatabaseSync): CycleStor
   const selectCycles = db.prepare('SELECT record FROM cycles ORDER BY seq');
   const insertRun = db.prepare('INSERT OR IGNORE INTO cycle_runs (run_id, cycle_id, record) VALUES (?, ?, ?)');
   const selectRuns = db.prepare('SELECT record FROM cycle_runs WHERE cycle_id = ? ORDER BY seq');
+  const selectRun = db.prepare('SELECT record FROM cycle_runs WHERE run_id = ?');
+  // 레코드가 JSON 한 덩어리라 "읽은 그대로일 때만 바꾼다"(CAS) 로 두 핸들의 동시 클레임을 막는다
+  const casRun = db.prepare('UPDATE cycle_runs SET record = ? WHERE run_id = ? AND record = ?');
+  const selectAllRuns = db.prepare('SELECT record FROM cycle_runs ORDER BY seq');
   const parse = <T>(rows: unknown[]): T[] => (rows as Array<{ record: string }>).map((r) => JSON.parse(r.record) as T);
   return {
     async createCycle(cycle) {
@@ -117,6 +121,26 @@ export function createSqliteCycleStore(source: string | DatabaseSync): CycleStor
     },
     async runsForCycle(cycleId) {
       return parse<RunRegistration>(selectRuns.all(cycleId));
+    },
+    async claimRun(targetId, agentId, nowMs, ttlMs, hasEvents) {
+      for (const row of selectAllRuns.all() as Array<{ record: string }>) {
+        const r = JSON.parse(row.record) as RunRegistration;
+        if (r.targetId !== targetId || !leaseExpired(r.lease, nowMs)) continue;
+        if (await hasEvents(r.runId)) continue;
+        const next = { ...r, lease: newLease(agentId, nowMs, ttlMs) };
+        if (casRun.run(JSON.stringify(next), r.runId, row.record).changes === 1) return next; // 그 사이 바뀌었으면 다음 후보로
+      }
+      return undefined;
+    },
+    async heartbeat(runId, agentId, nowMs, ttlMs) {
+      for (;;) {
+        const row = selectRun.get(runId) as { record: string } | undefined;
+        if (!row) return { outcome: 'no-run' };
+        const r = JSON.parse(row.record) as RunRegistration;
+        if (r.lease?.agentId !== agentId) return { outcome: 'not-owner' };
+        const next = { ...r, lease: newLease(agentId, nowMs, ttlMs) };
+        if (casRun.run(JSON.stringify(next), runId, row.record).changes === 1) return { outcome: 'ok', expiresAt: next.lease.expiresAt };
+      }
     },
     async close() {
       closeOnce(db);

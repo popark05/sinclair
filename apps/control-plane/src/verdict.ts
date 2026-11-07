@@ -4,7 +4,7 @@
 // 끝나지 않은 run 이 있으면 incomplete. `waived` 는 Issue/waive 티켓이 만들기 전까지 생성 경로가 없고(통과로 집계), CYCLE_STATES 의 expired/cancelled 는
 // Scheduler 가 생기기 전까지 도달하지 않는다. 판정은 저장하지 않고 조회마다 다시 계산한다(늦게 온 이벤트가 반영된다).
 import type { CaseVerdict, CycleState, CycleVerdict, RunState } from '@sinclair/protocol';
-import type { CycleRecord, RunRegistration } from './cycle-store.ts';
+import type { CycleRecord, RunLease, RunRegistration, SuiteFilter } from './cycle-store.ts';
 import type { AttemptView, RunView } from './projection.ts';
 
 export interface CaseCell { verdict: CaseVerdict; attemptId?: string }
@@ -14,11 +14,12 @@ export interface CycleView {
   build: string;
   targets: string[];
   requiredTags: string[];
+  suite?: SuiteFilter;
   createdAt: string;
   state: CycleState;
   verdict: CycleVerdict;
-  /** 등록 순서. 이벤트가 아직 없는 run 은 queued */
-  runs: Array<{ runId: string; targetId: string; state: RunState }>;
+  /** 등록 순서. 이벤트가 아직 없는 run 은 queued. lease 는 에이전트가 잡은 표시 */
+  runs: Array<{ runId: string; targetId: string; state: RunState; lease?: RunLease }>;
   /** verified 판정에 들어가는 testId 들 */
   required: string[];
   /** testId → targetId → 셀. testId 는 처음 본 순서, targetId 는 Cycle 의 targets 순 */
@@ -48,7 +49,7 @@ function caseVerdict(attempts: AttemptView[]): CaseCell | undefined {
 export function computeCycle(cycle: CycleRecord, registrations: RunRegistration[], views: RunView[]): CycleView {
   const byId = new Map(views.map((v) => [v.runId, v]));
   const runs = registrations.filter((r) => r.cycleId === cycle.cycleId).map((r) => ({ reg: r, view: byId.get(r.runId) }));
-  const runRows = runs.map(({ reg, view }) => ({ runId: reg.runId, targetId: reg.targetId, state: view?.state ?? ('queued' as RunState) }));
+  const runRows = runs.map(({ reg, view }) => ({ runId: reg.runId, targetId: reg.targetId, state: view?.state ?? ('queued' as RunState), ...(reg.lease ? { lease: reg.lease } : {}) }));
 
   const state: CycleState = runs.length === 0 ? 'draft' : runRows.every((r) => TERMINAL.has(r.state)) ? 'finished' : 'running';
 
@@ -86,5 +87,5 @@ export function computeCycle(cycle: CycleRecord, registrations: RunRegistration[
     verdict = ok ? 'verified' : 'blocked';
   }
 
-  return { cycleId: cycle.cycleId, build: cycle.build, targets: cycle.targets, requiredTags: cycle.requiredTags, createdAt: cycle.createdAt, state, verdict, runs: runRows, required, matrix };
+  return { cycleId: cycle.cycleId, build: cycle.build, targets: cycle.targets, requiredTags: cycle.requiredTags, ...(cycle.suite ? { suite: cycle.suite } : {}), createdAt: cycle.createdAt, state, verdict, runs: runRows, required, matrix };
 }

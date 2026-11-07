@@ -1,26 +1,39 @@
 // CLI 엔트리: `sinclair-agent run [옵션]`. bin/sinclair-agent.mjs 가 부른다.
-import { parseRunArgs, parseResumeArgs, AgentConfigError, RUN_HELP, RESUME_HELP } from './args.ts';
+import { parseRunArgs, parseResumeArgs, parseDaemonArgs, AgentConfigError, RUN_HELP, RESUME_HELP, DAEMON_HELP } from './args.ts';
 import { runOnce, EXIT } from './run-once.ts';
 import { resumeSpool } from './spool.ts';
+import { runDaemon } from './daemon.ts';
 
 const HELP = `사용법: sinclair-agent <명령> [옵션]
 
   run      Cycle 의 Run 하나를 이 노드에서 실행하고 control-plane 에 보고한다
+  daemon   타깃별로 대기 중인 Run 을 클레임해 실행·보고를 반복한다
   resume   스풀에 남은(보내지 못한) 이벤트를 이어 보낸다
 
-자세한 옵션: sinclair-agent run --help, sinclair-agent resume --help
+자세한 옵션: sinclair-agent <명령> --help
 `;
 
 export async function main(argv = process.argv.slice(2), env = process.env): Promise<number> {
   const [command, ...rest] = argv;
   if (!command || command === '--help' || command === '-h') { process.stdout.write(HELP); return command ? EXIT.ok : EXIT.config; }
-  if (command !== 'run' && command !== 'resume') { console.error(`모르는 명령: ${command}\n\n${HELP}`); return EXIT.config; }
-  const help = command === 'run' ? RUN_HELP : RESUME_HELP;
+  if (command !== 'run' && command !== 'resume' && command !== 'daemon') { console.error(`모르는 명령: ${command}\n\n${HELP}`); return EXIT.config; }
+  const help = command === 'run' ? RUN_HELP : command === 'daemon' ? DAEMON_HELP : RESUME_HELP;
   try {
     if (command === 'run') {
       const args = parseRunArgs(rest, env);
       if ('help' in args) { process.stdout.write(RUN_HELP); return EXIT.ok; }
       return await runOnce(args);
+    }
+    if (command === 'daemon') {
+      const args = parseDaemonArgs(rest, env);
+      if ('help' in args) { process.stdout.write(DAEMON_HELP); return EXIT.ok; }
+      const aborter = new AbortController();
+      const stop = (sig: string) => { console.log(`${sig} 수신, 진행 중 run 을 마치고 멈춤`); aborter.abort(); };
+      process.once('SIGTERM', () => stop('SIGTERM'));
+      process.once('SIGINT', () => stop('SIGINT'));
+      const summary = await runDaemon(args, { signal: aborter.signal });
+      console.log(`데몬 요약: run ${summary.runs.length}개 (${summary.runs.map((r) => `${r.targetId}:${r.exitCode}`).join(', ')}), resume ${summary.resumed}`);
+      return EXIT.ok;
     }
     const args = parseResumeArgs(rest, env);
     if ('help' in args) { process.stdout.write(RESUME_HELP); return EXIT.ok; }

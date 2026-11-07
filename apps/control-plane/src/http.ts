@@ -6,6 +6,8 @@
 //   GET  /cycles             CycleRecord 목록
 //   GET  /cycles/:id         CycleView (verdict.ts: 상태·Verdict·매트릭스)
 //   POST /cycles/:id/runs    { targetId, runId? } → RunRegistration (201)
+//   POST /runs/claim         { targetId, agentId } → { run, leaseTtlMs } (200) | 없음 (204)
+//   POST /runs/:id/heartbeat { agentId } → { expiresAt } (200) | 409 not-owner | 404
 //   GET  /health             200
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
@@ -21,7 +23,13 @@ export interface ControlPlaneOptions {
   maxBodyBytes?: number;
   /** Cycle/Run 등록 저장소. 없으면 인메모리 */
   cycles?: CycleStore;
+  /** 클레임 lease 수명(기본 60초). 에이전트는 이 값의 1/3 마다 heartbeat 한다. 한 테스트가 1분 넘게 조용할 수 있어 짧게 잡지 않는다 */
+  leaseTtlMs?: number;
+  /** 테스트용 시계 */
+  now?: () => number;
 }
+
+const DEFAULT_LEASE_TTL_MS = 60_000;
 
 /** /ingest 본문 상한. 인증이 없으므로 같은 호스트의 다른 프로세스가 메모리를 채우지 못하게 막는다.
  *  Reporter 배치(03)는 수백 이벤트 × 수 KB 라 1 MB 안에 든다 */
@@ -83,7 +91,12 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         if (!isRecord(b) || typeof b.build !== 'string' || !b.build || !isStringArray(b.targets) || b.targets.length === 0) return json(res, 400, { error: 'build(문자열)와 targets(비어 있지 않은 문자열 배열)가 필요함' });
         if (b.requiredTags !== undefined && !isStringArray(b.requiredTags)) return json(res, 400, { error: 'requiredTags 는 문자열 배열이어야 함' });
         if (!optionalId(b.cycleId)) return json(res, 400, { error: 'cycleId 는 비어 있지 않은 문자열이어야 함' });
-        const cycle = { cycleId: b.cycleId ?? randomUUID(), build: b.build, targets: [...new Set(b.targets)], requiredTags: (b.requiredTags as string[] | undefined) ?? [], createdAt: new Date().toISOString() };
+        if (b.suite !== undefined && (!isRecord(b.suite) || typeof b.suite.tests !== 'string' || !b.suite.tests || (b.suite.tags !== undefined && !isStringArray(b.suite.tags)))) return json(res, 400, { error: 'suite 는 { tests: 문자열, tags?: 문자열 배열 } 이어야 함' });
+        const suite = b.suite as { tests: string; tags?: string[] } | undefined;
+        const cycle = {
+          cycleId: b.cycleId ?? randomUUID(), build: b.build, targets: [...new Set(b.targets)], requiredTags: (b.requiredTags as string[] | undefined) ?? [],
+          ...(suite ? { suite: { tests: suite.tests, ...(suite.tags ? { tags: suite.tags } : {}) } } : {}), createdAt: new Date().toISOString(),
+        };
         if ((await cycles.createCycle(cycle)) === 'duplicate') return json(res, 409, { error: `Cycle ${cycle.cycleId} 가 이미 있음`, code: 'cycle-exists' });
         return json(res, 201, cycle);
       }
@@ -109,6 +122,27 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         if (outcome === 'duplicate') return json(res, 409, { error: `Run ${run.runId} 이 이미 등록됨`, code: 'run-exists' });
         if (outcome === 'no-cycle') return json(res, 404, { error: '모르는 Cycle', code: 'cycle-not-found' });
         return json(res, 201, run);
+      }
+      if (req.method === 'POST' && url.pathname === '/runs/claim') {
+        const read = await readJson(req, res);
+        if (!read) return;
+        const b = read.body;
+        if (!isRecord(b) || typeof b.targetId !== 'string' || !b.targetId || typeof b.agentId !== 'string' || !b.agentId) return json(res, 400, { error: 'targetId 와 agentId(문자열)가 필요함' });
+        const ttl = opts.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS;
+        const run = await cycles.claimRun(b.targetId, b.agentId, (opts.now ?? Date.now)(), ttl, async (runId) => (await store.eventsForRun(runId)).length > 0);
+        if (!run) { res.writeHead(204).end(); return; }
+        const cycle = await cycles.getCycle(run.cycleId);
+        return json(res, 200, { run, leaseTtlMs: ttl, ...(cycle?.suite ? { suite: cycle.suite } : {}) });
+      }
+      if (req.method === 'POST' && parts[0] === 'runs' && parts.length === 3 && parts[2] === 'heartbeat') {
+        const read = await readJson(req, res);
+        if (!read) return;
+        const b = read.body;
+        if (!isRecord(b) || typeof b.agentId !== 'string' || !b.agentId) return json(res, 400, { error: 'agentId(문자열)가 필요함' });
+        const result = await cycles.heartbeat(parts[1]!, b.agentId, (opts.now ?? Date.now)(), opts.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS);
+        if (result.outcome === 'no-run') return json(res, 404, { error: '모르는 Run', code: 'run-not-found' });
+        if (result.outcome === 'not-owner') return json(res, 409, { error: '이 에이전트의 lease 가 아님', code: 'not-owner' });
+        return json(res, 200, { expiresAt: result.expiresAt });
       }
       if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true });
       if (req.method === 'GET' && parts[0] === 'runs' && parts.length === 1) {
