@@ -10,6 +10,8 @@ export class FakeAndroid {
   readonly shellCommands: string[] = [];
   readonly installs: Array<{ size: number; options: string[] }> = [];
   isRoot = false;
+  /** getprop 응답. */
+  readonly props = new Map<string, string>([['ro.product.model', 'Fake Pixel'], ['ro.build.version.release', '14']]);
   /** root: 응답. "restarting"으로 시작하면 root 상태로 바꾸고 onAdbdRestart를 호출. */
   rootResponse = 'adbd cannot run as root in production builds\n';
   onAdbdRestart: () => void = () => {};
@@ -100,6 +102,7 @@ export class FakeAndroid {
       return {};
     }
     if (command === 'getprop service.adb.root') return { stdout: this.isRoot ? '1\n' : '\n' };
+    if ((m = /^getprop (\S+)$/.exec(command))) return { stdout: `${this.props.get(m[1]!) ?? ''}\n` };
     return { stderr: `sh: ${command}: not found\n`, exit: 127 };
   }
 

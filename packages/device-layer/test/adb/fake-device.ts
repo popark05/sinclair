@@ -1,5 +1,7 @@
 import * as net from 'node:net';
 import {
+  AUTH_TYPE_TOKEN,
+  CMD_AUTH,
   CMD_CLSE,
   CMD_CNXN,
   CMD_OKAY,
@@ -103,6 +105,8 @@ export class FakeDevice {
   maxPayload = 256 * 1024;
   /** CNXN 배너(features 조정용). */
   banner = DEVICE_BANNER;
+  /** true면 CNXN에 AUTH TOKEN으로 답해 인증을 요구한다(승인 안 된 기기 흉내). */
+  requireAuth = false;
   private readonly decoder = new MessageDecoder();
   private nextId = 1000;
   /** 기기가 연 스트림 중 호스트 응답(OKAY/CLSE)을 기다리는 것. */
@@ -137,6 +141,10 @@ export class FakeDevice {
   private handle(message: AdbMessage): void {
     switch (message.command) {
       case CMD_CNXN:
+        if (this.requireAuth) {
+          this.send(msg(CMD_AUTH, AUTH_TYPE_TOKEN, 0, Buffer.alloc(20, 7)));
+          return;
+        }
         this.send(msg(CMD_CNXN, 0x01000001, this.maxPayload, this.banner));
         return;
       case CMD_OPEN: {

@@ -7,6 +7,8 @@ export interface DeviceInfo {
   model: string;
   osVersion: string;
   state: 'device' | 'unauthorized' | 'offline';
+  /** unauthorized/offline 일 때 사용자에게 보여줄 원인 */
+  stateDetail?: string;
   /** 기기가 Sinclair CA를 신뢰하는지. 프록시 모드 blocked 판정에 쓴다 */
   caTrusted?: boolean;
 }
