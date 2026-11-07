@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   RUN_EVENT_TYPES, DEVICE_RPC_METHODS, ATTEMPT_RESULTS, CACHE_DECISIONS, NETWORK_MODES,
   capabilitiesOf, type Engine, type RunEvent,
-  DEVICE_CONNECTION_STATES, DEVICE_PLATFORMS, type DeviceInfo,
+  DEVICE_CONNECTION_STATES, DEVICE_PLATFORMS, DEVICE_BUTTONS, type DeviceInfo, type DeviceRpcParams,
 } from '../src/index.ts';
 
 describe('protocol 계약', () => {
@@ -55,5 +55,24 @@ describe('디바이스 RPC 응답 계약', () => {
   it('연결 상태와 플랫폼 상수는 spec 의 값과 일치한다', () => {
     expect(DEVICE_CONNECTION_STATES).toEqual(['device', 'unauthorized', 'offline']);
     expect(DEVICE_PLATFORMS).toEqual(['android', 'ios']);
+  });
+});
+
+describe('디바이스 RPC 파라미터 계약', () => {
+  it('좌표 파라미터는 x/y, 스와이프는 fromX/fromY/toX/toY camelCase 이며 durationMs 는 선택이다', () => {
+    const tap: DeviceRpcParams['device.io.tap'] = { deviceId: 'D', x: 1, y: 2 };
+    const swipe: DeviceRpcParams['device.io.swipe'] = { deviceId: 'D', fromX: 0, fromY: 100, toX: 0, toY: 10 };
+    const withDuration: DeviceRpcParams['device.io.swipe'] = { ...swipe, durationMs: 300 };
+    expect(Object.keys(tap).sort()).toEqual(['deviceId', 'x', 'y']);
+    expect(Object.keys(swipe).sort()).toEqual(['deviceId', 'fromX', 'fromY', 'toX', 'toY']);
+    expect(withDuration.durationMs).toBe(300);
+  });
+
+  it('하드웨어 버튼 이름 목록은 spec 의 값과 일치하고, 기기 호출 파라미터는 모두 deviceId 를 가진다', () => {
+    expect(DEVICE_BUTTONS).toEqual(['home', 'back', 'power', 'volume_up', 'volume_down']);
+    const keys: DeviceRpcParams['device.io.keys'] = { deviceId: 'D', keys: ['KEYCODE_ENTER'] };
+    const launch: DeviceRpcParams['device.apps.launch'] = { deviceId: 'D', appId: 'com.example' };
+    const url: DeviceRpcParams['device.url'] = { deviceId: 'D', url: 'myapp://home' };
+    for (const p of [keys, launch, url]) expect(p.deviceId).toBe('D');
   });
 });

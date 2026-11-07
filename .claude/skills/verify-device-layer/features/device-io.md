@@ -41,6 +41,6 @@ Preconditions:
 - 스와이프 파라미터 키는 `fromX/fromY/toX/toY` camelCase 로 확정(2026-11-07, 티켓 02). 소문자 `fromx` 를 보내면 `-32602 fromX 가 필요합니다`.
 
 - `durationMs` 는 숫자여야 한다. 문자열 `"800"` 은 기본값으로 대체되는 것이 아니라 그대로 기본값 경로를 탄다 (`num()` 은 숫자가 아니면 dflt 반환). 명시값 증명은 숫자로 보낸다.
-- `button` 값은 서버가 검증하지 않고 백엔드에 넘긴다. 잘못된 이름도 페이크에서는 성공한다. 실제 백엔드가 붙으면 이 Gotcha 를 갱신한다.
+- `button` 은 `home|back|power|volume_up|volume_down` 만 받는다(`DEVICE_BUTTONS`, 그 외 `-32602`). 2026-11-07 확정.
 - 빈 문자열 `text: ""` 는 `-32602` 다 (`str()` 이 빈 문자열을 거부). 빈 입력 시나리오는 지원되지 않는다.
 - 2026-11-07 기준 페이크 모드 전 항목 검증 완료(스와이프 키 변경 후 재확인). 실기기 모드 레시피는 `android-backend.device.test.ts` 로만 검증.

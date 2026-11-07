@@ -1,5 +1,6 @@
 // 백엔드들을 디스패처에 연결한다. 메서드 파라미터 검증은 여기서 한다.
-import type { DeviceBackend, Point } from './backend.ts';
+import { DEVICE_BUTTONS, type DeviceButton, type Point, type ScreenshotResult } from '@sinclair/protocol';
+import type { DeviceBackend } from './backend.ts';
 import { RpcDispatcher, RpcError, RPC_ERRORS } from './rpc.ts';
 
 export const SERVER_VERSION = '0.0.0';
@@ -32,7 +33,8 @@ export function createDeviceServer(backends: DeviceBackend[]): RpcDispatcher {
   d.register('device.info', async (p) => (await find(str(p, 'deviceId'))).info(str(p, 'deviceId')));
   d.register('device.screenshot', async (p) => {
     const id = str(p, 'deviceId');
-    return { format: 'png', base64: Buffer.from(await (await find(id)).screenshot(id)).toString('base64') };
+    const result: ScreenshotResult = { format: 'png', base64: Buffer.from(await (await find(id)).screenshot(id)).toString('base64') };
+    return result;
   });
   d.register('device.dump.ui', async (p) => { const id = str(p, 'deviceId'); return (await find(id)).dumpUi(id); });
   d.register('device.io.tap', async (p) => { const id = str(p, 'deviceId'); await (await find(id)).tap(id, point(p)); return null; });
@@ -52,7 +54,9 @@ export function createDeviceServer(backends: DeviceBackend[]): RpcDispatcher {
   });
   d.register('device.io.button', async (p) => {
     const id = str(p, 'deviceId');
-    await (await find(id)).button(id, str(p, 'button') as Parameters<DeviceBackend['button']>[1]);
+    const button = str(p, 'button');
+    if (!(DEVICE_BUTTONS as readonly string[]).includes(button)) throw new RpcError(RPC_ERRORS.invalidParams, `button 은 ${DEVICE_BUTTONS.join('|')} 중 하나여야 합니다`);
+    await (await find(id)).button(id, button as DeviceButton);
     return null;
   });
   d.register('device.apps.launch', async (p) => { const id = str(p, 'deviceId'); await (await find(id)).launchApp(id, str(p, 'appId')); return null; });

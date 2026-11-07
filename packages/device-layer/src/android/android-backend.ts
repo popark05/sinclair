@@ -1,5 +1,6 @@
 // Android DeviceBackend: adb 바이너리 없이 직접 USB(src/adb)로 기기를 찾고 상태를 판정한다.
 // 상태 판정 패턴은 EverMock의 direct-adb-adapter를 따른다.
+import type { DeviceButton } from '@sinclair/protocol';
 import type { DeviceBackend, DeviceInfo } from '../backend.ts';
 import { Dadb, type DadbListOptions } from '../adb/dadb.ts';
 import { AdbAuthException, AdbUsbAccessException } from '../adb/errors.ts';
@@ -14,7 +15,7 @@ const AUTH_TIMEOUT_MS = 15_000;
 const LIST_CACHE_MS = 2_000;
 
 /** `device.io.button` 이름 → Android 키코드 */
-const BUTTON_KEYCODES: Record<Parameters<DeviceBackend['button']>[1], string> = {
+const BUTTON_KEYCODES: Record<DeviceButton, string> = {
   home: 'KEYCODE_HOME',
   back: 'KEYCODE_BACK',
   power: 'KEYCODE_POWER',

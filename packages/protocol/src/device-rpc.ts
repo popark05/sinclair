@@ -67,3 +67,41 @@ export interface DeviceInfo {
 
 /** `device.io.*` 의 좌표 */
 export interface Point { x: number; y: number }
+
+// ---- 메서드별 파라미터 ----
+
+export const DEVICE_BUTTONS = ['home', 'back', 'power', 'volume_up', 'volume_down'] as const;
+export type DeviceButton = (typeof DEVICE_BUTTONS)[number];
+
+export interface DeviceParams { deviceId: string }
+export interface TapParams extends DeviceParams { x: number; y: number }
+export interface LongPressParams extends TapParams { /** 기본 800 */ durationMs?: number }
+/** 좌표 키는 camelCase (durationMs 와 같은 규칙) */
+export interface SwipeParams extends DeviceParams { fromX: number; fromY: number; toX: number; toY: number; /** 기본 300 */ durationMs?: number }
+export interface TextParams extends DeviceParams { text: string }
+/** KEYCODE_* 상수 또는 숫자 키코드 */
+export interface KeysParams extends DeviceParams { keys: string[] }
+export interface ButtonParams extends DeviceParams { button: DeviceButton }
+export interface AppParams extends DeviceParams { appId: string }
+export interface UrlParams extends DeviceParams { url: string }
+
+/** 메서드 → 파라미터. 목록에 있지만 아직 파라미터가 정해지지 않은 메서드는 포함하지 않는다. */
+export interface DeviceRpcParams {
+  'server.info': Record<string, never>;
+  'devices.list': Record<string, never>;
+  'device.info': DeviceParams;
+  'device.screenshot': DeviceParams;
+  'device.dump.ui': DeviceParams;
+  'device.io.tap': TapParams;
+  'device.io.longpress': LongPressParams;
+  'device.io.swipe': SwipeParams;
+  'device.io.text': TextParams;
+  'device.io.keys': KeysParams;
+  'device.io.button': ButtonParams;
+  'device.apps.launch': AppParams;
+  'device.apps.terminate': AppParams;
+  'device.url': UrlParams;
+}
+
+/** `device.screenshot` 결과 */
+export interface ScreenshotResult { format: 'png'; base64: string }

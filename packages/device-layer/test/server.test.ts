@@ -65,3 +65,16 @@ describe('device.io.swipe 파라미터 키', () => {
     expect(bad.error?.message).toContain('fromX');
   });
 });
+
+describe('device.io.button 파라미터', () => {
+  it('알 수 없는 버튼 이름은 백엔드에 넘기지 않고 -32602 다', async () => {
+    const b = new FakeBackend();
+    const d = createDeviceServer([b]);
+    const bad = await d.handle(req('device.io.button', { deviceId: 'FAKE1', button: 'menu' }));
+    expect(bad.error?.code).toBe(RPC_ERRORS.invalidParams);
+    expect(b.calls).toEqual([]);
+    const ok = await d.handle(req('device.io.button', { deviceId: 'FAKE1', button: 'home' }));
+    expect(ok.error).toBeUndefined();
+    expect(b.calls).toEqual(['button home']);
+  });
+});
