@@ -17,7 +17,7 @@
 
 - 증거는 `$RUN/evidence/<name>.json` 을 인용한다. 멱등·순서 무관은 두 조회 결과를 `diff` 한 결과(빈 출력)를 함께 적는다.
 - 도달할 수 없는 경로는 시도한 명령과 미충족 선행 조건을 적어 실패로 보고한다.
-- 인메모리 저장소 위의 증명임을 항상 명시한다.
+- 저장소 모드(memory/sqlite)를 항상 명시한다. 영속 주장은 sqlite 모드 + 재시작 증거가 있을 때만 한다.
 
 ## Feature entry contract
 
@@ -27,3 +27,4 @@
 
 - `ingest-batch.md` — 배치 저장, 멱등(중복 전송), 순서 무관, 부분 거부, Run 조회.
 - `runner-stream.md` — 러너 → HTTP Reporter → Ingest 흘려보내기.
+- `persistence.md` — SQLite 모드에서 서버 재시작 뒤 조회·멱등.

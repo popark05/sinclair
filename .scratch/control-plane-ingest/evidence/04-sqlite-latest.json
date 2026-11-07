@@ -1,0 +1,15 @@
+{
+  "at": "2026-11-07T06:35:29.741Z",
+  "store": "sqlite",
+  "beforeRestart": {
+    "accepted": 5,
+    "duplicate": 0,
+    "rejected": []
+  },
+  "persisted": true,
+  "afterRestart": {
+    "accepted": 0,
+    "duplicate": 5,
+    "rejected": []
+  }
+}

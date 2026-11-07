@@ -3,3 +3,4 @@ export { projectRun, type RunView, type AttemptView, type StepView } from './pro
 export { createMemoryEventStore, type EventStore, type AppendOutcome } from './store.ts';
 export { ingestBatch, type IngestResponse } from './ingest.ts';
 export { serveControlPlane, summarizeRun, type ControlPlaneOptions, type ControlPlaneServer, type RunSummary } from './http.ts';
+export { createSqliteEventStore, SQLITE_SCHEMA_VERSION } from './sqlite-store.ts';

@@ -5,7 +5,7 @@ description: "Sinclair control-plane(apps/control-plane)의 Ingest HTTP 서버�
 
 # verify-ingest
 
-`apps/control-plane` 의 HTTP 서버를 **인메모리 저장소**로 띄워 Reporter 가 하듯 `POST /ingest` 로 이벤트 배치를 보내고 `GET /runs/:id` 로 투영을 읽어 파일로 남긴다. SQLite 저장소(티켓 04)가 생기면 `scripts/serve.ts` 에 모드를 더하고 `features/` 를 갱신한다.
+`apps/control-plane` 의 HTTP 서버를 **인메모리(기본) 또는 SQLite 저장소**로 띄워 Reporter 가 하듯 `POST /ingest` 로 이벤트 배치를 보내고 `GET /runs/:id` 로 투영을 읽어 파일로 남긴다. 영속(서버 재시작 뒤 조회)은 SQLite 모드에서만 증명된다.
 
 모든 명령은 리포 루트에서 실행한다. 포트는 매번 OS 가 배정한다.
 
@@ -19,9 +19,12 @@ RUN=.e2e/verify-ingest/$(date +%Y%m%d-%H%M%S)-<목적>
 ```bash
 $S/start.sh $RUN
 # 출력 마지막 줄: READY port=<n> store=memory runDir=<RUN>
+SINCLAIR_INGEST_STORE=sqlite $S/start.sh $RUN
+# READY port=<n> store=sqlite db=<RUN>/control-plane.db runDir=<RUN>
 ```
 
-- `scripts/serve.ts` 가 `serveControlPlane(createMemoryEventStore())` 를 띄운다. 준비 완료 기준은 `server.out` 의 `READY` 줄이며 그때 `$RUN/server.json`(port, pid, store) 이 있다.
+- `scripts/serve.ts` 가 `serveControlPlane(store)` 를 띄운다. 준비 완료 기준은 `server.out` 의 `READY` 줄이며 그때 `$RUN/server.json`(port, pid, store, sqlite 면 db) 이 있다.
+- **SQLite 모드:** `SINCLAIR_INGEST_STORE=sqlite`. DB 파일은 `$RUN/control-plane.db`(`SINCLAIR_INGEST_DB` 로 변경). 같은 `$RUN` 으로 `stop.sh` → `start.sh` 하면 같은 파일을 다시 열어 이전 run 이 보인다(`features/persistence.md`).
 - `node --experimental-transform-types` 로 실행한다(protocol 이 `.ts` 를 그대로 export 한다).
 - 시드 데이터 없음. 빈 저장소로 시작하므로 멱등 증명은 한 RUN 안에서 한다.
 - 인증 없음(아직 범위 밖). 127.0.0.1 에만 바인딩한다.
@@ -58,7 +61,7 @@ $S/run-sample.sh $RUN [batchSize]                           # 러너(FakeEngine 
 - 멱등은 **같은 배치를 두 번** 보내 두 번째 응답이 전부 `duplicate` 이고 두 조회 결과가 바이트 단위로 같음을 보인다.
 - 순서 무관은 `order-check.sh` 가 `ORDER-INDEPENDENT` 를 출력하고 `evidence/<name>-view-ordered.json` 과 `-view-shuffled.json` 이 runId 만 다름을 보인다.
 - 거부는 `rejected[].index/eventId/errors` 로 증명하고, 같은 배치의 올바른 원소가 저장됐음을 조회로 보인다.
-- 인메모리 저장소 위의 증명임을 보고서에 쓴다(재시작 영속은 04 에서).
+- 어느 저장소 모드였는지 보고서에 쓴다. 영속은 SQLite 모드에서 `stop.sh` → `start.sh` 뒤 조회로 증명한다.
 
 ## Cleanup
 
