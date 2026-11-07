@@ -217,6 +217,9 @@ importers:
       '@sinclair/protocol':
         specifier: workspace:*
         version: link:../protocol
+      usb:
+        specifier: ^3.2.1
+        version: 3.2.1
 
   packages/engine-mobile:
     dependencies:
@@ -401,6 +404,70 @@ packages:
 
   '@jridgewell/sourcemap-codec@1.6.0':
     resolution: {integrity: sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw==}
+
+  '@node-usb/usb-darwin-arm64@3.2.1':
+    resolution: {integrity: sha512-t4IzR3en2dRLaY7aFrzmTBywtsQkVOEiLvNAoqMVag7JrsRu9iYPKYwBnudQ7vDvuPnhMxv6r4PqJD6EBC4sEA==}
+    engines: {node: '>= 12.22.0 < 13 || >= 14.17.0 < 15 || >= 15.12.0 < 16 || >= 16.0.0'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@node-usb/usb-darwin-x64@3.2.1':
+    resolution: {integrity: sha512-rgDmI5d7BeEs3tAv5XppJ8wi7Ft4afqVL06MIPKOsZHtR38NQhwWIzr3rXkkh2I6e05wuuPRQ3ApeGcbQQxSHA==}
+    engines: {node: '>= 12.22.0 < 13 || >= 14.17.0 < 15 || >= 15.12.0 < 16 || >= 16.0.0'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@node-usb/usb-linux-arm-gnueabihf@3.2.1':
+    resolution: {integrity: sha512-EMp0j3089f0TPV5pRCE7fNey9678fJ7ep7SsRBq6JQ8dU+Ow2x1cH2H3GMiXf9ibbyygCtxDy10PbllizJGZEw==}
+    engines: {node: '>= 12.22.0 < 13 || >= 14.17.0 < 15 || >= 15.12.0 < 16 || >= 16.0.0'}
+    cpu: [arm]
+    os: [linux]
+
+  '@node-usb/usb-linux-arm64-gnu@3.2.1':
+    resolution: {integrity: sha512-Va2Pu+CAfnLFI1RzfABPZHKAAkOnvrZ2jjWSabG3RgIAONOAWA7m/t0xBHnGsb+6l8UD7IcGAHt6UNN9WPNz+g==}
+    engines: {node: '>= 12.22.0 < 13 || >= 14.17.0 < 15 || >= 15.12.0 < 16 || >= 16.0.0'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@node-usb/usb-linux-arm64-musl@3.2.1':
+    resolution: {integrity: sha512-UrjSpuWSWUL3Bsew/PC9JmyNkNzdW+odMhPLHcGsxRaZ2HiXEK5o3Xax+5X9Tz/V58MqaB3uIJ3/hUr0PkH8WQ==}
+    engines: {node: '>= 12.22.0 < 13 || >= 14.17.0 < 15 || >= 15.12.0 < 16 || >= 16.0.0'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [musl]
+
+  '@node-usb/usb-linux-x64-gnu@3.2.1':
+    resolution: {integrity: sha512-9q4UxzAIwSXCVr/r8Uy6YEMeHh0HymNBs8OEYz/e21bVSYJO01Q79ItZPbXIc3tOApEJ0sUutnZmGgfO03lpyA==}
+    engines: {node: '>= 12.22.0 < 13 || >= 14.17.0 < 15 || >= 15.12.0 < 16 || >= 16.0.0'}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@node-usb/usb-linux-x64-musl@3.2.1':
+    resolution: {integrity: sha512-mMKMRV3+eIBku+JzcWR+LSSWnB3rCvE3ZJQ03K+1ClKL4RlseFy645g6EsubN/5Dfs6pEBT/b7vt+2XODnsuEw==}
+    engines: {node: '>= 12.22.0 < 13 || >= 14.17.0 < 15 || >= 15.12.0 < 16 || >= 16.0.0'}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
+  '@node-usb/usb-win32-arm64-msvc@3.2.1':
+    resolution: {integrity: sha512-SBUxcBglxL6sMFc+5UnWaBx8YMdQ1/Tg/PCePwT4c+NSiP+Ee1Ze8cvCPkW5tR5tjLdHc46Si6suweFi5AX+yA==}
+    engines: {node: '>= 12.22.0 < 13 || >= 14.17.0 < 15 || >= 15.12.0 < 16 || >= 16.0.0'}
+    cpu: [arm64]
+    os: [win32]
+
+  '@node-usb/usb-win32-ia32-msvc@3.2.1':
+    resolution: {integrity: sha512-9yjDIzw0fVTA2MNtd8O8wkBB6aS7ePLRH/kRSCbht+uxGrTnD+X/ZyfjpCibTn6BqK/NSdo6SGqRlYEu5PF6rA==}
+    engines: {node: '>= 12.22.0 < 13 || >= 14.17.0 < 15 || >= 15.12.0 < 16 || >= 16.0.0'}
+    cpu: [ia32]
+    os: [win32]
+
+  '@node-usb/usb-win32-x64-msvc@3.2.1':
+    resolution: {integrity: sha512-yOh9d9ystwKqnkX1feOa+jPu4OxmGLKHoSLoU5iD/ifNLXsQemKiWPchhBguTloXLKHZ6HiGRhgAoR6FGTc7OQ==}
+    engines: {node: '>= 12.22.0 < 13 || >= 14.17.0 < 15 || >= 15.12.0 < 16 || >= 16.0.0'}
+    cpu: [x64]
+    os: [win32]
 
   '@oxlint/binding-android-arm-eabi@1.91.0':
     resolution: {integrity: sha512-eOqJUUS1MCqIoUUxMIkuwaqIdKaHr1SXYA0CQI95UUrF8jwQylQH33bBmnqhZfvWXKlRB2Ylx/+Sbk/ctEqzZQ==}
@@ -679,6 +746,9 @@ packages:
   '@types/node@22.20.5':
     resolution: {integrity: sha512-U2+DNr+wSjpsTS/wZGYHq7GcwfuSmKiKvoPvK22zwTlRhU91yOniN4qRR5KhIjvif7ysw/dz/hKmfDH0Ris4aA==}
 
+  '@types/w3c-web-usb@1.0.14':
+    resolution: {integrity: sha512-Qu3Nn6JFuF4+sHKYl+IcX9vYiI40ogleXzFFSxoE1W94rG98o/kXs8uJ0QSfFzuwBCZWlGfUGpPkgwuuX4PchA==}
+
   '@vitest/expect@3.2.7':
     resolution: {integrity: sha512-E8eBXaKibuvH2pSZErOjdVb5vF4PbKYcrnluBTYxEk1l/VhhwZg1kZQsdtjq+CsF5CFydf2Rdkz7jDHKSisi3w==}
 
@@ -865,6 +935,10 @@ packages:
   undici-types@6.21.0:
     resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
 
+  usb@3.2.1:
+    resolution: {integrity: sha512-A/H2ImRjhEYz3V3EpidTkpdQnVW2iBH1GNaAZjF01O2Upz3aGbI+1cV0el49sF7931xOU4hB6fcNO6/YN+/POg==}
+    engines: {node: '>= 12.22.0 < 13 || >= 14.17.0 < 15 || >= 15.12.0 < 16 || >= 16.0.0'}
+
   vite-node@3.2.4:
     resolution: {integrity: sha512-EbKSKh+bh1E1IFxeO0pg1n4dvoOTt0UDiXMd/qn++r98+jPO1xtJilvXldeuQ8giIB5IkpjCgMleHMNEsGH6pg==}
     engines: {node: ^18.0.0 || ^20.0.0 || >=22.0.0}
@@ -1025,6 +1099,36 @@ snapshots:
 
   '@jridgewell/sourcemap-codec@1.6.0': {}
 
+  '@node-usb/usb-darwin-arm64@3.2.1':
+    optional: true
+
+  '@node-usb/usb-darwin-x64@3.2.1':
+    optional: true
+
+  '@node-usb/usb-linux-arm-gnueabihf@3.2.1':
+    optional: true
+
+  '@node-usb/usb-linux-arm64-gnu@3.2.1':
+    optional: true
+
+  '@node-usb/usb-linux-arm64-musl@3.2.1':
+    optional: true
+
+  '@node-usb/usb-linux-x64-gnu@3.2.1':
+    optional: true
+
+  '@node-usb/usb-linux-x64-musl@3.2.1':
+    optional: true
+
+  '@node-usb/usb-win32-arm64-msvc@3.2.1':
+    optional: true
+
+  '@node-usb/usb-win32-ia32-msvc@3.2.1':
+    optional: true
+
+  '@node-usb/usb-win32-x64-msvc@3.2.1':
+    optional: true
+
   '@oxlint/binding-android-arm-eabi@1.91.0':
     optional: true
 
@@ -1172,6 +1276,8 @@ snapshots:
   '@types/node@22.20.5':
     dependencies:
       undici-types: 6.21.0
+
+  '@types/w3c-web-usb@1.0.14': {}
 
   '@vitest/expect@3.2.7':
     dependencies:
@@ -1389,6 +1495,21 @@ snapshots:
   typescript@5.9.3: {}
 
   undici-types@6.21.0: {}
+
+  usb@3.2.1:
+    dependencies:
+      '@types/w3c-web-usb': 1.0.14
+    optionalDependencies:
+      '@node-usb/usb-darwin-arm64': 3.2.1
+      '@node-usb/usb-darwin-x64': 3.2.1
+      '@node-usb/usb-linux-arm-gnueabihf': 3.2.1
+      '@node-usb/usb-linux-arm64-gnu': 3.2.1
+      '@node-usb/usb-linux-arm64-musl': 3.2.1
+      '@node-usb/usb-linux-x64-gnu': 3.2.1
+      '@node-usb/usb-linux-x64-musl': 3.2.1
+      '@node-usb/usb-win32-arm64-msvc': 3.2.1
+      '@node-usb/usb-win32-ia32-msvc': 3.2.1
+      '@node-usb/usb-win32-x64-msvc': 3.2.1
 
   vite-node@3.2.4(@types/node@22.20.5):
     dependencies:
