@@ -69,7 +69,7 @@ describe('createMobileEngine', () => {
     await engine.session!.open();
     await engine.session!.restart();
     expect(backend.calls).toEqual([
-      'swipe 540,1680->540,720 300', 'keys KEYCODE_ENTER', 'text abc', 'keys KEYCODE_BACK', 'button back',
+      'swipe 540,2160->540,240 300', 'keys KEYCODE_ENTER', 'text abc', 'keys KEYCODE_BACK', 'button back',
       'launch com.example.app', 'terminate com.example.app', 'launch com.example.app',
     ]);
     await expect(engine.session!.reset()).rejects.toMatchObject({ code: 'unsupported-action' });
