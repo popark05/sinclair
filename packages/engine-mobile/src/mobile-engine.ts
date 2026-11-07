@@ -23,6 +23,7 @@ export interface MobileEngineOptions {
 const DEFAULT_STABILITY_TIMEOUT_MS = 2_000;
 const DEFAULT_STABILITY_POLL_MS = 100;
 const DEFAULT_LONG_PRESS_MS = 800;
+/** 스와이프 한 번의 시간. 너무 빠르면 플링(관성)으로, 너무 느리면 드래그로 해석된다. adb shell input swipe 의 관례값 */
 const DEFAULT_SWIPE_MS = 300;
 /** 스크롤 한 번에 움직이는 비율(노드 높이·너비 기준). 가장자리 관성을 피하려고 40%씩 */
 const SCROLL_FRACTION = 0.4;
@@ -60,6 +61,16 @@ function sameRect(a: SemanticNode['rect'], b: SemanticNode['rect']): boolean {
   return !!a && !!b && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
 }
 
+function forEachNode(root: SemanticNode, visit: (n: SemanticNode) => void): void {
+  visit(root);
+  for (const c of root.children ?? []) forEachNode(c, visit);
+}
+
+/** scroll 방향 → 손가락 이동 벡터(내용이 그 방향으로 드러나도록 반대로 스와이프) */
+const SCROLL_VECTORS: Record<string, { dx: number; dy: number }> = {
+  down: { dx: 0, dy: -1 }, up: { dx: 0, dy: 1 }, left: { dx: 1, dy: 0 }, right: { dx: -1, dy: 0 },
+};
+
 function center(n: SemanticNode): { x: number; y: number } {
   const r = n.rect;
   if (!r || r.width <= 0 || r.height <= 0) throw new EngineError('not-actionable', `화면 위치가 없는 노드: ${n.ref}`, { ref: n.ref });
@@ -89,16 +100,18 @@ export function createMobileEngine(rpc: DeviceRpc, options: MobileEngineOptions)
           throw new EngineError('device-unavailable', `기기 ${deviceId}: ${e.message}`, { method, rpcCode: e.code });
         }
         if (e.code === RPC_ERRORS.invalidParams) throw new EngineError('not-actionable', `기기 ${deviceId}: ${e.message}`, { method, rpcCode: e.code });
-        throw new EngineError('timeout', `기기 ${deviceId}: ${method} 실패: ${e.message}`, { method, rpcCode: e.code });
+        throw new EngineError('device-error', `기기 ${deviceId}: ${method} 실패: ${e.message}`, { method, rpcCode: e.code });
       }
       throw e;
     }
   }
 
+  /**
+   * dump 의 ref → 기술자. 지우지 않고 덮어쓴다: locate 와 perform 사이에 다른 dump 가 끼어도(같은 호출자의 자동 대기 등)
+   * 이전 ref 의 기술자가 남아 재매핑된다. ref 는 DFS 번호라 덮어쓰기로 크기가 유지된다. 엔진은 한 번에 한 호출자만 전제한다.
+   */
   function remember(root: SemanticNode): void {
-    descriptors.clear();
-    const walk = (n: SemanticNode) => { descriptors.set(n.ref, describe(n)); for (const c of n.children ?? []) walk(c); };
-    walk(root);
+    forEachNode(root, (n) => descriptors.set(n.ref, describe(n)));
   }
 
   async function dump(): Promise<SemanticNode> {
@@ -112,9 +125,9 @@ export function createMobileEngine(rpc: DeviceRpc, options: MobileEngineOptions)
     const direct = findNodeByRef(root, ref);
     if (!desc) return direct;
     if (direct && sameDescriptor(describe(direct), desc)) return direct;
+    // 같은 기술자의 노드가 여럿이면(같은 문구의 행 등) 문서 순서 첫 노드를 고른다. 호출자는 testId 나 within 으로 좁혀야 한다.
     let found: SemanticNode | undefined;
-    const walk = (n: SemanticNode) => { if (!found && sameDescriptor(describe(n), desc)) found = n; for (const c of n.children ?? []) walk(c); };
-    walk(root);
+    forEachNode(root, (n) => { if (!found && sameDescriptor(describe(n), desc)) found = n; });
     return found;
   }
 
@@ -135,9 +148,17 @@ export function createMobileEngine(rpc: DeviceRpc, options: MobileEngineOptions)
   }
 
   const tapAt = (p: { x: number; y: number }) => call('device.io.tap', { deviceId, x: p.x, y: p.y });
+  const longPressAt = (p: { x: number; y: number }) => call('device.io.longpress', { deviceId, x: p.x, y: p.y, durationMs: longPressMs });
+  const swipeBetween = (from: { x: number; y: number }, to: { x: number; y: number }) =>
+    call('device.io.swipe', { deviceId, fromX: from.x, fromY: from.y, toX: to.x, toY: to.y, durationMs: swipeMs });
   const keys = (names: string[]) => call('device.io.keys', { deviceId, keys: names });
   const button = (name: DeviceButton) => call('device.io.button', { deviceId, button: name });
-  const keyCode = (key: string) => KEY_CODES[key] ?? (key.startsWith('KEYCODE_') ? key : `KEYCODE_${key.toUpperCase()}`);
+  /** 키 이름 표에 있거나 KEYCODE_ 로 시작하는 것만 받는다. 오타를 기기 레이어까지 보내지 않는다 */
+  const keyCode = (key: string): string => {
+    const code = KEY_CODES[key] ?? (key.startsWith('KEYCODE_') ? key : undefined);
+    if (!code) throw new EngineError('unsupported-action', `알 수 없는 키: ${key} (${Object.keys(KEY_CODES).join(', ')} 또는 KEYCODE_*)`, { key });
+    return code;
+  };
 
   const engine: Engine = {
     name: 'mobile',
@@ -165,7 +186,7 @@ export function createMobileEngine(rpc: DeviceRpc, options: MobileEngineOptions)
       switch (action) {
         case 'tap': return void (await tapAt(center(node)));
         case 'double_tap': { const p = center(node); await tapAt(p); await tapAt(p); return; }
-        case 'long_press': { const p = center(node); await call('device.io.longpress', { deviceId, x: p.x, y: p.y, durationMs: longPressMs }); return; }
+        case 'long_press': return void (await longPressAt(center(node)));
         case 'type': {
           if (!EDITABLE_ROLES.has(node.role)) throw new EngineError('not-actionable', `편집할 수 없는 노드: ${ref} (${node.role})`, { ref });
           await tapAt(center(node)); // 포커스
@@ -182,13 +203,10 @@ export function createMobileEngine(rpc: DeviceRpc, options: MobileEngineOptions)
         case 'scroll_to': {
           const r = node.rect!;
           const c = center(node);
-          const dir = arg ?? 'down';
-          const dx = Math.round(r.width * SCROLL_FRACTION), dy = Math.round(r.height * SCROLL_FRACTION);
-          const [from, to] = dir === 'up' ? [{ x: c.x, y: c.y - dy }, { x: c.x, y: c.y + dy }]
-            : dir === 'left' ? [{ x: c.x - dx, y: c.y }, { x: c.x + dx, y: c.y }]
-            : dir === 'right' ? [{ x: c.x + dx, y: c.y }, { x: c.x - dx, y: c.y }]
-            : [{ x: c.x, y: c.y + dy }, { x: c.x, y: c.y - dy }];
-          await call('device.io.swipe', { deviceId, fromX: from.x, fromY: from.y, toX: to.x, toY: to.y, durationMs: swipeMs });
+          const v = SCROLL_VECTORS[arg ?? 'down'];
+          if (!v) throw new EngineError('not-actionable', `scroll 방향은 up/down/left/right 중 하나: ${arg}`, { ref, arg });
+          const dx = Math.round(r.width * SCROLL_FRACTION) * v.dx, dy = Math.round(r.height * SCROLL_FRACTION) * v.dy;
+          await swipeBetween({ x: c.x - dx, y: c.y - dy }, { x: c.x + dx, y: c.y + dy });
           return;
         }
         default:
@@ -199,10 +217,10 @@ export function createMobileEngine(rpc: DeviceRpc, options: MobileEngineOptions)
     async performAt(x, y, action, to) {
       assertOpen();
       if (action === 'tap') await tapAt({ x, y });
-      else if (action === 'long_press') await call('device.io.longpress', { deviceId, x, y, durationMs: longPressMs });
+      else if (action === 'long_press') await longPressAt({ x, y });
       else {
         if (!to) throw new EngineError('not-actionable', 'drag_to 에는 목적지 좌표가 필요하다');
-        await call('device.io.swipe', { deviceId, fromX: x, fromY: y, toX: to.x, toY: to.y, durationMs: swipeMs });
+        await swipeBetween({ x, y }, to);
       }
     },
 

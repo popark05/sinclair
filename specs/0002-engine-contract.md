@@ -7,9 +7,9 @@
 
 ## 세 동사
 
-- `observe()`: 현재 화면의 `SemanticNode` 트리. secure 노드의 `text/value` 는 뺀다(`redactTree`). `location` 은 선택.
+- `observe()`: 현재 화면의 `SemanticNode` 트리. secure 노드의 `text/value` 는 뺀다(`redactTree`). `location` 은 선택. `observe({ pixels: true })` 는 스크린샷을 함께 주며 `atomic` 이 true 일 때만 트리와 같은 순간이다. 녹화 캐시의 앵커 검사(ADR 0003)는 이 호출을 쓴다.
 - `locate(query)`: 즉시 1회 조회. 재시도·strict 판정은 러너 몫. 결과는 `children` 없는 노드 목록이며 secure 내용은 뺀다.
-- `perform(ref, action, arg?)`: 직전 observe/locate 의 ref 에 액션. ref 가 현재 화면에 없으면 `not-found`.
+- `perform(ref, action, arg?)`: 직전 observe/locate 의 ref 에 액션. 엔진은 ref 가 가리키던 노드를 기술자(role/testId/name/text/placeholder)로 현재 화면에서 다시 찾는다(dump 마다 ref 번호가 바뀔 수 있으므로). 같은 기술자가 여럿이면 문서 순서 첫 노드다. 못 찾으면 `not-found`. 모바일 엔진은 좌표 액션 전에 트리를 최소 두 번 더 읽어(rect 안정화 확인) 실기기에서 호출당 수백 ms 가 든다. 같은 엔진은 한 번에 한 호출자만 쓴다(locate 와 perform 사이에 다른 호출자의 locate 가 끼면 ref 가 다른 노드를 가리킬 수 있다).
 
 ## locate 매칭 규칙 (`locateInTree`, 단일 소스)
 
@@ -36,7 +36,11 @@
 
 ## 오류 코드
 
-`not-found`, `ambiguous`, `not-actionable`, `secure-read`, `unsupported-action`, `timeout`, `engine-closed`, `device-unavailable`. 엔진이 내는 것과 러너가 내는 것의 구분은 `engine.ts` 의 주석에 있다.
+`not-found`, `ambiguous`, `not-actionable`, `secure-read`, `unsupported-action`, `timeout`, `engine-closed`, `device-unavailable`, `device-error`(그 밖의 디바이스 레이어 실패). 엔진이 내는 것과 러너가 내는 것의 구분은 `engine.ts` 의 주석에 있다.
+
+## 미결
+
+- specs/0001 의 "bounds 기반 체이닝 fallback"(트리 중첩이 시각적 포함과 다를 때 `within` 을 rect 포함으로 판정)은 아직 없다. 러너 locator(티켓 03)에서 필요성이 확인되면 `locateInTree` 에 추가한다.
 
 ## capability
 

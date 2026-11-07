@@ -17,7 +17,7 @@ const tree: SemanticNode = {
 
 describe('엔진 오류 코드 계약', () => {
   it('코드 목록은 spec 과 같고 EngineError 는 code 와 details 를 가진다', () => {
-    expect(ENGINE_ERROR_CODES).toEqual(['not-found', 'ambiguous', 'not-actionable', 'secure-read', 'unsupported-action', 'timeout', 'engine-closed', 'device-unavailable']);
+    expect(ENGINE_ERROR_CODES).toEqual(['not-found', 'ambiguous', 'not-actionable', 'secure-read', 'unsupported-action', 'timeout', 'engine-closed', 'device-unavailable', 'device-error']);
     const e = new EngineError('not-found', '찾을 수 없음', { query: { role: 'button' } });
     expect(e).toBeInstanceOf(Error);
     expect(e.code).toBe('not-found');

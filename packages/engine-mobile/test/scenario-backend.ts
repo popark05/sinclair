@@ -18,6 +18,11 @@ export class ScenarioBackend implements DeviceBackend {
 
   constructor(private readonly id = 'PHONE1') {}
 
+  /** 테스트에서 화면을 통째로 바꾼다(노드가 끼어들어 ref 가 밀리는 상황 등). */
+  setScreen(screen: SemanticNode): void {
+    this.screen = structuredClone(screen);
+  }
+
   private hit(p: Point): SemanticNode | undefined {
     if (!this.screen) return undefined;
     let best: SemanticNode | undefined;

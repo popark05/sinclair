@@ -23,7 +23,7 @@ export interface ContractScenario {
 }
 
 /** scenario 의 질의에서 typeText 같은 부가 필드를 뺀 순수 LocatorQuery */
-function q(query: LocatorQuery & { typeText?: string }): LocatorQuery {
+function stripTypeText(query: LocatorQuery & { typeText?: string }): LocatorQuery {
   const { typeText: _t, ...rest } = query;
   return rest;
 }
@@ -56,7 +56,11 @@ export function engineContractSuite(name: string, { makeEngine, scenario, navTim
       const e = await makeEngine();
       engines.push(e);
       if (e.session) {
-        await e.session.restart().catch(() => e.session!.open());
+        // restart 는 appId 가 없으면 unsupported-action 이다. 그 경우에만 open 으로 대신하고, 기기 문제는 그대로 드러낸다
+        await e.session.restart().catch((err: unknown) => {
+          if (err instanceof EngineError && err.code === 'unsupported-action') return e.session!.open();
+          throw err;
+        });
         const deadline = Date.now() + navTimeoutMs;
         while ((await e.locate(scenario.navButton)).length === 0 && Date.now() < deadline) {
           await new Promise((r) => setTimeout(r, NAV_POLL_MS));
@@ -104,21 +108,21 @@ export function engineContractSuite(name: string, { makeEngine, scenario, navTim
 
     it('locate 는 입력 필드를 정확히 하나 찾는다', async () => {
       const e = await fresh();
-      const tb = await only(e, q(scenario.textbox), 'textbox');
+      const tb = await only(e, stripTypeText(scenario.textbox), 'textbox');
       expect(tb.rect ?? { width: 1 }).toBeTruthy();
     });
 
     it('perform type 뒤 재조회하면 value 에 글자가 들어 있다', async () => {
       const e = await fresh();
-      const tb = await only(e, q(scenario.textbox), 'textbox');
+      const tb = await only(e, stripTypeText(scenario.textbox), 'textbox');
       const text = scenario.textbox.typeText ?? 'sinclair' + (Date.now() % 1000);
       await e.perform(tb.ref, 'type', text);
       // 실기기는 입력 뒤 트리에 반영되기까지 수백 ms 걸린다. 기한 안에 한 번이라도 보이면 된다.
       const deadline = Date.now() + navTimeoutMs;
-      let after = await only(e, q(scenario.textbox), 'textbox(after type)');
+      let after = await only(e, stripTypeText(scenario.textbox), 'textbox(after type)');
       while (!(after.value ?? '').includes(text) && Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, NAV_POLL_MS));
-        after = await only(e, q(scenario.textbox), 'textbox(after type)');
+        after = await only(e, stripTypeText(scenario.textbox), 'textbox(after type)');
       }
       expect(after.value ?? '').toContain(text);
     });

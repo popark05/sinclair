@@ -75,12 +75,13 @@ export function capabilitiesOf(engine: Engine): Capability[] {
 /**
  * 엔진·러너가 쓰는 실패 종류. 러너의 locator/expect 는 이 코드로 재시도·메시지를 결정한다. 어느 층이 내는지:
  * - 엔진: not-found(perform 의 ref 가 현재 화면에 없음), not-actionable(비활성·편집 불가·가려짐), unsupported-action,
- *   timeout(엔진 내부 대기 초과), engine-closed(dispose 뒤 호출), device-unavailable(기기·헬퍼 없음)
+ *   timeout(엔진 내부 대기 초과), engine-closed(dispose 뒤 호출), device-unavailable(기기·헬퍼 없음),
+ *   device-error(그 밖에 디바이스 레이어가 요청을 처리하지 못함: 내부 오류, 미구현 메서드 등)
  * - 러너(locator/expect, 티켓 03·04): not-found(기한까지 0개), ambiguous(strict 질의에 둘 이상), secure-read(secure 노드 내용 읽기)
  * 상세: specs/0002-engine-contract.md
  */
 export const ENGINE_ERROR_CODES = [
-  'not-found', 'ambiguous', 'not-actionable', 'secure-read', 'unsupported-action', 'timeout', 'engine-closed', 'device-unavailable',
+  'not-found', 'ambiguous', 'not-actionable', 'secure-read', 'unsupported-action', 'timeout', 'engine-closed', 'device-unavailable', 'device-error',
 ] as const;
 export type EngineErrorCode = (typeof ENGINE_ERROR_CODES)[number];
 

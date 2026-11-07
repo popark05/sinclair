@@ -36,7 +36,7 @@ describe('createMobileEngine', () => {
     // 화면 앞쪽에 노드가 끼어들어 DFS 번호가 밀린 상황을 흉내 낸다: 같은 노드의 ref 가 바뀐다
     const launchTree = await backend.dumpUi();
     launchTree.children!.unshift({ ref: '@banner', role: 'text', text: '광고', rect: { x: 0, y: 0, width: 1080, height: 50 } });
-    (backend as unknown as { screen: unknown }).screen = launchTree;
+    backend.setScreen(launchTree);
     await engine.perform(btn!.ref, 'tap');
     expect(backend.calls.at(-1)).toBe('tap 540,700');
     expect((await engine.locate({ text: '환영합니다' })).length).toBe(1);
@@ -78,5 +78,23 @@ describe('createMobileEngine', () => {
   it('디바이스 레이어 오류는 EngineError 로 바뀌고 기기 id 가 남는다', async () => {
     const engine = createMobileEngine(rpcOverDispatcher(createDeviceServer([new ScenarioBackend('OTHER')])), { deviceId: 'MISSING' });
     await expect(engine.observe()).rejects.toMatchObject({ code: 'device-unavailable', message: expect.stringContaining('MISSING') });
+  });
+
+  it('헬퍼 없음(-32002)도 device-unavailable 이고, 화면이 바뀌어 사라진 ref 는 not-found 다', async () => {
+    const noHelper = createMobileEngine({ call: async () => { throw new (await import('../src/index.ts')).DeviceRpcError(-32002, '헬퍼 사용 불가(not-installed)'); } }, { deviceId: 'PHONE1' });
+    await expect(noHelper.locate({ role: 'button' })).rejects.toMatchObject({ code: 'device-unavailable', message: expect.stringContaining('PHONE1') });
+
+    const { engine } = setup();
+    const [login] = await engine.locate({ role: 'button', name: '로그인' });
+    await engine.perform(login!.ref, 'tap'); // 홈 화면으로 전환
+    await expect(engine.perform(login!.ref, 'tap')).rejects.toMatchObject({ code: 'not-found', message: expect.stringContaining(login!.ref) });
+  });
+
+  it('그 밖의 디바이스 레이어 실패는 device-error 이고, 모르는 키 이름은 unsupported-action 이다', async () => {
+    const { engine } = setup();
+    const [root] = await engine.locate({ role: 'root' });
+    await expect(engine.perform(root!.ref, 'press', 'NoSuchKey')).rejects.toMatchObject({ code: 'unsupported-action' });
+    const broken = createMobileEngine({ call: async () => { throw new (await import('../src/index.ts')).DeviceRpcError(-32603, '내부 오류'); } }, { deviceId: 'PHONE1' });
+    await expect(broken.observe()).rejects.toMatchObject({ code: 'device-error', message: expect.stringContaining('내부 오류') });
   });
 });

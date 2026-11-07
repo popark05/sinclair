@@ -1,6 +1,6 @@
 {
-  "at": "2026-11-07T04:40:30.727Z",
-  "deviceId": "R3CR10LXLZW",
+  "at": "2026-11-07T04:45:56.568Z",
+  "device": "…XLZW",
   "app": "com.samsung.android.dialer",
   "scenario": {
     "navButton": {
@@ -21,5 +21,9 @@
       "exact": true
     }
   },
-  "note": "계약 스위트 전체를 실기기에서 실행. 결과는 vitest 출력 참고"
+  "results": {
+    "passed": 12,
+    "failed": 0,
+    "skipped": 0
+  }
 }

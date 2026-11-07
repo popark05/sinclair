@@ -10,4 +10,5 @@
 - [ ] 액션 `tap/longPress/type/press/select/check/scrollIntoView` 가 기한(기본 10초, 테스트 옵션으로 변경) 안에 자동 대기·재조회한다. 후보가 0개면 `not-found`, 2개 이상이면 `ambiguous`(후보 요약 포함), 비활성이면 기한까지 기다린 뒤 `not-actionable`
 - [ ] `secure` 노드의 `text/value` 를 읽으려 하면 `secure-read` 로 거부하고, `type` 은 허용한다(값은 로그·트레이스에 남지 않음)
 - [ ] 실패 메시지에 질의, 기다린 시간, 마지막 관찰의 관련 노드 요약(최대 5개)이 들어간다
+- [ ] specs/0001 의 "bounds 기반 체이닝 fallback" 필요성 판단: `.within()` 이 트리 자손으로 못 찾을 때 rect 포함으로 다시 찾을지 결정하고, 하면 `locateInTree` 와 계약 테스트에 추가(엔진 02 에서 미결로 넘어옴)
 - [ ] FakeEngine 으로 위 규칙과 "나중에 나타나는 요소를 기다려 탭" 시나리오가 검증된다

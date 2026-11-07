@@ -29,6 +29,9 @@ export function rpcOverDispatcher(dispatcher: RpcDispatcher): DeviceRpc {
   };
 }
 
+/** HTTP 호출 상한. 가장 느린 호출(device.snapshot, 수 MB)도 수 초면 끝나고, 디바이스 레이어가 멈추면 영원히 기다리지 않게 한다 */
+const HTTP_TIMEOUT_MS = 30_000;
+
 export function rpcOverHttp(options: { port: number; token: string; host?: string }): DeviceRpc {
   const url = `http://${options.host ?? '127.0.0.1'}:${options.port}/rpc`;
   return {
@@ -37,6 +40,7 @@ export function rpcOverHttp(options: { port: number; token: string; host?: strin
         method: 'POST',
         headers: { authorization: `Bearer ${options.token}`, 'content-type': 'application/json' },
         body: JSON.stringify({ jsonrpc: '2.0', id: nextId++, method, params }),
+        signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
       });
       if (!res.ok) throw new DeviceRpcError(-32603, `디바이스 레이어 HTTP ${res.status}`);
       return unwrap((await res.json()) as JsonRpcResponse);
