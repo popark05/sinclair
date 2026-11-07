@@ -3,7 +3,10 @@
 - **Cycle**: 한 번의 검증 주기. 빌드 + 기기 매트릭스 + Suite 필터.
 - **Run**: Cycle 안에서 한 타깃에 대한 실행 1회.
 - **Attempt**: Run 안의 테스트 1건 실행 시도. 재시도마다 새 Attempt.
-- **Verdict**: Cycle 수준의 검증 현황 판단.
+- **Verdict**: Cycle 수준의 검증 현황 판단. 케이스(TestCase × 타깃)마다 `CaseVerdict`, Cycle 전체는 `CycleVerdict`(incomplete/verified/blocked).
+- **TestCase**: 안정 ID 를 가진 테스트 1건. 지금은 러너 `test()` 의 이름(describe 경로를 " > " 로 이은 것)이 ID 다.
+- **타깃(Target)**: Cycle 매트릭스의 열. 플랫폼·기기 조합을 가리키는 id (`android`, `ios` 등). Run 은 Cycle × 타깃이다.
+- **필수 태그(requiredTags)**: Cycle 이 `verified` 가 되려면 통과해야 하는 케이스를 고르는 태그. 테스트 이름의 `@태그` 토큰. 비면 모든 케이스가 필수.
 - **fixture**: 테스트 전에 준비되고 끝나면 정리되는 리소스. `app`, `agent`, `screen`, `mock`.
 - **녹화 캐시**: 에이전트 스텝의 액션을 의미 descriptor로 기록한 것. 재실행 시 모델 없이 재생.
 - **이어받기(hand-off)**: 재생이 중간에 어긋나면 에이전트가 그 지점부터 계속하는 것.

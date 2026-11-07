@@ -97,4 +97,13 @@ describe('computeCycle', () => {
     expect(Object.keys(v.matrix.A!)).toEqual(['android', 'ios']);
     expect(v.verdict).toBe('verified');
   });
+
+  it('같은 타깃에 run 이 여럿이면 뒤에 등록된 run 의 결과가 앞을 덮는다(재실행)', () => {
+    const v = computeCycle(single, [reg('r1', 'android'), reg('r2', 'android')], [
+      run('r1', 'android', 'finished', [attempt('A', 1, 'failed')]),
+      run('r2', 'android', 'finished', [attempt('A', 1, 'passed')]),
+    ]);
+    expect(v.matrix.A).toEqual({ android: { verdict: 'passed', attemptId: 'A#1' } });
+    expect(v.verdict).toBe('verified');
+  });
 });

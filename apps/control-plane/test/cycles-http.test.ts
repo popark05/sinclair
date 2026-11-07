@@ -78,4 +78,41 @@ describe('Cycle API', () => {
     expect(view.matrix['로그인 > 아이디로 로그인한다']).toEqual({ android: { verdict: 'passed', attemptId: expect.any(String) }, ios: { verdict: 'passed-flaky', attemptId: 'ios-a2' } });
     expect(view.runs.map((x) => x.state)).toEqual(['finished', 'finished']);
   });
+
+  it('끝난 Cycle 에는 Run 을 더 등록할 수 없고(409), 이벤트의 cycleId/targetId 가 등록과 다르면 warnings 로 드러난다', async () => {
+    await post('/cycles', { cycleId: 'c2', build: 'b', targets: ['android'] });
+    await post('/cycles/c2/runs', { targetId: 'android', runId: 'r-c2' });
+    const b = (id: string, s: number) => base(id, s, 'r-c2');
+    await post('/ingest', [
+      { ...b('x0', 0), type: 'run.started', cycleId: '다른-cycle', targetId: 'ios' },
+      { ...b('x1', 1), type: 'attempt.started', attemptId: 'x-a1', testId: 'T', attemptNo: 1 },
+      { ...b('x2', 2), type: 'attempt.finished', attemptId: 'x-a1', result: 'passed', artifacts: [] },
+      { ...b('x3', 3), type: 'run.finished', state: 'finished' },
+    ] satisfies RunEvent[]);
+    const view = (await (await fetch(url('/cycles/c2'))).json()) as CycleView & { warnings?: string[] };
+    expect(view).toMatchObject({ state: 'finished', verdict: 'verified' }); // 판정은 등록(android)을 따른다
+    expect(view.warnings).toEqual([expect.stringContaining('cycleId(다른-cycle)'), expect.stringContaining('targetId(ios)')]);
+    const late = await post('/cycles/c2/runs', { targetId: 'android' });
+    expect(late.status).toBe(409);
+  });
+
+  it('infra-failed 로 끝난 run 에서 돌지 못한 케이스는 HTTP 조회에서도 blocked 다', async () => {
+    await post('/cycles', { cycleId: 'c3', build: 'b', targets: ['android', 'ios'] });
+    await post('/cycles/c3/runs', { targetId: 'android', runId: 'r-and' });
+    await post('/cycles/c3/runs', { targetId: 'ios', runId: 'r-ios' });
+    const a = (id: string, s: number) => base(id, s, 'r-and');
+    const i = (id: string, s: number) => base(id, s, 'r-ios');
+    await post('/ingest', [
+      { ...a('a0', 0), type: 'run.started', cycleId: 'c3', targetId: 'android' },
+      { ...a('a1', 1), type: 'attempt.started', attemptId: 'a-1', testId: 'T', attemptNo: 1 },
+      { ...a('a2', 2), type: 'attempt.finished', attemptId: 'a-1', result: 'passed', artifacts: [] },
+      { ...a('a3', 3), type: 'run.finished', state: 'finished' },
+      { ...i('i0', 0), type: 'run.started', cycleId: 'c3', targetId: 'ios' },
+      { ...i('i1', 1), type: 'run.finished', state: 'infra-failed' },
+    ] satisfies RunEvent[]);
+    const view = (await (await fetch(url('/cycles/c3'))).json()) as CycleView;
+    expect(view).toMatchObject({ state: 'finished', verdict: 'blocked' });
+    expect(view.matrix.T).toEqual({ android: { verdict: 'passed', attemptId: 'a-1' }, ios: { verdict: 'blocked' } });
+    expect((await fetch(url('/cycles/%E'))).status).toBe(400); // 잘못된 경로 인코딩
+  });
 });

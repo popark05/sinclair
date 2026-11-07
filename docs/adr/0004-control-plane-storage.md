@@ -13,7 +13,7 @@ control-plane 은 Ingest 로 들어온 RunEvent 를 eventId 로 멱등 저장하
 3. **PostgreSQL**: 다중 인스턴스·원격 DB 에 맞지만 로컬 개발·설치형 환경마다 DB 서버가 필요하다.
 
 ## 결정
-`node:sqlite` 의 SQLite 로 시작한다. 저장소는 `EventStore` 인터페이스 뒤에 있고(`apps/control-plane/src/store.ts`) 모든 구현이 같은 공유 스위트(`test/event-store-suite.ts`)를 통과해야 하므로 교체 비용은 구현 파일 하나다. 스키마 버전은 `PRAGMA user_version` 으로 관리하고(현재 1), 더 새로운 버전의 파일이나 다른 앱의 DB 파일은 열지 않는다. 저널은 WAL(조회와 ingest 가 서로 막지 않음).
+`node:sqlite` 의 SQLite 로 시작한다. 저장소는 `EventStore` 인터페이스 뒤에 있고(`apps/control-plane/src/store.ts`) 모든 구현이 같은 공유 스위트(`test/event-store-suite.ts`)를 통과해야 하므로 교체 비용은 구현 파일 하나다. 스키마 버전은 `PRAGMA user_version` 으로 관리하고(현재 2: 1 이벤트, 2 Cycle/Run 등록), 단계별 SQL 배열(`SQLITE_MIGRATIONS`)을 트랜잭션 하나씩 적용해 올린다. 더 새로운 버전의 파일이나 다른 앱의 DB 파일은 열지 않는다. 저널은 WAL(조회와 ingest 가 서로 막지 않음).
 
 테스트는 인메모리 저장소가 기본, 실행(`verify-ingest` 의 `SINCLAIR_INGEST_STORE=sqlite`, 이후 runner-agent/서버 배포)은 SQLite 가 기본이다. 제품용 서버 엔트리(저장소·DB 경로 설정)는 아직 없고 배포 티켓에서 만든다. 지금은 `serveControlPlane(store)` 에 저장소를 주입한다.
 
@@ -30,6 +30,6 @@ control-plane 은 Ingest 로 들어온 RunEvent 를 eventId 로 멱등 저장하
 
 ## 결과
 - `package.json` `engines.node >= 22.13`.
-- `createSqliteEventStore(file)` 추가, `SQLITE_SCHEMA_VERSION = 1`(테이블은 `events` 하나, run 목록은 파생). 마이그레이션은 버전 단계별로 `migrate()` 에 더한다. 티켓 05 가 Cycle/Run 등록 레코드를 저장하면 첫 마이그레이션(1→2)이 생긴다.
+- `openSqlite(file)` 이 열고 마이그레이션하며, `createSqliteEventStore`/`createSqliteCycleStore` 가 한 핸들을 공유한다. `SQLITE_SCHEMA_VERSION = 2`(`events`; `cycles`, `cycle_runs`). 스키마를 바꾸면 `SQLITE_MIGRATIONS` 에 단계를 더하고 버전을 올린다.
 - WAL 때문에 `*.db-wal`/`*.db-shm` 파일이 함께 생긴다. 백업·이동 시 함께 다룬다.
 - 다중 프로세스 쓰기는 지원 범위 밖(동시성 보장은 단일 프로세스 안의 `INSERT OR IGNORE` + UNIQUE 제약).

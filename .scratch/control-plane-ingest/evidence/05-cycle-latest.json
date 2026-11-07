@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-07T09:10:48.428Z",
+  "at": "2026-11-07T09:15:24.556Z",
   "store": "memory",
   "create": {
     "status": 201
@@ -15,6 +15,7 @@
   "final": {
     "state": "finished",
     "verdict": "verified",
+    "warnings": [],
     "matrix": {
       "로그인 > 아이디로 로그인한다": {
         "android": {

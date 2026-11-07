@@ -28,4 +28,4 @@ $S/cycle.sh $RUN cycle
 
 - 러너는 아직 재시도(attemptNo 2)를 내지 않는다. ios run 의 재시도 이벤트는 스크립트가 손으로 만든다.
 - 필수 태그는 테스트 이름의 `@태그` 토큰이다. `requiredTags` 가 비면 모든 케이스가 필수라, 타깃이 둘인데 한 타깃에서만 돈 케이스는 `verified` 가 아니다.
-- cycleId 는 `verify-cycle-<pid>` 라 같은 RUN 에서 여러 번 돌려도 409 가 나지 않는다.
+- cycleId 는 `verify-cycle-<epoch>-<pid>` 라 같은 서버에서 여러 번 돌려도 409 가 나지 않는다.

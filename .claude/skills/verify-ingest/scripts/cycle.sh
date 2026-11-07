@@ -12,7 +12,7 @@ req() { # method path body-json evidence-name
   node -e 'const fs=require("fs");const [m,p,b,c,o,d]=process.argv.slice(1);fs.writeFileSync(d,JSON.stringify({request:{method:m,path:p,body:JSON.parse(b)},status:Number(c),response:JSON.parse(fs.readFileSync(o,"utf8"))},null,2))' "$1" "$2" "$3" "$code" "$out" "$RUN_DIR/evidence/$4.json"
   cat "$out"
 }
-CYCLE=$(req POST /cycles "{\"cycleId\":\"verify-cycle-$$\",\"build\":\"1.2.3-verify\",\"targets\":[\"android\",\"ios\"]}" "$NAME-create" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).cycleId')
+CYCLE=$(req POST /cycles "{\"cycleId\":\"verify-cycle-$(date +%s)-$$\",\"build\":\"1.2.3-verify\",\"targets\":[\"android\",\"ios\"]}" "$NAME-create" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).cycleId')
 ANDROID=$(req POST "/cycles/$CYCLE/runs" '{"targetId":"android"}' "$NAME-run-android" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).runId')
 IOS=$(req POST "/cycles/$CYCLE/runs" '{"targetId":"ios"}' "$NAME-run-ios" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).runId')
 node -e '
@@ -22,7 +22,7 @@ const mk=(run,pre,target,attempts)=>{const ev=[{schema:1,eventId:`${pre}0`,runId
  for(const [no,result] of attempts){ev.push({schema:1,eventId:`${pre}${s}`,runId:run,at:at(s++),type:"attempt.started",attemptId:`${pre}a${no}`,testId:T,attemptNo:no});
   ev.push({schema:1,eventId:`${pre}${s}`,runId:run,at:at(s++),type:"attempt.finished",attemptId:`${pre}a${no}`,result,...(result==="failed"?{errorCode:"not-found"}:{}),artifacts:[]});}
  ev.push({schema:1,eventId:`${pre}${s}`,runId:run,at:at(s),type:"run.finished",state:"finished"});return ev;};
-fs.writeFileSync(`${dir}/android.json`,JSON.stringify(mk(android,"and-",'"'"'android'"'"',[[1,"passed"]])));
+fs.writeFileSync(`${dir}/android.json`,JSON.stringify(mk(android,"and-","android",[[1,"passed"]])));
 fs.writeFileSync(`${dir}/ios.json`,JSON.stringify(mk(ios,"ios-","ios",[[1,"failed"],[2,"passed"]])));' "$CYCLE" "$ANDROID" "$IOS" "$RUN_DIR/tmp"
 "$HERE/ingest.sh" "$RUN_DIR" "$RUN_DIR/tmp/android.json" "$NAME-ingest-android" >/dev/null
 "$HERE/get.sh" "$RUN_DIR" "/cycles/$CYCLE" "$NAME-view-mid" >/dev/null

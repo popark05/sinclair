@@ -13,7 +13,7 @@ import { ingestBatch } from './ingest.ts';
 import { projectRun, type RunView } from './projection.ts';
 import type { EventStore } from './store.ts';
 import { createMemoryCycleStore, type CycleStore } from './cycle-store.ts';
-import { computeCycle } from './verdict.ts';
+import { buildCycleView } from './cycle-view.ts';
 
 export interface ControlPlaneOptions {
   port?: number;
@@ -39,6 +39,9 @@ export function summarizeRun(view: RunView): RunSummary {
 
 const isStringArray = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string' && x.length > 0);
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+/** 생략 가능하되, 있으면 비어 있지 않은 문자열 */
+const optionalId = (v: unknown): v is string | undefined => v === undefined || (typeof v === 'string' && v.length > 0);
+const TERMINAL_CYCLE = new Set(['finished', 'expired', 'cancelled']);
 
 export async function serveControlPlane(store: EventStore, opts: ControlPlaneOptions = {}): Promise<ControlPlaneServer> {
   const cycles = opts.cycles ?? createMemoryCycleStore();
@@ -62,22 +65,11 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
     }
     try { return { body: JSON.parse(Buffer.concat(chunks).toString('utf8')) }; } catch { json(res, 400, { error: 'JSON 파싱 실패' }); return undefined; }
   };
-  const cycleView = async (cycleId: string) => {
-    const cycle = await cycles.getCycle(cycleId);
-    if (!cycle) return undefined;
-    const regs = await cycles.runsForCycle(cycleId);
-    const views: RunView[] = [];
-    for (const r of regs) {
-      const events = await store.eventsForRun(r.runId);
-      if (events.length > 0) views.push(projectRun(events));
-    }
-    return computeCycle(cycle, regs, views);
-  };
-
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-      const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+      let parts: string[];
+      try { parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent); } catch { return json(res, 400, { error: '경로 인코딩이 잘못됨' }); }
       if (req.method === 'POST' && url.pathname === '/ingest') {
         const read = await readJson(req, res);
         if (!read) return;
@@ -90,14 +82,14 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         const b = read.body;
         if (!isRecord(b) || typeof b.build !== 'string' || !b.build || !isStringArray(b.targets) || b.targets.length === 0) return json(res, 400, { error: 'build(문자열)와 targets(비어 있지 않은 문자열 배열)가 필요함' });
         if (b.requiredTags !== undefined && !isStringArray(b.requiredTags)) return json(res, 400, { error: 'requiredTags 는 문자열 배열이어야 함' });
-        if (b.cycleId !== undefined && (typeof b.cycleId !== 'string' || !b.cycleId)) return json(res, 400, { error: 'cycleId 는 비어 있지 않은 문자열이어야 함' });
-        const cycle = { cycleId: (b.cycleId as string | undefined) ?? randomUUID(), build: b.build, targets: [...new Set(b.targets)], requiredTags: (b.requiredTags as string[] | undefined) ?? [], createdAt: new Date().toISOString() };
+        if (!optionalId(b.cycleId)) return json(res, 400, { error: 'cycleId 는 비어 있지 않은 문자열이어야 함' });
+        const cycle = { cycleId: b.cycleId ?? randomUUID(), build: b.build, targets: [...new Set(b.targets)], requiredTags: (b.requiredTags as string[] | undefined) ?? [], createdAt: new Date().toISOString() };
         if ((await cycles.createCycle(cycle)) === 'duplicate') return json(res, 409, { error: `Cycle ${cycle.cycleId} 가 이미 있음` });
         return json(res, 201, cycle);
       }
       if (req.method === 'GET' && url.pathname === '/cycles') return json(res, 200, await cycles.listCycles());
       if (req.method === 'GET' && parts[0] === 'cycles' && parts.length === 2) {
-        const view = await cycleView(parts[1]!);
+        const view = await buildCycleView(store, cycles, parts[1]!);
         return view ? json(res, 200, view) : json(res, 404, { error: '모르는 Cycle' });
       }
       if (req.method === 'POST' && parts[0] === 'cycles' && parts.length === 3 && parts[2] === 'runs') {
@@ -107,8 +99,11 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         if (!read) return;
         const b = read.body;
         if (!isRecord(b) || typeof b.targetId !== 'string' || !cycle.targets.includes(b.targetId)) return json(res, 400, { error: `targetId 는 Cycle 의 targets(${cycle.targets.join(', ')}) 중 하나여야 함` });
-        if (b.runId !== undefined && (typeof b.runId !== 'string' || !b.runId)) return json(res, 400, { error: 'runId 는 비어 있지 않은 문자열이어야 함' });
-        const run = { runId: (b.runId as string | undefined) ?? randomUUID(), cycleId: cycle.cycleId, targetId: b.targetId, createdAt: new Date().toISOString() };
+        if (!optionalId(b.runId)) return json(res, 400, { error: 'runId 는 비어 있지 않은 문자열이어야 함' });
+        // 끝난 Cycle 의 Verdict 는 바뀌지 않아야 하므로 Run 을 더 받지 않는다
+        const current = await buildCycleView(store, cycles, cycle.cycleId);
+        if (current && TERMINAL_CYCLE.has(current.state)) return json(res, 409, { error: `Cycle ${cycle.cycleId} 은 이미 ${current.state} 라 Run 을 등록할 수 없음` });
+        const run = { runId: b.runId ?? randomUUID(), cycleId: cycle.cycleId, targetId: b.targetId, createdAt: new Date().toISOString() };
         const outcome = await cycles.registerRun(run);
         if (outcome === 'duplicate') return json(res, 409, { error: `Run ${run.runId} 이 이미 등록됨` });
         if (outcome === 'no-cycle') return json(res, 404, { error: '모르는 Cycle' });

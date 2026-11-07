@@ -13,3 +13,7 @@ The skills speak in terms of five canonical triage roles. This file maps those r
 When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
 
 Edit the "Label in our tracker" column to match whatever vocabulary you actually use.
+
+## 추가 상태
+
+- `done`: 구현·리뷰·커밋이 끝난 티켓. `Status:` 줄에 쓰고 `## Comments` 에 완료 기록을 남긴다.

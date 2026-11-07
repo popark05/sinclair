@@ -8,11 +8,11 @@ import type { RunEvent } from '@sinclair/protocol';
 import type { EventStore } from './store.ts';
 import type { CycleRecord, CycleStore, RunRegistration } from './cycle-store.ts';
 
-/** PRAGMA user_version. 스키마를 바꾸면 올리고 MIGRATIONS 에 단계를 더한다 */
+/** PRAGMA user_version. 스키마를 바꾸면 올리고 SQLITE_MIGRATIONS 에 단계를 더한다 */
 export const SQLITE_SCHEMA_VERSION = 2;
 
 /** MIGRATIONS[v] 는 버전 v 에서 v+1 로 가는 SQL. 순서대로 적용된다 */
-const MIGRATIONS: readonly string[] = [
+export const SQLITE_MIGRATIONS: readonly string[] = [
   // 0 → 1: 이벤트
   `CREATE TABLE events (
      seq      INTEGER PRIMARY KEY AUTOINCREMENT,   -- 저장 순서
@@ -47,7 +47,7 @@ function migrate(db: DatabaseSync): void {
   }
   for (let v = current; v < SQLITE_SCHEMA_VERSION; v++) {
     db.exec('BEGIN');
-    db.exec(`${MIGRATIONS[v]!}\nPRAGMA user_version = ${v + 1};`);
+    db.exec(`${SQLITE_MIGRATIONS[v]!}\nPRAGMA user_version = ${v + 1};`);
     db.exec('COMMIT');
   }
 }
