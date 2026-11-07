@@ -64,3 +64,21 @@ Plan(`intent/`) → Design(`specs/`, `/architect`로 타입 먼저) → Build(`t
 ## 알려진 실수
 
 (아직 없음)
+
+## 참고 프로젝트에서 가져올 것 (2026-11-07 분석 요약)
+
+- **e2e**: 세 동사 분리(locator / act / 판정), `StepExecutor` 교체 구조(툴 루프·decision 모델·ACP), 녹화 캐시(검증 후 기록, descriptor 재탐색, 이어받기, strict 모드, 플러거블 스토어), `defineEngine` 계약과 JSON-RPC 엔진 프로토콜, 닫힌 Zod 툴 스키마와 redaction, trace.md/ai-trace/report 스키마. 약점: 판정은 캐시되지 않음, 코어 7만 줄이라 통째 포크 비현실적.
+- **artemis**: 액션 전 안전망(`precondition_xml` 가중치 재탐색 + 픽셀/VLM), Incident 기반 복구, TranscriptLedger 4영역 + 백그라운드 시각 요약 + era 청킹, 단일 소스 action spec → 툴 스키마 생성 계약 테스트, plan 문법(verify/assert/@end)과 읽기 전용 Checker, 접근성 헬퍼 APK(UiAutomation 비독점, 스크린샷·트리 원자적). 약점: Android 전용, Gemini 튜닝, 비결정적.
+- **mobilenext**: 단일 JSON-RPC 표면(`device.io.*`, `device.dump.ui`, OpenRPC), `ScreenElement` + `@ref`, Android `app_process` dex 에이전트, iOS go-ios + XCUITest 러너, H.264 fan-out 허브, react-device-view(WebCodecs + 입력 전달), mobilewright의 locator 세부(testId 다중 매칭, bounds 체이닝, 2회 연속 동일 bounds). 약점: mobilecli/devicekit은 FSL, idle 동기화 없음, UiAutomation 독점, 서버 무인증.
+
+## 도구 조합
+
+- SDLC 뼈대는 Anthropic AI-Native SDLC Playbook 6단계. 워크플로 진입점은 mattpocock-skills(`grill-me`, `to-spec`, `to-tickets`, `implement`, `pr`), 품질 게이트는 pstack(`/architect`, `/blast-radius`, `/interrogate`, `/create-verification-skill`, `/reflect`). TDD는 mattpocock 것 하나만 쓴다.
+- 플러그인 설치됨(user scope). 리포지토리당 1회 `/setup-matt-pocock-skills`, `/pstack:setup-pstack` 실행 필요.
+
+## 작업 로그
+
+### 2026-11-07
+- 모노레포 골격, protocol 계약 패키지(계약 테스트 5개), device-layer JSON-RPC 디스패처·HTTP 전송(테스트 6개), ADR 0001~0003.
+- 미완: `.claude/settings.json`(권한 allow, `reference/` 편집 차단 hook)은 자동 모드 분류기가 거부해 비어 있음. `/update-config`로 추가할 것.
+- 다음 티켓 순서: (1) Android 백엔드 실제 구현. EverMock(`../10.development` 리포의 `src/main/adb`)의 direct ADB 레이어를 `packages/device-layer`로 옮기고 접근성 헬퍼 APK와 통신. (2) `packages/runner`의 locator/expect와 엔진 계약 계약 테스트. (3) control-plane Ingest(이벤트 멱등 저장)와 커스텀 Reporter.
