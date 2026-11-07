@@ -17,8 +17,15 @@ export interface Observation {
   root: SemanticNode;
   /** 현재 위치(URL, 화면 식별자 등). 캐시 재생의 시작 경로 검사에 쓴다 */
   location?: string;
-  /** PNG/JPEG. 픽셀 전용 표면이거나 요청 시에만 */
+  /** PNG/JPEG. 픽셀 전용 표면이거나 `observe({ pixels: true })` 로 요청했을 때만 */
   pixels?: Uint8Array;
+  /** pixels 가 있을 때, 트리와 같은 순간에 찍혔는지(device.snapshot 의 atomic). 아니면 앵커 검사에 쓰지 않는다 */
+  atomic?: boolean;
+}
+
+export interface ObserveOptions {
+  /** true 면 스크린샷도 함께(비용이 크므로 기본 false) */
+  pixels?: boolean;
 }
 
 export const NODE_ACTIONS = [
@@ -41,7 +48,7 @@ export interface LocatorQuery {
 export interface Engine {
   readonly name: string;
   readonly spiVersion: number;
-  observe(): Promise<Observation>;
+  observe(options?: ObserveOptions): Promise<Observation>;
   /** 즉시 1회 조회. 재시도·엄격성은 러너가 담당 */
   locate(query: LocatorQuery): Promise<SemanticNode[]>;
   perform(ref: string, action: NodeAction, arg?: string): Promise<void>;

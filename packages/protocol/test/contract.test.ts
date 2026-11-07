@@ -104,3 +104,21 @@ describe('device.snapshot 계약 (스크린샷·트리 원자 캡처)', () => {
     expect(p.deviceId).toBe('D');
   });
 });
+
+describe('Engine.observe 옵션 계약', () => {
+  it('observe 는 기본적으로 트리만 주고, pixels 를 요청했을 때만 pixels 와 atomic 여부를 준다', async () => {
+    const engine: Engine = {
+      name: 'fake', spiVersion: 1, actions: ['tap'],
+      observe: async (options) => options?.pixels
+        ? { root: { ref: '@e0', role: 'root' }, pixels: new Uint8Array([0x89]), atomic: true }
+        : { root: { ref: '@e0', role: 'root' } },
+      locate: async () => [],
+      perform: async () => {},
+    };
+    const plain = await engine.observe();
+    expect(plain.pixels).toBeUndefined();
+    const withPixels = await engine.observe({ pixels: true });
+    expect(withPixels.pixels?.length).toBe(1);
+    expect(withPixels.atomic).toBe(true);
+  });
+});
