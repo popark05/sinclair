@@ -18,7 +18,10 @@ beforeEach(async () => { cp = await startControlPlane(MEMORY); url = `http://127
 afterEach(async () => { await cp?.close(); cp = undefined; fs.rmSync(spool, { recursive: true, force: true }); });
 
 const fakeEngine = async () => { const e = new FakeEngine({ root: LOGIN_SCREEN, onTap: (n) => (n.name === '로그인' ? HOME_SCREEN : undefined) }); return { engine: e, dispose: () => e.dispose(), deviceId: 'fake' }; };
+// sleep 은 20ms 로 눌러 폴링 간격(pollMs)과 무관하게 테스트가 빨리 돈다
 const deps = (extra: Partial<DaemonDeps> = {}): DaemonDeps => ({ log: (l) => logs.push(l), createEngine: fakeEngine, sleep: (ms) => new Promise((r) => setTimeout(r, Math.min(ms, 20))), ...extra });
+/** 조건이 참이 될 때까지 폴링(상한 limitMs). 전체 스위트 병렬 실행에서 고정 대기는 흔들린다 */
+const until = async (cond: () => Promise<boolean> | boolean, limitMs = 6_000) => { const t = Date.now(); while (!(await cond()) && Date.now() - t < limitMs) await new Promise((r) => setTimeout(r, 20)); };
 const post = (p: string, body: unknown) => fetch(`${url}${p}`, { method: 'POST', body: JSON.stringify(body) });
 const view = async (id: string) => (await (await fetch(`${url}/cycles/${id}`)).json()) as CycleView;
 
@@ -46,8 +49,8 @@ describe('runDaemon', () => {
     await post('/cycles/c2/runs', { targetId: 'android', runId: 'r-second' });
     const aborter = new AbortController();
     const p = runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, agent: 'n', pollMs: 10, timeoutMs: 100 }, deps({ signal: aborter.signal }));
-    for (let i = 0; i < 300 && (await view('c2')).runs.some((r) => r.state !== 'finished'); i++) await new Promise((r) => setTimeout(r, 20));
-    await new Promise((r) => setTimeout(r, 60)); // 폴링 한두 번
+    await until(async () => (await view('c2')).runs.every((r) => r.state === 'finished'));
+    await new Promise((r) => setTimeout(r, 60)); // 폴링(20ms 로 눌림) 한두 번 돌 시간
     aborter.abort();
     const summary = await p;
     expect(summary.stoppedBy).toBe('signal');
@@ -55,7 +58,7 @@ describe('runDaemon', () => {
     expect(logs.at(-1)).toBe('데몬 종료');
   });
 
-  it('lease 가 만료된 Run 은 다른 데몬이 가져가고, 끝난 뒤 heartbeat 는 멈춘다', async () => {
+  it('lease 가 만료된 Run 은 다른 데몬이 가져가고, lease 를 잃은 데몬은 경고를 남긴다', async () => {
     await cp!.close();
     let now = Date.parse('2026-11-08T00:00:00.000Z');
     const srv = await serveControlPlane(createMemoryEventStore(), { leaseTtlMs: 3_000, now: () => now });
@@ -63,30 +66,40 @@ describe('runDaemon', () => {
     try {
       await post('/cycles', { cycleId: 'c3', build: 'b', targets: ['android'], suite: { tests: path.join(fixtures, 'only-login') } });
       await post('/cycles/c3/runs', { targetId: 'android', runId: 'r-lease' });
-      // 첫 에이전트가 클레임만 하고 죽은 상황: 엔진 생성이 영영 끝나지 않는 deps 로 흉내 내고 중단한다
+      // "죽은" 에이전트: 클레임 뒤 엔진 준비에서 멈추고 heartbeat 도 네트워크가 끊겨 닿지 않는다(그래야 lease 가 만료된다)
       const dead = new AbortController();
-      const stuck = runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, agent: 'dead-agent', pollMs: 10 }, deps({ signal: dead.signal, createEngine: () => new Promise(() => {}) }));
-      for (let i = 0; i < 100 && !(await view('c3')).runs[0]!.lease; i++) await new Promise((r) => setTimeout(r, 10));
+      let release!: () => void;
+      const deadFetch: typeof fetch = (input, init) => (String(input).endsWith('/heartbeat') ? Promise.reject(new Error('네트워크 끊김')) : fetch(input, init));
+      const stuck = runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, agent: 'dead-agent', pollMs: 10 }, deps({
+        signal: dead.signal, fetch: deadFetch,
+        createEngine: () => new Promise((_, reject) => { release = () => reject(new Error('에이전트 종료')); }), // abort 때 풀어 준다
+      }));
+      await until(async () => !!(await view('c3')).runs[0]!.lease);
       expect((await view('c3')).runs[0]!.lease?.agentId).toBe('dead-agent');
-      // 만료 전에는 못 가져간다
-      const early = await runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, agent: 'live-agent', pollMs: 10 }, deps({ maxRuns: 1, signal: AbortSignal.timeout(100) }));
+      // 만료 전에는 못 가져간다: 짧은 TTL 안에서 몇 번 폴링하고 신호로 멈춘다
+      const early = await runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, agent: 'live-agent', pollMs: 10 }, deps({ maxRuns: 1, signal: AbortSignal.timeout(150) }));
       expect(early.runs).toEqual([]);
+      expect(logs.filter((l) => /클레임 \(/.test(l))).toHaveLength(1); // dead-agent 의 클레임뿐
       now += 3_000; // 만료
       const late = await runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, agent: 'live-agent', pollMs: 10 }, deps({ maxRuns: 1 }));
       expect(late.runs).toEqual([{ runId: 'r-lease', targetId: 'android', exitCode: EXIT.ok }]);
       expect((await view('c3'))).toMatchObject({ state: 'finished', verdict: 'verified', runs: [{ lease: { agentId: 'live-agent' } }] });
-      dead.abort(); // 멈춘 데몬은 엔진 promise 가 영영 안 끝나므로 기다리지 않는다
-      void stuck;
+      // 죽은 에이전트를 깨우면 엔진 실패 → infra-failed 보고 시도(blocked) 로 끝나고 루프를 나온다
+      dead.abort(); release();
+      const stuckSummary = await stuck;
+      expect(stuckSummary.runs).toEqual([{ runId: 'r-lease', targetId: 'android', exitCode: EXIT.blocked }]);
     } finally {
       await srv.close();
       cp = undefined;
     }
   });
+
 });
 
 describe('parseDaemonArgs', () => {
   it('필수값·타깃 목록·기본값, 잘못된 값', () => {
     expect(parseDaemonArgs(['--control-plane', 'http://x', '--targets', 'android, ios', '--tests', 'd', '--poll', '100'], { HOME: '/h' }, 'linux')).toEqual({ controlPlane: 'http://x', targets: ['android', 'ios'], tests: 'd', engine: 'mobile', spool: '/h/.local/share/sinclair/spool', pollMs: 100 });
+    expect(() => parseDaemonArgs(['--control-plane', 'http://x', '--targets', 'a', '--tests', 'd', '--poll', '50'], {})).toThrow(/100 이상/);
     expect(() => parseDaemonArgs(['--control-plane', 'http://x', '--tests', 'd'], {})).toThrow(/targets/);
     expect(() => parseDaemonArgs(['--control-plane', 'http://x', '--targets', 'a', '--tests', 'd', '--poll', 'x'], {})).toThrow(AgentConfigError);
     expect(parseDaemonArgs(['--help'], {})).toEqual({ help: true });

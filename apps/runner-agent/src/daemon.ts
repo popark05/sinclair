@@ -26,7 +26,10 @@ export interface DaemonDeps extends RunOnceDeps {
   sleep?: (ms: number) => Promise<void>;
 }
 
-export interface DaemonSummary { runs: Array<{ runId: string; targetId: string; exitCode: ExitCode }>; resumed: number; stoppedBy: 'signal' | 'maxRuns' }
+export interface DaemonSummary { runs: Array<{ runId: string; targetId: string; exitCode: ExitCode; leaseLost?: boolean }>; resumed: number; stoppedBy: 'signal' | 'maxRuns' }
+
+/** heartbeat 하한. lease 가 아주 짧게 설정돼도 서버를 초당 수십 번 두드리지 않는다 */
+const MIN_HEARTBEAT_MS = 1_000;
 
 const DEFAULT_POLL_MS = 5_000;
 
@@ -77,20 +80,31 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
       const testsDir = path.resolve(claimed.suite?.tests ?? args.tests);
       log(`run ${run.runId} 클레임 (cycle ${run.cycleId}, target ${targetId}, tests ${testsDir})`);
 
-      // lease 의 1/3 마다 heartbeat: 두 번 놓쳐도 만료 전에 한 번 더 기회가 있다
-      const hb = setInterval(() => { void heartbeat(args.controlPlane, run.runId, agentId, deps.fetch).then((r) => { if (r !== 'ok') log(`heartbeat ${run.runId}: ${r}`); }); }, Math.max(1_000, Math.floor(leaseTtlMs / 3)));
-      hb.unref?.();
+      // lease 의 1/3 마다 heartbeat: 두 번 놓쳐도 만료 전에 한 번 더 기회가 있다.
+      // lease 를 잃으면(not-owner: 만료 뒤 다른 에이전트가 가져감) heartbeat 를 멈추고 경고한다. 러너는 테스트 중간에 멈출 수 없어 run 은 끝까지 돌고,
+      // 그 결과는 같은 runId 로 보고된다(알려진 한계 — 재시도 정책 티켓에서 다룬다). 실제 창은 "클레임 뒤 첫 이벤트 전" 으로 좁다: 이벤트가 있는 Run 은 재클레임되지 않는다.
+      let leaseLost = false;
+      const heartbeatTimer = setInterval(() => {
+        void heartbeat(args.controlPlane, run.runId, agentId, deps.fetch).then((r) => {
+          if (r === 'ok') return;
+          log(`heartbeat ${run.runId}: ${r}`);
+          if (r === 'not-owner' || r === 'no-run') { leaseLost = true; clearInterval(heartbeatTimer); }
+        });
+      }, Math.max(MIN_HEARTBEAT_MS, Math.floor(leaseTtlMs / 3)));
+      heartbeatTimer.unref?.();
       let code: ExitCode;
       try {
         const files = await collectTestFiles(testsDir);
-        code = await executeRun({ ...args, cycle: run.cycleId, target: targetId, run: run.runId, tests: testsDir }, run, files, deps);
+        const { targets: _targets, pollMs: _poll, ...runArgs } = args; // RunArgs 에 데몬 전용 필드가 섞이지 않게
+        code = await executeRun({ ...runArgs, cycle: run.cycleId, target: targetId, run: run.runId, tests: testsDir }, run, files, deps);
       } catch (err) {
         log(`run ${run.runId} 준비 실패: ${err instanceof Error ? err.message : String(err)}`);
         code = EXIT.config;
       } finally {
-        clearInterval(hb);
+        clearInterval(heartbeatTimer);
       }
-      summary.runs.push({ runId: run.runId, targetId, exitCode: code });
+      if (leaseLost) log(`경고: run ${run.runId} 의 lease 를 잃은 채 끝냄 — 다른 에이전트가 같은 Run 을 보고했을 수 있다`);
+      summary.runs.push({ runId: run.runId, targetId, exitCode: code, ...(leaseLost ? { leaseLost: true } : {}) });
       if (deps.maxRuns !== undefined && summary.runs.length >= deps.maxRuns) { summary.stoppedBy = 'maxRuns'; return summary; }
     }
     if (!worked && !deps.signal?.aborted) await sleep(args.pollMs ?? DEFAULT_POLL_MS);

@@ -100,7 +100,8 @@ export function createSqliteCycleStore(source: string | DatabaseSync): CycleStor
   const insertRun = db.prepare('INSERT OR IGNORE INTO cycle_runs (run_id, cycle_id, record) VALUES (?, ?, ?)');
   const selectRuns = db.prepare('SELECT record FROM cycle_runs WHERE cycle_id = ? ORDER BY seq');
   const selectRun = db.prepare('SELECT record FROM cycle_runs WHERE run_id = ?');
-  // 레코드가 JSON 한 덩어리라 "읽은 그대로일 때만 바꾼다"(CAS) 로 두 핸들의 동시 클레임을 막는다
+  // 레코드가 JSON 한 덩어리라 "읽은 그대로일 때만 바꾼다"(CAS) 로 두 핸들의 동시 클레임을 막는다.
+  // 비교는 저장된 텍스트 그대로이고 새 값은 parse → spread → stringify 라 키 순서가 보존된다(ADR 0004 결과 절)
   const casRun = db.prepare('UPDATE cycle_runs SET record = ? WHERE run_id = ? AND record = ?');
   const selectAllRuns = db.prepare('SELECT record FROM cycle_runs ORDER BY seq');
   const parse = <T>(rows: unknown[]): T[] => (rows as Array<{ record: string }>).map((r) => JSON.parse(r.record) as T);
@@ -133,7 +134,8 @@ export function createSqliteCycleStore(source: string | DatabaseSync): CycleStor
       return undefined;
     },
     async heartbeat(runId, agentId, nowMs, ttlMs) {
-      for (;;) {
+      // CAS 가 계속 지면 다른 쓰기가 끼어드는 것이다(단일 프로세스에서는 거의 없음). 몇 번 뒤 not-owner 로 끝낸다
+      for (let attempt = 0; attempt < 3; attempt++) {
         const row = selectRun.get(runId) as { record: string } | undefined;
         if (!row) return { outcome: 'no-run' };
         const r = JSON.parse(row.record) as RunRegistration;
@@ -141,6 +143,7 @@ export function createSqliteCycleStore(source: string | DatabaseSync): CycleStor
         const next = { ...r, lease: newLease(agentId, nowMs, ttlMs) };
         if (casRun.run(JSON.stringify(next), runId, row.record).changes === 1) return { outcome: 'ok', expiresAt: next.lease.expiresAt };
       }
+      return { outcome: 'not-owner' };
     },
     async close() {
       closeOnce(db);

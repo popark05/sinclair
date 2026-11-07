@@ -84,9 +84,9 @@ export function createMemoryCycleStore(): CycleStore {
     },
     async claimRun(targetId, agentId, nowMs, ttlMs, hasEvents) {
       for (const r of runs.values()) {
-        if (r.targetId !== targetId || !leaseExpired(r.lease, nowMs)) continue;
+        if (r.targetId !== targetId || !leaseExpired(r.lease, nowMs)) continue; // 사전 필터
         if (await hasEvents(r.runId)) continue;
-        if (!leaseExpired(r.lease, nowMs)) continue; // hasEvents 를 기다리는 사이 다른 호출이 잡았을 수 있다
+        if (!leaseExpired(r.lease, nowMs)) continue; // 위 await 사이에 다른 호출이 잡았으면 넘어간다
         r.lease = newLease(agentId, nowMs, ttlMs);
         return structuredClone(r);
       }

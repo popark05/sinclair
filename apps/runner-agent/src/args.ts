@@ -39,6 +39,42 @@ export class AgentConfigError extends Error {}
 
 const ENGINES = ['fake', 'mobile'] as const;
 
+interface OptionSpec { readonly name: string; readonly key: string; readonly env: string; readonly required: boolean; readonly help: string }
+
+/** 옵션 표로 parseArgs 를 돌리고 플래그 > 환경변수 순으로 값을 모은다. 빈 문자열은 미설정. 필수 누락·모르는 옵션은 AgentConfigError */
+function parseWithTable(options: readonly OptionSpec[], argv: string[], env: NodeJS.ProcessEnv): { help: true; values?: undefined } | { help?: undefined; values: Record<string, string> } {
+  let values: Record<string, string | boolean | undefined>;
+  try {
+    ({ values } = parseArgs({
+      args: argv, strict: true, allowPositionals: false,
+      options: { ...Object.fromEntries(options.map((o) => [o.name, { type: 'string' as const }])), help: { type: 'boolean' as const, short: 'h' } },
+    }));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const quoted = msg.match(/'(--?[^']+)'/)?.[1];
+    if (/Unknown option/.test(msg)) throw new AgentConfigError(`모르는 옵션: ${quoted ?? msg}`);
+    if (/argument missing/.test(msg)) throw new AgentConfigError(`${quoted ?? '옵션'} 에 값이 필요함`);
+    throw new AgentConfigError(msg);
+  }
+  if (values.help) return { help: true };
+  const out: Record<string, string> = {};
+  for (const o of options) {
+    const v = values[o.name];
+    const picked = (typeof v === 'string' ? v : env[o.env]) || undefined;
+    if (picked === undefined) { if (o.required) throw new AgentConfigError(`--${o.name} 이 필요함 [${o.env}]`); continue; }
+    out[o.key] = picked;
+  }
+  return { values: out };
+}
+
+const helpTable = (options: readonly OptionSpec[]): string => options.map((o) => `  --${o.name.padEnd(14)} <값>  ${o.required ? '(필수) ' : ''}${o.help} [${o.env}]`).join('\n');
+
+const positiveInt = (name: string, text: string | undefined, min = 0): number | undefined => {
+  if (text === undefined) return undefined;
+  if (!/^\d+$/.test(text) || Number(text) < min) throw new AgentConfigError(`--${name} 은 ${min} 이상의 정수여야 함: ${text}`);
+  return Number(text);
+};
+
 const OPTIONS = [
   { name: 'control-plane', key: 'controlPlane', env: 'SINCLAIR_AGENT_CONTROL_PLANE', required: true, help: 'control-plane 주소 (예: http://127.0.0.1:4780)' },
   { name: 'cycle', key: 'cycle', env: 'SINCLAIR_AGENT_CYCLE', required: true, help: 'Cycle id' },
@@ -50,13 +86,13 @@ const OPTIONS = [
   { name: 'app', key: 'app', env: 'SINCLAIR_AGENT_APP', required: false, help: 'mobile: session.open 이 띄울 앱 id' },
   { name: 'artifacts', key: 'artifacts', env: 'SINCLAIR_AGENT_ARTIFACTS', required: false, help: '실패 스냅샷 디렉터리' },
   { name: 'timeout', key: 'timeoutMs', env: 'SINCLAIR_AGENT_TIMEOUT', required: false, help: 'locator 액션 기한 ms (기본 10000)' },
-  { name: 'agent', key: 'agent', env: 'SINCLAIR_AGENT_ID', required: false, help: '이 노드의 id (기본 호스트명). run.started.agentId' },
+  { name: 'agent', key: 'agent', env: 'SINCLAIR_AGENT_ID', required: false, help: '이 노드의 id (기본 호스트명; 한 머신에 에이전트를 여럿 띄우면 서로 다르게 줘야 lease 가 구분된다). run.started.agentId' },
   { name: 'spool', key: 'spool', env: 'SINCLAIR_AGENT_SPOOL', required: false, help: '스풀 디렉터리 (기본 OS 데이터 디렉터리/sinclair/spool). 서버가 없어도 이벤트가 여기 남는다' },
 ] as const;
 
 export const RUN_HELP = `사용법: sinclair-agent run [옵션]
 
-${OPTIONS.map((o) => `  --${o.name.padEnd(14)} <값>  ${o.required ? '(필수) ' : ''}${o.help} [${o.env}]`).join('\n')}
+${helpTable(OPTIONS)}
   --help
 
 종료 코드: 0 전부 통과, 1 실패 있음, 2 기기 불가(blocked), 3 설정·등록 오류
@@ -71,23 +107,6 @@ export const RESUME_HELP = `사용법: sinclair-agent resume [옵션]
 스풀에 남은 run 들을 같은 eventId 로 이어 보내고, 다 보낸 run 의 파일은 지운다. 종료 코드: 0 전부 완료, 4 미완 run 있음, 3 설정 오류
 `;
 
-export const DAEMON_HELP = `사용법: sinclair-agent daemon [옵션]
-
-  --control-plane <url>   (필수) control-plane 주소 [SINCLAIR_AGENT_CONTROL_PLANE]
-  --targets <a,b>         (필수) 이 노드가 맡는 타깃 id 들, 쉼표 구분 [SINCLAIR_AGENT_TARGETS]
-  --tests <dir>           (필수) Cycle 에 suite 가 없을 때 쓸 기본 테스트 디렉터리 [SINCLAIR_AGENT_TESTS]
-  --engine fake|mobile    기본 mobile [SINCLAIR_AGENT_ENGINE]
-  --device <serial>       mobile: 기기 시리얼 [SINCLAIR_AGENT_DEVICE]
-  --app <id>              mobile: session.open 이 띄울 앱 [SINCLAIR_AGENT_APP]
-  --artifacts <dir>       실패 스냅샷 디렉터리 [SINCLAIR_AGENT_ARTIFACTS]
-  --timeout <ms>          locator 액션 기한 [SINCLAIR_AGENT_TIMEOUT]
-  --agent <id>            이 노드의 id (기본 호스트명) [SINCLAIR_AGENT_ID]
-  --spool <dir>           스풀 디렉터리 [SINCLAIR_AGENT_SPOOL]
-  --poll <ms>             대기 중인 Run 이 없을 때 다시 묻는 간격 (기본 5000) [SINCLAIR_AGENT_POLL]
-  --help
-
-시작할 때 스풀을 이어 보내고, 타깃마다 Run 을 클레임해 실행·보고를 반복한다. SIGTERM/SIGINT 는 진행 중 run 을 마친 뒤 멈춘다.
-`;
 
 export interface ResumeArgs { spool: string; controlPlane?: string }
 
@@ -106,73 +125,48 @@ export function parseResumeArgs(argv: string[], env: NodeJS.ProcessEnv, platform
 }
 
 export function parseRunArgs(argv: string[], env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): RunArgs | { help: true } {
-  let values: Record<string, string | boolean | undefined>;
-  try {
-    ({ values } = parseArgs({
-      args: argv, strict: true, allowPositionals: false,
-      options: { ...Object.fromEntries(OPTIONS.map((o) => [o.name, { type: 'string' as const }])), help: { type: 'boolean' as const, short: 'h' } },
-    }));
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const quoted = msg.match(/'(--?[^']+)'/)?.[1];
-    if (/Unknown option/.test(msg)) throw new AgentConfigError(`모르는 옵션: ${quoted ?? msg}`);
-    if (/argument missing/.test(msg)) throw new AgentConfigError(`${quoted ?? '옵션'} 에 값이 필요함`);
-    throw new AgentConfigError(msg);
-  }
-  if (values.help) return { help: true };
-  const get = (o: (typeof OPTIONS)[number]): string | undefined => {
-    const v = values[o.name];
-    return typeof v === 'string' ? v : env[o.env];
-  };
-  const out: Record<string, string> = {};
-  for (const o of OPTIONS) {
-    const v = get(o);
-    if (v === undefined || v === '') { if (o.required) throw new AgentConfigError(`--${o.name} 이 필요함 [${o.env}]`); continue; }
-    out[o.key] = v;
-  }
+  const parsed = parseWithTable(OPTIONS, argv, env);
+  if (parsed.help) return { help: true };
+  const out = parsed.values;
   try { new URL(out.controlPlane!); } catch { throw new AgentConfigError(`--control-plane 은 URL 이어야 함: ${out.controlPlane}`); }
   const engine = out.engine ?? 'mobile';
   if (!(ENGINES as readonly string[]).includes(engine)) throw new AgentConfigError(`--engine 은 ${ENGINES.join('|')} 중 하나여야 함: ${engine}`);
   const { timeoutMs: timeoutText, ...rest } = out;
-  if (timeoutText !== undefined && !/^\d+$/.test(timeoutText)) throw new AgentConfigError(`--timeout 은 양의 정수(ms)여야 함: ${timeoutText}`);
-  return { ...rest, engine, spool: out.spool ?? defaultSpoolDir(env, platform), ...(timeoutText !== undefined ? { timeoutMs: Number(timeoutText) } : {}) } as unknown as RunArgs;
+  const timeoutMs = positiveInt('timeout', timeoutText);
+  return { ...rest, engine, spool: out.spool ?? defaultSpoolDir(env, platform), ...(timeoutMs !== undefined ? { timeoutMs } : {}) } as unknown as RunArgs;
 }
+
+/** daemon 옵션: run 의 표에서 cycle/target/run 을 빼고 targets/poll 을 더한다 */
+const DAEMON_OPTIONS: readonly OptionSpec[] = [
+  OPTIONS.find((o) => o.name === 'control-plane')!,
+  { name: 'targets', key: 'targets', env: 'SINCLAIR_AGENT_TARGETS', required: true, help: '이 노드가 맡는 타깃 id 들, 쉼표 구분' },
+  { ...OPTIONS.find((o) => o.name === 'tests')!, help: 'Cycle 에 suite 가 없을 때 쓸 기본 테스트 디렉터리' },
+  ...OPTIONS.filter((o) => ['engine', 'device', 'app', 'artifacts', 'timeout', 'agent', 'spool'].includes(o.name)),
+  { name: 'poll', key: 'pollMs', env: 'SINCLAIR_AGENT_POLL', required: false, help: '대기 중인 Run 이 없을 때 다시 묻는 간격 ms (기본 5000, 최소 100)' },
+];
+
+export const DAEMON_HELP = `사용법: sinclair-agent daemon [옵션]
+
+${helpTable(DAEMON_OPTIONS)}
+  --help
+
+시작할 때 스풀을 이어 보내고, 타깃마다 Run 을 클레임해 실행·보고를 반복한다. SIGTERM/SIGINT 는 진행 중 run 을 마친 뒤 멈춘다.
+종료 코드: 0 모든 run 통과, 1 실패·blocked·오류가 있던 run 있음, 3 설정 오류
+`;
 
 export interface DaemonCliArgs extends Omit<RunArgs, 'cycle' | 'target' | 'run'> { targets: string[]; pollMs?: number }
 
 export function parseDaemonArgs(argv: string[], env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): DaemonCliArgs | { help: true } {
-  let values: Record<string, string | boolean | undefined>;
-  try {
-    ({ values } = parseArgs({
-      args: argv, strict: true, allowPositionals: false,
-      options: {
-        'control-plane': { type: 'string' }, targets: { type: 'string' }, tests: { type: 'string' }, engine: { type: 'string' }, device: { type: 'string' }, app: { type: 'string' },
-        artifacts: { type: 'string' }, timeout: { type: 'string' }, agent: { type: 'string' }, spool: { type: 'string' }, poll: { type: 'string' }, help: { type: 'boolean', short: 'h' },
-      },
-    }));
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const quoted = msg.match(/'(--?[^']+)'/)?.[1];
-    if (/Unknown option/.test(msg)) throw new AgentConfigError(`모르는 옵션: ${quoted ?? msg}`);
-    if (/argument missing/.test(msg)) throw new AgentConfigError(`${quoted ?? '옵션'} 에 값이 필요함`);
-    throw new AgentConfigError(msg);
-  }
-  if (values.help) return { help: true };
-  const get = (name: string, envName: string): string | undefined => { const v = values[name]; return (typeof v === 'string' ? v : env[envName]) || undefined; };
-  const controlPlane = get('control-plane', 'SINCLAIR_AGENT_CONTROL_PLANE');
-  if (!controlPlane) throw new AgentConfigError('--control-plane 이 필요함 [SINCLAIR_AGENT_CONTROL_PLANE]');
-  try { new URL(controlPlane); } catch { throw new AgentConfigError(`--control-plane 은 URL 이어야 함: ${controlPlane}`); }
-  const targets = (get('targets', 'SINCLAIR_AGENT_TARGETS') ?? '').split(',').map((t) => t.trim()).filter(Boolean);
-  if (targets.length === 0) throw new AgentConfigError('--targets 가 필요함 (쉼표 구분) [SINCLAIR_AGENT_TARGETS]');
-  const tests = get('tests', 'SINCLAIR_AGENT_TESTS');
-  if (!tests) throw new AgentConfigError('--tests 가 필요함 [SINCLAIR_AGENT_TESTS]');
-  const engine = get('engine', 'SINCLAIR_AGENT_ENGINE') ?? 'mobile';
+  const parsed = parseWithTable(DAEMON_OPTIONS, argv, env);
+  if (parsed.help) return { help: true };
+  const out = parsed.values;
+  try { new URL(out.controlPlane!); } catch { throw new AgentConfigError(`--control-plane 은 URL 이어야 함: ${out.controlPlane}`); }
+  const targets = out.targets!.split(',').map((t) => t.trim()).filter(Boolean);
+  if (targets.length === 0) throw new AgentConfigError('--targets 가 비어 있음 (쉼표 구분)');
+  const engine = out.engine ?? 'mobile';
   if (!(ENGINES as readonly string[]).includes(engine)) throw new AgentConfigError(`--engine 은 ${ENGINES.join('|')} 중 하나여야 함: ${engine}`);
-  const num = (name: string, envName: string): number | undefined => { const t = get(name, envName); if (t === undefined) return undefined; if (!/^\d+$/.test(t)) throw new AgentConfigError(`--${name} 은 양의 정수여야 함: ${t}`); return Number(t); };
-  const timeoutMs = num('timeout', 'SINCLAIR_AGENT_TIMEOUT'); const pollMs = num('poll', 'SINCLAIR_AGENT_POLL');
-  const device = get('device', 'SINCLAIR_AGENT_DEVICE'); const app = get('app', 'SINCLAIR_AGENT_APP'); const artifacts = get('artifacts', 'SINCLAIR_AGENT_ARTIFACTS'); const agent = get('agent', 'SINCLAIR_AGENT_ID');
-  return {
-    controlPlane, targets, tests, engine: engine as 'fake' | 'mobile', spool: get('spool', 'SINCLAIR_AGENT_SPOOL') ?? defaultSpoolDir(env, platform),
-    ...(device ? { device } : {}), ...(app ? { app } : {}), ...(artifacts ? { artifacts } : {}), ...(agent ? { agent } : {}), ...(timeoutMs !== undefined ? { timeoutMs } : {}), ...(pollMs !== undefined ? { pollMs } : {}),
-  };
+  const timeoutMs = positiveInt('timeout', out.timeoutMs);
+  const pollMs = positiveInt('poll', out.pollMs, 100); // 100ms 미만은 서버를 두드리기만 한다
+  const { targets: _t, pollMs: _p, timeoutMs: _m, ...rest } = out;
+  return { ...rest, targets, engine, spool: out.spool ?? defaultSpoolDir(env, platform), ...(timeoutMs !== undefined ? { timeoutMs } : {}), ...(pollMs !== undefined ? { pollMs } : {}) } as unknown as DaemonCliArgs;
 }
