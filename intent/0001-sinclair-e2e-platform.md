@@ -36,5 +36,5 @@
 ## 열린 질문
 
 - iOS 실기기 에이전트(XCUITest 러너)의 재서명 절차를 사내 프로비저닝으로 자동화할 수 있는가.
-- Android 접근성 서비스 방식(artemis)과 UiAutomation 독점 방식(mobilecli) 중 무엇을 기본으로 할 것인가.
+- ~~Android 접근성 서비스 방식과 UiAutomation 독점 방식 중 무엇을 기본으로 할 것인가.~~ → docs/adr/0003 에서 접근성 서비스 방식으로 결정.
 - Control Plane 저장소를 SQLite로 시작할지 PostgreSQL로 시작할지.
