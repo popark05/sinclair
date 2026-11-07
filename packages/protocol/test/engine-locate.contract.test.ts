@@ -98,5 +98,8 @@ describe('within 의 bounds 포함 fallback (specs/0001)', () => {
     expect(locateInTree(overlay, { role: 'group', within: '@e1' })).toEqual([]);
     const noRect: SemanticNode = { ref: '@r', role: 'root', children: [{ ref: '@g', role: 'group' }, { ref: '@b', role: 'button', rect: { x: 0, y: 0, width: 1, height: 1 } }] };
     expect(locateInTree(noRect, { role: 'button', within: '@g' })).toEqual([]);
+    // scope 와 같은 rect 를 가진 조상(부모 컨테이너)은 fallback 으로도 맞지 않는다
+    const sameRect: SemanticNode = { ref: '@r', role: 'group', rect: { x: 0, y: 0, width: 100, height: 100 }, children: [{ ref: '@s', role: 'group', rect: { x: 0, y: 0, width: 100, height: 100 } }] };
+    expect(locateInTree(sameRect, { role: 'group', within: '@s' })).toEqual([]);
   });
 });

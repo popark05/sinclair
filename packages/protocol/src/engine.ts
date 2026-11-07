@@ -182,9 +182,16 @@ export function locateInTree(root: SemanticNode, query: LocatorQuery): SemanticN
     };
     descendants(scope);
     if (out.length === 0 && scope.rect) {
+      // scope 의 조상은 rect 가 같아도 "안에 있는" 것이 아니므로 뺀다
+      const ancestors = new Set<string>();
+      const markPath = (n: SemanticNode, path: SemanticNode[]): boolean => {
+        if (n.ref === scope.ref) { for (const a of path) ancestors.add(a.ref); return true; }
+        return (n.children ?? []).some((c) => markPath(c, [...path, n]));
+      };
+      markPath(root, []);
       const bounds = scope.rect;
       const byBounds = (n: SemanticNode): void => {
-        if (n.ref !== scope.ref && n.rect && rectContains(bounds, n.rect) && matchesQuery(n, query)) out.push(toLocated(n));
+        if (n.ref !== scope.ref && !ancestors.has(n.ref) && n.rect && rectContains(bounds, n.rect) && matchesQuery(n, query)) out.push(toLocated(n));
         for (const c of n.children ?? []) byBounds(c);
       };
       byBounds(root);

@@ -19,8 +19,8 @@
 | `name`, `text` | 문자열: 대소문자 무시 부분 일치. `exact: true` 면 대소문자 구분 정확 일치. 정규식: 정규식(g/y 플래그는 무시) |
 | `testId` | 정확 일치. Android resource-id 는 전체(`com.app:id/x`)와 짧은 이름(`x`) 모두 허용 |
 | `placeholder` | 정확 일치 |
-| `within` | 그 ref 의 자손(자기 자신 제외)으로 제한. 자손에서 못 찾으면 scope 의 rect 안에 완전히 놓인 노드로 다시 찾는다(bounds 체이닝 fallback). scope 가 없으면 빈 결과 |
-| `nth` | within 적용 뒤 결과에서 0부터 세는 문서(DFS) 순서. 범위 밖이면 빈 결과 |
+| `within` | 그 ref 의 자손(자기 자신 제외)으로 제한. 자손에서 **하나도** 못 찾을 때만 scope 의 rect 안에 완전히 놓인(경계 포함, 0 크기도 포함) 노드로 트리 전체를 다시 찾는다(bounds 체이닝 fallback). scope 자신과 그 조상은 제외하지만, rect 가 우연히 scope 안에 들어오는 다른 레이어의 노드는 맞을 수 있다. scope 가 없으면 빈 결과 |
+| `nth` | within(fallback 포함) 적용 뒤 결과에서 0부터 세는 문서(DFS) 순서. 범위 밖이면 빈 결과 |
 
 기본이 부분 일치인 이유: 모바일 접근성 이름은 "로그인 버튼" 처럼 꾸밈말이 붙는 경우가 많다. strict 모드에서 `ambiguous` 가 나면 `exact` 나 `testId` 로 좁힌다.
 
@@ -41,6 +41,14 @@
 ## capability
 
 구현한 선택 메서드로 결정(`capabilitiesOf`): `performAt` → pointer, `keyboard` → keyboard, `session` → session. 광고한 capability 는 호출이 되어야 한다.
+
+## 러너 locator 의 정책 (`packages/runner` `screen`)
+
+- strict: 액션·읽기는 정확히 하나에 맞아야 한다. 0개면 기한(기본 10초)까지 재조회한 뒤 `not-found`, 둘 이상이면 **대기 없이 즉시** `ambiguous`(중복은 기다려도 해소되지 않는 질의 문제로 본다. 전환 중 겹침이 문제가 되면 그때 정책을 바꾼다).
+- 비활성(`disabled`) 노드는 기한까지 활성화를 기다린 뒤 `not-actionable`.
+- `getByLabel(label)` 은 접근성 이름(`name`, Android contentDescription / iOS accessibilityLabel) 질의다. `labelFor` 관계는 아직 다루지 않는다.
+- secure 노드는 `text/value` 읽기만 `secure-read` 로 거부하고 `type` 은 허용한다. 입력값이 러너 트레이스에 남지 않는 것은 트레이스가 생기는 티켓(05)에서 검증한다.
+- `within(parent)` 는 부모를 먼저 strict 로 풀되 자식과 같은 기한을 쓴다(중첩 깊이만큼 기한이 늘지 않는다).
 
 ## 계약 스위트
 

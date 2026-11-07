@@ -10,6 +10,8 @@ export const LOGIN_SCREEN: SemanticNode = {
     { ref: '@e3', role: 'textbox', testId: 'com.app:id/password', placeholder: '비밀번호', value: 'hunter2', states: { secure: true }, rect: { x: 40, y: 460, width: 1000, height: 120 } },
     { ref: '@e4', role: 'button', name: '로그인', rect: { x: 40, y: 640, width: 1000, height: 120 } },
     { ref: '@e5', role: 'button', name: '회원가입', states: { disabled: true }, rect: { x: 40, y: 800, width: 1000, height: 120 } },
+    { ref: '@e6', role: 'checkbox', name: '자동 로그인', rect: { x: 40, y: 960, width: 400, height: 80 } },
+    { ref: '@e7', role: 'combobox', name: '언어', value: 'ko', rect: { x: 480, y: 960, width: 560, height: 80 } },
   ],
 };
 
