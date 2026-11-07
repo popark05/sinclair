@@ -9,5 +9,10 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
-  "dependencies": { "@sinclair/protocol": "workspace:*" }
+  "dependencies": {
+    "@sinclair/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@sinclair/runner": "workspace:*"
+  }
 }

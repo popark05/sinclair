@@ -193,6 +193,10 @@ importers:
       '@sinclair/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+    devDependencies:
+      '@sinclair/runner':
+        specifier: workspace:*
+        version: link:../../packages/runner
 
   apps/runner-agent:
     dependencies:

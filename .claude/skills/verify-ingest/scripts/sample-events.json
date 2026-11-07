@@ -1,0 +1,7 @@
+[
+  { "schema": 1, "eventId": "v-e0", "runId": "verify-run", "at": "2026-11-07T00:00:00.000Z", "type": "run.started", "cycleId": "verify-cycle", "targetId": "android", "deviceId": "VERIFY1" },
+  { "schema": 1, "eventId": "v-e1", "runId": "verify-run", "at": "2026-11-07T00:00:01.000Z", "type": "attempt.started", "attemptId": "v-a1", "testId": "로그인", "attemptNo": 1 },
+  { "schema": 1, "eventId": "v-e2", "runId": "verify-run", "at": "2026-11-07T00:00:02.000Z", "type": "step.recorded", "attemptId": "v-a1", "stepIndex": 0, "kind": "assert", "instruction": "expect { text=\"환영\" } toBeVisible", "modelCalls": 0, "durationMs": 12 },
+  { "schema": 1, "eventId": "v-e3", "runId": "verify-run", "at": "2026-11-07T00:00:03.000Z", "type": "attempt.finished", "attemptId": "v-a1", "result": "passed", "artifacts": [] },
+  { "schema": 1, "eventId": "v-e4", "runId": "verify-run", "at": "2026-11-07T00:00:04.000Z", "type": "run.finished", "state": "finished" }
+]
