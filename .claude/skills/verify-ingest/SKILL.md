@@ -81,5 +81,6 @@ $S/stop.sh $RUN
 | `scripts/get.sh <RUN> <path> [name]` | GET + 증거 저장 |
 | `scripts/order-check.sh <RUN> <events.json> [name]` | 순서 무관 증명(runId 접미사 `-ordered`/`-shuffled`) |
 | `scripts/run-sample.sh <RUN> [batchSize]` | 러너 샘플을 HTTP Reporter 로 흘려보냄 |
+| `scripts/schema-check.sh <RUN>` | (sqlite, 서버 내린 뒤) 더 새로운 스키마 버전 파일의 기동 거부 증명 |
 | `scripts/stop.sh <RUN>` | 우리가 띄운 pid 만 종료 |
 | `scripts/sample-events.json` | 완료된 run 1개의 이벤트 5개 |

@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-07T06:35:29.741Z",
+  "at": "2026-11-07T06:39:56.349Z",
   "store": "sqlite",
   "beforeRestart": {
     "accepted": 5,
@@ -11,5 +11,14 @@
     "accepted": 0,
     "duplicate": 5,
     "rejected": []
+  },
+  "schemaGuard": {
+    "startExitCode": 1,
+    "refused": true,
+    "output": [
+      "서버가 5초 안에 READY 를 출력하지 않음",
+      "  if (current > SQLITE_SCHEMA_VERSION) throw new Error(`control-plane DB 스키마 버전 ${current} 은 이 빌드(${SQLITE_SCHEMA_VERSION})보다 새롭다`);",
+      "Error: control-plane DB 스키마 버전 2 은 이 빌드(1)보다 새롭다"
+    ]
   }
 }

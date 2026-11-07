@@ -25,6 +25,7 @@ $S/get.sh $RUN /runs/verify-run view-after >/dev/null
 diff <(node -p "JSON.stringify(require('./$RUN/evidence/view-before.json').response)") <(node -p "JSON.stringify(require('./$RUN/evidence/view-after.json').response)") && echo PERSISTED
 $S/ingest.sh $RUN $S/sample-events.json after-restart   # {"accepted":0,"duplicate":5,"rejected":[]}
 $S/stop.sh $RUN
+$S/schema-check.sh $RUN                                   # SCHEMA-GUARD OK; evidence/schema-guard.json refused:true
 ```
 
 ## Gotchas

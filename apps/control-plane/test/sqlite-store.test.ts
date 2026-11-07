@@ -4,21 +4,19 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { RunEvent } from '@sinclair/protocol';
 import { createSqliteEventStore, projectRun, SQLITE_SCHEMA_VERSION } from '../src/index.ts';
 import { eventStoreSuite } from './event-store-suite.ts';
+import { ev as mk } from './fixtures.ts';
 
 let dir: string;
+let n = 0;
 beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sinclair-sqlite-')); });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-eventStoreSuite('sqlite(파일)', () => createSqliteEventStore(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sinclair-sqlite-suite-')), 'cp.db')));
+eventStoreSuite('sqlite(파일)', () => createSqliteEventStore(path.join(dir, `suite-${n++}.db`))); // dir 는 beforeEach 가 만들고 afterEach 가 지운다
 eventStoreSuite('sqlite(:memory:)', () => createSqliteEventStore(':memory:'));
 
-const ev = (eventId: string, s: number, type: 'run.started' | 'run.finished' = 'run.started'): RunEvent =>
-  type === 'run.started'
-    ? { schema: 1, eventId, runId: 'r1', at: `2026-11-07T00:00:0${s}.000Z`, type, targetId: 'android', cycleId: 'c1' }
-    : { schema: 1, eventId, runId: 'r1', at: `2026-11-07T00:00:0${s}.000Z`, type, state: 'finished' };
+const ev = (eventId: string, s: number, type: 'run.started' | 'run.finished' = 'run.started') => mk(eventId, 'r1', type, s);
 
 describe('SQLite 영속', () => {
   it('닫고 같은 파일을 다시 열면 이벤트와 투영이 그대로다', async () => {
@@ -55,12 +53,24 @@ describe('SQLite 영속', () => {
     expect(fs.existsSync(path.join(dir, 'nested', 'deeper', 'cp.db'))).toBe(true);
   });
 
-  it('같은 eventId 를 동시에 append 해도 DB 유일 제약으로 정확히 하나만 accepted 다', async () => {
-    const store = createSqliteEventStore(path.join(dir, 'cp.db'));
-    const results = await Promise.all(Array.from({ length: 20 }, (_, i) => store.append(ev('same', i % 10))));
+  it('같은 파일을 연 두 핸들이 같은 eventId 를 번갈아 append 해도 DB 유일 제약으로 정확히 하나만 accepted 다', async () => {
+    // 단일 프로세스의 동기 API 라 호출은 직렬이다. 여기서 보는 것은 메모리 상태가 아니라 DB 제약이 중복을 막는다는 점이다
+    const file = path.join(dir, 'cp.db');
+    const a = createSqliteEventStore(file);
+    const b = createSqliteEventStore(file);
+    const results = await Promise.all(Array.from({ length: 20 }, (_, i) => (i % 2 ? a : b).append(ev('same', i % 10))));
     expect(results.filter((r) => r === 'accepted')).toHaveLength(1);
     expect(results.filter((r) => r === 'duplicate')).toHaveLength(19);
-    expect(await store.eventsForRun('r1')).toHaveLength(1);
-    await store.close!();
+    expect(await a.eventsForRun('r1')).toHaveLength(1);
+    expect(await b.eventsForRun('r1')).toHaveLength(1); // 다른 핸들에서도 보인다
+    await a.close!(); await b.close!();
+  });
+
+  it('control-plane DB 가 아닌 SQLite 파일(버전 0 인데 테이블 있음)은 열지 않는다', () => {
+    const file = path.join(dir, 'other.db');
+    const raw = new DatabaseSync(file);
+    raw.exec('CREATE TABLE notes(id INTEGER)');
+    raw.close();
+    expect(() => createSqliteEventStore(file)).toThrow(/control-plane DB 가 아닌/);
   });
 });

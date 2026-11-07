@@ -1,12 +1,7 @@
 // EventStore 구현체가 공통으로 통과해야 하는 스위트. 인메모리(02)와 SQLite(04)가 같은 스위트를 돌린다.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import type { RunEvent } from '@sinclair/protocol';
 import type { EventStore } from '../src/index.ts';
-
-const ev = (eventId: string, runId: string, type: 'run.started' | 'run.finished', s = 0): RunEvent =>
-  type === 'run.started'
-    ? { schema: 1, eventId, runId, at: `2026-11-07T00:00:0${s}.000Z`, type, targetId: 't' }
-    : { schema: 1, eventId, runId, at: `2026-11-07T00:00:0${s}.000Z`, type, state: 'finished' };
+import { ev } from './fixtures.ts';
 
 export function eventStoreSuite(name: string, makeStore: () => Promise<EventStore> | EventStore): void {
   describe(`EventStore 계약: ${name}`, () => {

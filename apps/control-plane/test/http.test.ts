@@ -1,18 +1,9 @@
 // @vitest-environment node
 // HTTP 표면: POST /ingest (배치, 멱등, 부분 거부) 와 GET /runs/:id. Reporter 가 쓰는 실제 경로로 검증한다.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import type { RunEvent } from '@sinclair/protocol';
 import { createMemoryEventStore, serveControlPlane, projectRun, type ControlPlaneServer, type IngestResponse } from '../src/index.ts';
+import { RUN, at } from './fixtures.ts';
 
-const at = (s: number) => `2026-11-07T00:00:${String(s).padStart(2, '0')}.000Z`;
-const base = (eventId: string, s: number) => ({ schema: 1 as const, eventId, runId: 'r1', at: at(s) });
-const RUN: RunEvent[] = [
-  { ...base('e0', 0), type: 'run.started', targetId: 'android' },
-  { ...base('e1', 1), type: 'attempt.started', attemptId: 'a1', testId: '로그인', attemptNo: 1 },
-  { ...base('e2', 2), type: 'step.recorded', attemptId: 'a1', stepIndex: 0, kind: 'assert', modelCalls: 0, durationMs: 5 },
-  { ...base('e3', 3), type: 'attempt.finished', attemptId: 'a1', result: 'passed', artifacts: [] },
-  { ...base('e4', 4), type: 'run.finished', state: 'finished' },
-];
 
 let server: ControlPlaneServer;
 beforeEach(async () => { server = await serveControlPlane(createMemoryEventStore()); });
@@ -25,16 +16,16 @@ describe('POST /ingest', () => {
   it('배치를 저장하고 accepted 수를 돌려주며, 같은 배치를 다시 보내면 전부 duplicate 이고 투영은 바이트 단위로 같다', async () => {
     const first = await post(RUN);
     expect(first.status).toBe(200);
-    expect(await first.json()).toEqual({ accepted: 5, duplicate: 0, rejected: [] });
+    expect(await first.json()).toEqual({ accepted: RUN.length, duplicate: 0, rejected: [] });
     const view1 = await (await get('/runs/r1')).text();
 
     const second = await post(RUN);
-    expect(await second.json()).toEqual({ accepted: 0, duplicate: 5, rejected: [] });
+    expect(await second.json()).toEqual({ accepted: 0, duplicate: RUN.length, rejected: [] });
     expect(await (await get('/runs/r1')).text()).toBe(view1);
   });
 
   it('잘못된 원소는 index·eventId·오류와 함께 rejected 로 돌려주고 나머지는 저장된다', async () => {
-    const bad = [RUN[0], { ...RUN[1], attemptNo: '1' }, { eventId: 'x' }, 'not-an-object', RUN[4]];
+    const bad = [RUN[0], { ...RUN[1], attemptNo: '1' }, { eventId: 'x' }, 'not-an-object', RUN[8]];
     const res = await post(bad);
     expect(res.status).toBe(200);
     const body = (await res.json()) as IngestResponse;
@@ -63,8 +54,8 @@ describe('POST /ingest', () => {
   });
 
   it('순서가 뒤섞인 두 배치로 나눠 보내도 투영이 같다', async () => {
-    await post([RUN[3], RUN[4]]);
-    await post([RUN[2], RUN[0], RUN[1]]);
+    await post([RUN[7], RUN[8], RUN[3]]);
+    await post([RUN[2], RUN[0], RUN[6], RUN[1], RUN[5], RUN[4]]);
     expect(await (await get('/runs/r1')).json()).toEqual(projectRun(RUN));
   });
 });
@@ -80,7 +71,7 @@ describe('GET /runs', () => {
 
   it('GET /runs 는 run 목록을 요약으로 돌려준다', async () => {
     await post(RUN);
-    expect(await (await get('/runs')).json()).toEqual([{ runId: 'r1', state: 'finished', targetId: 'android', startedAt: at(0), finishedAt: at(4), attempts: 1 }]);
+    expect(await (await get('/runs')).json()).toEqual([{ runId: 'r1', state: 'finished', targetId: 'android', startedAt: at(0), finishedAt: at(8), attempts: 2 }]);
   });
 
   it('모르는 경로는 404, GET /health 는 200', async () => {
