@@ -31,7 +31,8 @@ function start(args: string[], env: Record<string, string> = {}) {
   return { child, ready, exited, output: () => out, stop: async () => { child.kill('SIGTERM'); return exited; } };
 }
 
-describe('sinclair-control-plane bin', () => {
+// 셸 재실행 bin 은 TS 변환 로드로 프로세스마다 0.5~1초, 전체 스위트 병렬 실행에서는 수 초가 걸린다
+describe('sinclair-control-plane bin', { timeout: 30_000 }, () => {
   it('sqlite: READY 로그에 저장소·DB·스키마가 찍히고, SIGTERM 으로 정상 종료 뒤 같은 DB 로 다시 띄우면 run 이 남아 있다', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sinclair-bin-'));
     const db = path.join(dir, 'nested', 'cp.db');

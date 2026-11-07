@@ -7,10 +7,13 @@ import * as path from 'node:path';
 
 const FLAG = '--experimental-transform-types';
 if (!process.execArgv.includes(FLAG)) {
-  const child = spawn(process.execPath, [FLAG, '--no-warnings=ExperimentalWarning', fileURLToPath(import.meta.url), ...process.argv.slice(2)], { stdio: 'inherit' });
+  // IPC 채널을 하나 열어 둔다: 이 셸이 SIGKILL 등으로 죽으면 채널이 닫혀 자식이 'disconnect' 로 알고 종료한다(고아 서버 방지)
+  const child = spawn(process.execPath, [FLAG, '--no-warnings=ExperimentalWarning', fileURLToPath(import.meta.url), ...process.argv.slice(2)], { stdio: ['inherit', 'inherit', 'inherit', 'ipc'] });
   for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => child.kill(sig));
   child.on('exit', (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
 } else {
+  process.on('disconnect', () => process.exit(143)); // 부모 셸이 사라짐(SIGTERM 과 같은 코드)
+  process.channel?.unref(); // 채널이 이벤트 루프를 붙잡아 main 이 끝난 뒤에도 프로세스가 남지 않도록
   const { main } = await import(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'main.ts'));
   process.exitCode = await main();
 }

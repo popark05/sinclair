@@ -18,7 +18,7 @@ function spawnBin(bin: string, args: string[]) {
   return { child, exited, output: () => out };
 }
 
-describe('sinclair-agent bin', () => {
+describe('sinclair-agent bin', { timeout: 30_000 }, () => {
   it('run --engine fake 가 Run 을 등록·실행·보고하고 0 으로 끝난다', async () => {
     const cp = spawnBin(CP_BIN, ['--port', '0', '--store', 'memory']);
     const port = await new Promise<number>((resolve, reject) => {
@@ -43,5 +43,5 @@ describe('sinclair-agent bin', () => {
     expect(help.output()).toContain('사용법: sinclair-agent run');
     cp.child.kill('SIGTERM');
     await cp.exited;
-  }, 30_000); // 셸 재실행 bin 4개(control-plane 1 + agent 3) × TS 변환 로드
+  }); // 셸 재실행 bin 4개(control-plane 1 + agent 3) × TS 변환 로드: describe 수준 30초
 });
