@@ -19,7 +19,7 @@ Preconditions:
 
 - Baseline.
 
-- **통과.** `SINCLAIR_TEST_USB=1 npx vitest run packages/runner/test/runner.device.test.ts`. evidence 의 `summary` 가 `{passed:1, failed:0, blocked:0, skipped:0}` (blocked 칸은 리뷰 반영 뒤 추가; 저장된 evidence 는 그 이전 모양), `tests[0].steps` 에 `assert` 스텝(`expect { text="설정", exact=true } toBeVisible`)이 있다.
+- **통과.** `SINCLAIR_TEST_USB=1 npx vitest run packages/runner/test/runner.device.test.ts`. evidence 의 `summary` 가 `{passed:1, failed:0, blocked:0, skipped:0}`, `tests[0].steps` 에 `assert` 스텝(`expect { text="설정", exact=true } toBeVisible`)이 있다.
 - **실패·아티팩트(페이크).** `npx vitest run packages/runner/test/runner.test.ts` 의 "통과·실패·skip" 케이스가 `mixed.sinclair.ts` 로 검증한다. 실기기에서 실패를 보려면 샘플 파일에 없는 문구를 기다리는 테스트를 추가한다.
 
 ## Gotchas

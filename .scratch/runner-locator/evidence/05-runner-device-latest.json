@@ -1,21 +1,22 @@
 {
-  "at": "2026-11-07T05:08:27.162Z",
+  "at": "2026-11-07T05:16:37.944Z",
   "device": "SM-N981N (…XLZW) Android 13",
   "summary": {
     "passed": 1,
     "failed": 0,
+    "blocked": 0,
     "skipped": 0
   },
   "tests": [
     {
       "name": "설정 앱 > 열면 \"설정\" 제목이 보인다",
       "result": "passed",
-      "durationMs": 1269,
+      "durationMs": 860,
       "steps": [
         {
           "kind": "assert",
           "instruction": "expect { text=\"설정\", exact=true } toBeVisible",
-          "durationMs": 74
+          "durationMs": 82
         }
       ]
     }
