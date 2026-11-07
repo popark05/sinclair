@@ -1,4 +1,5 @@
 // `sinclair-agent run` 인자: 플래그 > 환경변수(SINCLAIR_AGENT_*) > 기본값. 옵션 표 하나가 파서·도움말·환경변수 이름을 만든다.
+import * as path from 'node:path';
 import { parseArgs } from 'node:util';
 
 export interface RunArgs {
@@ -21,6 +22,17 @@ export interface RunArgs {
   timeoutMs?: number;
   /** 이 노드의 식별자(run.started.agentId). 기본 호스트명 */
   agent?: string;
+  /** 스풀 디렉터리(이벤트를 먼저 쓰는 곳). 기본 OS 데이터 디렉터리/sinclair/spool */
+  spool: string;
+}
+
+/** OS 관례의 사용자 데이터 디렉터리 아래 sinclair/spool (control-plane 의 defaultDataDir 와 같은 규칙) */
+export function defaultSpoolDir(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): string {
+  const home = env.HOME ?? env.USERPROFILE ?? '.';
+  const data = platform === 'darwin' ? path.join(home, 'Library', 'Application Support')
+    : platform === 'win32' ? (env.APPDATA ?? path.join(home, 'AppData', 'Roaming'))
+    : (env.XDG_DATA_HOME ?? path.join(home, '.local', 'share'));
+  return path.join(data, 'sinclair', 'spool');
 }
 
 export class AgentConfigError extends Error {}
@@ -39,6 +51,7 @@ const OPTIONS = [
   { name: 'artifacts', key: 'artifacts', env: 'SINCLAIR_AGENT_ARTIFACTS', required: false, help: '실패 스냅샷 디렉터리' },
   { name: 'timeout', key: 'timeoutMs', env: 'SINCLAIR_AGENT_TIMEOUT', required: false, help: 'locator 액션 기한 ms (기본 10000)' },
   { name: 'agent', key: 'agent', env: 'SINCLAIR_AGENT_ID', required: false, help: '이 노드의 id (기본 호스트명). run.started.agentId' },
+  { name: 'spool', key: 'spool', env: 'SINCLAIR_AGENT_SPOOL', required: false, help: '스풀 디렉터리 (기본 OS 데이터 디렉터리/sinclair/spool). 서버가 없어도 이벤트가 여기 남는다' },
 ] as const;
 
 export const RUN_HELP = `사용법: sinclair-agent run [옵션]
@@ -49,7 +62,32 @@ ${OPTIONS.map((o) => `  --${o.name.padEnd(14)} <값>  ${o.required ? '(필수) '
 종료 코드: 0 전부 통과, 1 실패 있음, 2 기기 불가(blocked), 3 설정·등록 오류
 `;
 
-export function parseRunArgs(argv: string[], env: NodeJS.ProcessEnv): RunArgs | { help: true } {
+export const RESUME_HELP = `사용법: sinclair-agent resume [옵션]
+
+  --spool <dir>           스풀 디렉터리 (기본 OS 데이터 디렉터리/sinclair/spool) [SINCLAIR_AGENT_SPOOL]
+  --control-plane <url>   스풀 meta 의 주소 대신 쓸 control-plane [SINCLAIR_AGENT_CONTROL_PLANE]
+  --help
+
+스풀에 남은 run 들을 같은 eventId 로 이어 보내고, 다 보낸 run 의 파일은 지운다. 종료 코드: 0 전부 완료, 1 미완 run 있음, 3 설정 오류
+`;
+
+export interface ResumeArgs { spool: string; controlPlane?: string }
+
+export function parseResumeArgs(argv: string[], env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): ResumeArgs | { help: true } {
+  let values: Record<string, string | boolean | undefined>;
+  try {
+    ({ values } = parseArgs({ args: argv, strict: true, allowPositionals: false, options: { spool: { type: 'string' }, 'control-plane': { type: 'string' }, help: { type: 'boolean', short: 'h' } } }));
+  } catch (err) {
+    throw new AgentConfigError(err instanceof Error ? err.message : String(err));
+  }
+  if (values.help) return { help: true };
+  const spool = (typeof values.spool === 'string' ? values.spool : env.SINCLAIR_AGENT_SPOOL) || defaultSpoolDir(env, platform);
+  const controlPlane = (typeof values['control-plane'] === 'string' ? values['control-plane'] : env.SINCLAIR_AGENT_CONTROL_PLANE) || undefined;
+  if (controlPlane) { try { new URL(controlPlane); } catch { throw new AgentConfigError(`--control-plane 은 URL 이어야 함: ${controlPlane}`); } }
+  return { spool, ...(controlPlane ? { controlPlane } : {}) };
+}
+
+export function parseRunArgs(argv: string[], env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): RunArgs | { help: true } {
   let values: Record<string, string | boolean | undefined>;
   try {
     ({ values } = parseArgs({
@@ -79,5 +117,5 @@ export function parseRunArgs(argv: string[], env: NodeJS.ProcessEnv): RunArgs | 
   if (!(ENGINES as readonly string[]).includes(engine)) throw new AgentConfigError(`--engine 은 ${ENGINES.join('|')} 중 하나여야 함: ${engine}`);
   const { timeoutMs: timeoutText, ...rest } = out;
   if (timeoutText !== undefined && !/^\d+$/.test(timeoutText)) throw new AgentConfigError(`--timeout 은 양의 정수(ms)여야 함: ${timeoutText}`);
-  return { ...rest, engine, ...(timeoutText !== undefined ? { timeoutMs: Number(timeoutText) } : {}) } as unknown as RunArgs;
+  return { ...rest, engine, spool: out.spool ?? defaultSpoolDir(env, platform), ...(timeoutText !== undefined ? { timeoutMs: Number(timeoutText) } : {}) } as unknown as RunArgs;
 }

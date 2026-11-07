@@ -5,6 +5,7 @@
 // 재시도는 상한 있는 백오프로 끝없이 한다. 전체 기한은 러너의 reporterFlushTimeoutMs 가 잡고, 러너는 그 뒤 close() 로 재시도를 멈춘다.
 import type { RunEvent } from '@sinclair/protocol';
 import type { Reporter } from './runner.ts';
+import { postIngestBatch } from './ingest-client.ts';
 
 export interface HttpReporterOptions {
   /** 예: http://127.0.0.1:4000/ingest */
@@ -31,11 +32,6 @@ export interface HttpReporter extends Reporter {
   close(): Promise<void>;
 }
 
-interface IngestResponseShape { accepted?: number; duplicate?: number; rejected?: Array<{ index: number; eventId?: string; errors: string[] }> }
-
-/** 재시도해도 결과가 달라질 수 있는 상태 */
-const RETRYABLE_STATUS = new Set([408, 429]);
-
 export function createHttpReporter(options: HttpReporterOptions): HttpReporter {
   const url = new URL(options.url).href; // 잘못된 주소는 재시도 대상이 아니라 설정 오류: 여기서 바로 던진다
   const batchSize = options.batchSize ?? 100;
@@ -61,24 +57,10 @@ export function createHttpReporter(options: HttpReporterOptions): HttpReporter {
 
   type Outcome = 'done' | 'retry' | 'split';
   const sendOnce = async (batch: RunEvent[]): Promise<Outcome> => {
-    let res: Response;
-    try {
-      res = await doFetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(batch), signal: aborter.signal });
-    } catch {
-      return 'retry'; // 연결 거부·끊김·취소
-    }
-    if (res.status >= 500 || RETRYABLE_STATUS.has(res.status)) return 'retry';
-    if (res.status === 413) return 'split';
-    if (res.status !== 200) {
-      warnings.push(`Ingest 가 배치(${batch.length}건, ${batch[0]?.eventId}…)를 ${res.status} 로 거부: ${(await res.text().catch(() => '')).slice(0, 200)}`);
-      return 'done';
-    }
-    let body: IngestResponseShape | undefined;
-    try { body = (await res.json()) as IngestResponseShape; } catch { body = undefined; }
-    if (!body || typeof body.accepted !== 'number') { warnings.push(`Ingest 응답을 읽을 수 없음(${batch.length}건, ${batch[0]?.eventId}…)`); return 'done'; }
-    const rejected = body.rejected ?? [];
-    stats.sent += batch.length; stats.accepted += body.accepted; stats.duplicate += body.duplicate ?? 0; stats.rejected += rejected.length;
-    for (const r of rejected) warnings.push(`이벤트 ${r.eventId ?? `#${r.index}`} 거부: ${r.errors.join(', ')}`);
+    const outcome = await postIngestBatch(url, batch, doFetch, aborter.signal);
+    if (outcome.kind !== 'done') return outcome.kind;
+    warnings.push(...outcome.warnings);
+    if (outcome.ok) { stats.sent += batch.length; stats.accepted += outcome.accepted; stats.duplicate += outcome.duplicate; stats.rejected += outcome.rejected.length; }
     return 'done';
   };
 

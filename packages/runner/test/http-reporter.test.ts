@@ -8,6 +8,8 @@ import { createHttpReporter } from '../src/index.ts';
 const at = (s: number) => `2026-11-07T00:00:${String(s % 60).padStart(2, '0')}.000Z`;
 const ev = (i: number): RunEvent => ({ schema: 1, eventId: `e${i}`, runId: 'r1', at: at(i), type: 'step.recorded', attemptId: 'a1', stepIndex: i, kind: 'act', modelCalls: 0, durationMs: 1 });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** 조건이 참이 될 때까지 폴링(전체 스위트 병렬 실행 중 고정 대기는 흔들린다). 상한 2초 */
+async function until(cond: () => boolean, limitMs = 2000): Promise<void> { const t = Date.now(); while (!cond() && Date.now() - t < limitMs) await sleep(10); }
 
 /** 페이크 Ingest: 받은 배치를 기록하고, 응답을 스크립트로 제어한다. port 를 주면 그 포트로 다시 띄운다(서버 재기동 시뮬레이션) */
 type Behavior = 'ok' | '500' | '429' | 'drop' | 'reject-first' | '400' | '413';
@@ -47,7 +49,7 @@ describe('createHttpReporter', () => {
     const srv = await fakeIngest(); cleanup.push(srv.close);
     const reporter = createHttpReporter({ url: srv.url, batchSize: 100, flushIntervalMs: 20, backoffMs: 10 });
     reporter.onEvent(ev(0));
-    await sleep(150); // 간격(20ms) + 로컬 왕복 여유
+    await until(() => srv.batches.length === 1); // 간격(20ms) 뒤 전송
     expect(srv.batches).toHaveLength(1);
     await reporter.flush();
   });
@@ -87,10 +89,10 @@ describe('createHttpReporter', () => {
     const srv = await fakeIngest();
     const reporter = createHttpReporter({ url: srv.url, batchSize: 2, flushIntervalMs: 10, backoffMs: 5, maxBackoffMs: 30 });
     reporter.onEvent(ev(0)); reporter.onEvent(ev(1));
-    await sleep(50); // 첫 배치가 도착할 시간
+    await until(() => srv.batches.length === 1); // 첫 배치 도착
     await srv.close(); // 내려감
     reporter.onEvent(ev(2)); reporter.onEvent(ev(3)); reporter.onEvent(ev(4));
-    await sleep(80); // 백오프 5·10·20·30 을 몇 번 겪는다
+    await until(() => reporter.stats.retries > 0); // 연결 거부를 최소 한 번 겪는다
     expect(reporter.stats.retries).toBeGreaterThan(0);
     const again = await fakeIngest(srv.port); cleanup.push(again.close); // 같은 포트로 재기동
     await reporter.flush();

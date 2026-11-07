@@ -3,10 +3,11 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { createHttpReporter, runTests, type Reporter } from '@sinclair/runner';
+import { runTests, type Reporter } from '@sinclair/runner';
 import { AgentConfigError, type RunArgs } from './args.ts';
-import { registerRun, type RegisteredRun } from './control-plane-client.ts';
+import { ControlPlaneError, registerRun, type RegisteredRun } from './control-plane-client.ts';
 import { createEngine, type EngineHandle } from './engines.ts';
+import { createSpoolReporter } from './spool.ts';
 
 /** 종료 코드. 셸 스크립트·CI 가 분기한다 */
 export const EXIT = { ok: 0, testsFailed: 1, blocked: 2, config: 3 } as const;
@@ -28,7 +29,8 @@ export async function collectTestFiles(dir: string): Promise<string[]> {
   return files;
 }
 
-const defaultReporter = (args: RunArgs): Reporter => createHttpReporter({ url: `${args.controlPlane.replace(/\/$/, '')}/ingest` });
+/** 기본 Reporter 는 디스크 스풀: 서버가 없어도 이벤트가 남고 `sinclair-agent resume` 이 이어 보낸다 */
+const defaultReporter = (args: RunArgs, run: RegisteredRun): Reporter => createSpoolReporter({ dir: args.spool, runId: run.runId, controlPlane: args.controlPlane, cycleId: run.cycleId, targetId: run.targetId });
 
 /** 테스트 파일 수집 → Run 등록 → executeRun. 데몬(04)은 클레임한 Run 으로 executeRun 을 직접 부른다 */
 export async function runOnce(args: RunArgs, deps: RunOnceDeps = {}): Promise<ExitCode> {
@@ -37,8 +39,16 @@ export async function runOnce(args: RunArgs, deps: RunOnceDeps = {}): Promise<Ex
   let run: RegisteredRun;
   try {
     files = await collectTestFiles(path.resolve(args.tests));
-    run = await registerRun(args.controlPlane, args.cycle, args.target, args.run);
-    log(`run ${run.runId} 등록 (cycle ${args.cycle}, target ${args.target}, 테스트 파일 ${files.length}개)`);
+    try {
+      run = await registerRun(args.controlPlane, args.cycle, args.target, args.run);
+      log(`run ${run.runId} 등록 (cycle ${args.cycle}, target ${args.target}, 테스트 파일 ${files.length}개)`);
+    } catch (err) {
+      // --run 으로 이미 등록된 Run 을 받았는데 서버에 닿지 않으면(status 없음) 그대로 진행한다: 이벤트는 스풀에 남고 resume 이 보낸다.
+      // 서버가 응답했는데 거부(404/409)한 경우는 설정 오류다
+      if (!(args.run && err instanceof ControlPlaneError && err.status === undefined)) throw err;
+      run = { runId: args.run, cycleId: args.cycle, targetId: args.target };
+      log(`control-plane 에 닿지 않아 지정된 run ${run.runId} 으로 진행 (이벤트는 스풀에 남음): ${err.message}`);
+    }
   } catch (err) {
     log(`설정·등록 오류: ${err instanceof Error ? err.message : String(err)}`);
     return EXIT.config;
@@ -72,6 +82,8 @@ export async function executeRun(args: RunArgs, run: RegisteredRun, files: strin
     });
     const s = report.summary;
     const st = (reporter as { stats?: { sent: number; accepted: number; duplicate: number; rejected: number; retries: number } }).stats;
+    const rw = (reporter as { warnings?: readonly string[] }).warnings ?? [];
+    if (report.warnings === undefined && rw.length) (report as { warnings?: string[] }).warnings = [...rw];
     log(`결과: passed ${s.passed}, failed ${s.failed}, blocked ${s.blocked}, skipped ${s.skipped}${st ? ` / 전송 ${st.sent}건(accepted ${st.accepted}, duplicate ${st.duplicate}, rejected ${st.rejected}, retries ${st.retries})` : ''}`);
     for (const t of report.tests) if (t.result !== 'passed') log(`  ${t.result}: ${t.name}${t.error ? ` — ${t.error}` : ''}`);
     for (const w of report.warnings ?? []) log(`  경고: ${w}`);
