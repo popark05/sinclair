@@ -29,6 +29,8 @@ export interface RunOptions {
   reporterFlushTimeoutMs?: number;
   /** 실패 시 스냅샷(PNG + 트리 JSON)을 쓰는 디렉터리. 없으면 아티팩트를 남기지 않는다 */
   artifactsDir?: string;
+  /** 취소 신호. abort 되면 진행 중 테스트는 끝까지 가고(러너는 테스트 중간 중단을 지원하지 않는다), 그 테스트의 남은 재시도와 다음 테스트들은 skipped 로 기록되며 run 은 cancelled 로 끝난다 */
+  signal?: AbortSignal;
   /** failed 테스트를 다시 돌리는 횟수(기본 0, 최대 5). 시도마다 새 Attempt(attemptNo 2, 3…)로 보고하고 재시도 전에 앱을 다시 띄운다. blocked·skipped 는 재시도하지 않는다 */
   retries?: number;
   /** locator 액션 기한(ms, 기본 10초). 판정(expect) 기한은 그 절반: 판정은 화면이 이미 그 상태여야 하므로 액션보다 짧게 잡아 실패를 빨리 드러낸다 */
@@ -68,6 +70,8 @@ export interface RunReport {
   events: RunEvent[];
   /** 결과에 영향 없는 run 수준 경고(Reporter 실패, 검증기에 걸린 이벤트 등) */
   warnings?: string[];
+  /** signal 로 중단됐을 때. reason 은 signal.reason 을 문자열로 */
+  cancelled?: { reason: string };
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -126,11 +130,12 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
 
   const summary = { passed: 0, failed: 0, blocked: 0, skipped: 0 };
   for (const t of tests) summary[t.result]++;
-  // blocked(기기·헬퍼 불가)는 테스트 판정이 아니라 인프라 문제라 Run 은 infra-failed
-  emit({ ...base(), type: 'run.finished', state: summary.blocked > 0 ? 'infra-failed' : 'finished' });
+  const cancelled = options.signal?.aborted ? { reason: abortReason(options.signal) } : undefined;
+  // blocked(기기·헬퍼 불가)는 테스트 판정이 아니라 인프라 문제라 Run 은 infra-failed. 취소는 그보다 우선한다: 돌지 않은 케이스가 있다는 뜻이 같고, 사유가 더 구체적이다
+  emit({ ...base(), type: 'run.finished', state: cancelled ? 'cancelled' : summary.blocked > 0 ? 'infra-failed' : 'finished' });
   await flushReporter();
   // flush 기한을 넘긴 Reporter 가 나중에 경고를 더해도 리포트는 바뀌지 않도록 복사한다
-  return { runId, tests, summary, events, ...(warnings.length ? { warnings: [...warnings] } : {}) };
+  return { runId, tests, summary, events, ...(warnings.length ? { warnings: [...warnings] } : {}), ...(cancelled ? { cancelled } : {}) };
 
   async function flushReporter(): Promise<void> {
     if (!options.reporter) return;
@@ -151,10 +156,11 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
   }
 
   async function runOne(tc: TestCase, file: string): Promise<TestResult> {
-    let last = await runAttempt(tc, file, 1);
-    // failed 만 다시 돈다: blocked 는 기기 문제라 반복해도 같고, skipped 는 attempt 하나(attemptNo 1)로 보고하고 끝난다
+    // 취소된 뒤에는 시작하지 않는다: skip 처럼 attempt 하나로 기록해 Cycle 뷰에 "돌지 않음" 이 보이게 한다
+    let last = await runAttempt(options.signal?.aborted ? { ...tc, skip: true } : tc, file, 1);
+    // failed 만 다시 돈다: blocked 는 기기 문제라 반복해도 같고, skipped 는 attempt 하나(attemptNo 1)로 보고하고 끝난다. 취소되면 남은 재시도도 시작하지 않는다
     const earlierWarnings: string[] = [];
-    for (let no = 2; last.result === 'failed' && no <= retries + 1; no++) {
+    for (let no = 2; last.result === 'failed' && no <= retries + 1 && !options.signal?.aborted; no++) {
       // 앞선 시도의 경고(아티팩트·restart 실패)는 재시도가 통과해도 버리지 않는다
       earlierWarnings.push(...(last.warnings ?? []).map((w) => `시도 ${last.attempts}: ${w}`));
       last = await runAttempt(tc, file, no);
@@ -241,6 +247,11 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
       }
     }
   }
+}
+
+function abortReason(signal: AbortSignal): string {
+  const r: unknown = signal.reason;
+  return r instanceof Error ? r.message : typeof r === 'string' ? r : String(r ?? '중단');
 }
 
 function errorMessage(err: unknown): string {

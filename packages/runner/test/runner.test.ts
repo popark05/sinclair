@@ -240,3 +240,44 @@ describe('재시도 (retries)', () => {
     await vexpect(runTests([fixture('sample.sinclair.ts')], { engine: engineWithApps(), retries: 1.5 })).rejects.toThrow(/retries/);
   });
 });
+
+describe('취소 (signal)', () => {
+  it('두 번째 테스트 도중 abort → 진행 중 테스트는 끝까지, 남은 테스트는 skipped, run 은 cancelled 와 사유', async () => {
+    const aborter = new AbortController();
+    let opens = 0;
+    const engine = new FakeEngine({ root: LOGIN_SCREEN });
+    const origOpen = engine.session!.open;
+    // 두 번째 테스트가 시작(open)된 직후 abort: 진행 중 테스트는 그대로 통과해야 한다
+    engine.session!.open = async (t) => { await origOpen(t); if (++opens === 2) aborter.abort(new Error('lease 를 잃음')); };
+    const report = await runTests([fixture('three.sinclair.ts')], { engine, timeoutMs: 200, signal: aborter.signal });
+    vexpect(report.tests.map((t) => [t.name, t.result])).toEqual([['첫째', 'passed'], ['둘째', 'passed'], ['셋째', 'skipped']]);
+    vexpect(report.cancelled).toEqual({ reason: 'lease 를 잃음' });
+    vexpect(report.summary).toEqual({ passed: 2, failed: 0, blocked: 0, skipped: 1 });
+    vexpect(report.events.at(-1)).toMatchObject({ type: 'run.finished', state: 'cancelled' });
+    const started = report.events.filter((e): e is Extract<RunEvent, { type: 'attempt.started' }> => e.type === 'attempt.started');
+    vexpect(started.map((a) => a.testId)).toEqual(['첫째', '둘째', '셋째']); // skipped 도 attempt 로 기록된다
+    for (const e of report.events) vexpect(parseRunEvent(e).ok).toBe(true);
+  });
+
+  it('abort 되면 진행 중 테스트의 남은 재시도도 시작하지 않는다; 이미 abort 된 신호면 전부 skipped', async () => {
+    const aborter = new AbortController();
+    const engine = engineWithApps();
+    const origOpen = engine.session!.open;
+    engine.session!.open = async (t) => { await origOpen(t); aborter.abort('종료 신호'); }; // 첫 테스트 시작 직후 abort
+    const report = await runTests([fixture('flaky.sinclair.ts')], { engine, timeoutMs: 200, retries: 2, signal: aborter.signal });
+    // 첫 테스트: 1차 실패(첫 시도만 실패하는 샘플) → 취소됐으니 재시도 없음 → failed/attempts 1; 나머지 skipped
+    vexpect(report.tests.map((t) => [t.result, t.attempts])).toEqual([['failed', 1], ['skipped', 1], ['skipped', 1]]);
+    vexpect(report.cancelled).toEqual({ reason: '종료 신호' });
+
+    const already = await runTests([fixture('three.sinclair.ts')], { engine: engineWithApps(), signal: AbortSignal.abort('미리 중단') });
+    vexpect(already.tests.map((t) => t.result)).toEqual(['skipped', 'skipped', 'skipped']);
+    vexpect(already).toMatchObject({ cancelled: { reason: '미리 중단' } });
+    vexpect(already.events.at(-1)).toMatchObject({ type: 'run.finished', state: 'cancelled' });
+  });
+
+  it('신호가 abort 되지 않으면 cancelled 가 없다', async () => {
+    const report = await runTests([fixture('three.sinclair.ts')], { engine: engineWithApps(), signal: new AbortController().signal });
+    vexpect(report.cancelled).toBeUndefined();
+    vexpect(report.events.at(-1)).toMatchObject({ state: 'finished' });
+  });
+});

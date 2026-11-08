@@ -28,7 +28,7 @@ export async function main(argv = process.argv.slice(2), env = process.env): Pro
       const args = parseDaemonArgs(rest, env);
       if ('help' in args) { process.stdout.write(DAEMON_HELP); return EXIT.ok; }
       const aborter = new AbortController();
-      const stop = (sig: string) => { console.log(`${sig} 수신, 진행 중 run 을 마치고 멈춤`); aborter.abort(); };
+      const stop = (sig: string) => { console.log(`${sig} 수신, 진행 중 테스트를 마치고 멈춤(남은 테스트는 skipped, run 은 cancelled)`); aborter.abort(); };
       process.once('SIGTERM', () => stop('SIGTERM'));
       process.once('SIGINT', () => stop('SIGINT'));
       const summary = await runDaemon(args, { signal: aborter.signal });

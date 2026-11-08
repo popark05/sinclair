@@ -81,7 +81,8 @@ export function computeCycle(cycle: CycleRecord, registrations: RunRegistration[
         if (reg.targetId !== targetId) continue;
         const attempts = (view?.attempts ?? []).filter((a) => a.testId === testId);
         const cell = caseVerdict(attempts);
-        if (cell) row[targetId] = cell;
+        // 취소된 run 이 skipped 로 기록한 케이스는 "안 돌기로 한 것" 이 아니라 "돌지 못한 것" 이라 blocked 로 본다
+        if (cell) row[targetId] = view?.state === 'cancelled' && cell.verdict === 'skipped' ? { ...cell, verdict: 'blocked' } : cell;
         else if (view && view.state === 'finished' && !row[targetId]) row[targetId] = { verdict: 'skipped' };
         else if (view && (view.state === 'infra-failed' || view.state === 'cancelled') && !row[targetId]) row[targetId] = { verdict: 'blocked' };
       }

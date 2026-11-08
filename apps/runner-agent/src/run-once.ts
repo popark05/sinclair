@@ -11,7 +11,8 @@ import { HelperApkError } from './helper-apk.ts';
 import { createSpoolReporter } from './spool.ts';
 
 /** 종료 코드. 셸 스크립트·CI 가 분기한다. incomplete 는 resume 전용(미완 run 이 남음) */
-export const EXIT = { ok: 0, testsFailed: 1, blocked: 2, config: 3, incomplete: 4 } as const;
+/** 5 cancelled: lease 상실·종료 신호로 run 이 중단돼 남은 테스트가 돌지 않음(blocked 와 달리 기기 문제가 아니다) */
+export const EXIT = { ok: 0, testsFailed: 1, blocked: 2, config: 3, incomplete: 4, cancelled: 5 } as const;
 export type ExitCode = (typeof EXIT)[keyof typeof EXIT];
 
 export interface RunOnceDeps {
@@ -19,6 +20,8 @@ export interface RunOnceDeps {
   createEngine?: (args: RunArgs, log: (line: string) => void) => Promise<EngineHandle>;
   /** 03(스풀) 이 HTTP Reporter 를 감싼 Reporter 로 바꾼다 */
   createReporter?: (args: RunArgs, run: RegisteredRun) => Reporter;
+  /** 러너 취소 신호(데몬이 lease 상실·종료 신호 때 abort). 진행 중 테스트는 마치고 나머지는 skipped, run 은 cancelled */
+  signal?: AbortSignal;
 }
 
 /** 디렉터리의 *.sinclair.ts 를 이름순으로. 없거나 비면 설정 오류 */
@@ -82,13 +85,14 @@ export async function executeRun(args: RunArgs, run: RegisteredRun, files: strin
     const report = await runTests(files, {
       engine: handle.engine, reporter, runId: run.runId, cycleId: run.cycleId, targetId: run.targetId, agentId,
       ...(flushBudgetMs !== undefined ? { reporterFlushTimeoutMs: flushBudgetMs } : {}),
-      ...(handle.deviceId ? { deviceId: handle.deviceId } : {}), ...(args.artifacts ? { artifactsDir: args.artifacts } : {}), ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}), ...(args.retries !== undefined ? { retries: args.retries } : {}),
+      ...(handle.deviceId ? { deviceId: handle.deviceId } : {}), ...(args.artifacts ? { artifactsDir: args.artifacts } : {}), ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}), ...(args.retries !== undefined ? { retries: args.retries } : {}), ...(deps.signal ? { signal: deps.signal } : {}),
     });
     const s = report.summary;
     const stats = (reporter as { stats?: { sent: number; accepted: number; duplicate: number; rejected: number; retries: number } }).stats;
     log(`결과: passed ${s.passed}, failed ${s.failed}, blocked ${s.blocked}, skipped ${s.skipped}${stats ? ` / 전송 ${stats.sent}건(accepted ${stats.accepted}, duplicate ${stats.duplicate}, rejected ${stats.rejected}, retries ${stats.retries})` : ''}`);
     for (const t of report.tests) if (t.result !== 'passed') log(`  ${t.result}: ${t.name}${t.error ? ` — ${t.error}` : ''}`);
     for (const w of report.warnings ?? []) log(`  경고: ${w}`);
+    if (report.cancelled) { log(`run ${run.runId} 중단(cancelled): ${report.cancelled.reason}`); return EXIT.cancelled; }
     if (s.blocked > 0) return EXIT.blocked;
     return s.failed > 0 ? EXIT.testsFailed : EXIT.ok;
   } finally {

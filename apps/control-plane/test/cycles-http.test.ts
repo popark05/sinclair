@@ -116,6 +116,36 @@ describe('Cycle API', () => {
     expect((await fetch(url('/cycles/%E'))).status).toBe(400); // 잘못된 경로 인코딩
   });
 
+  it('cancelled 로 끝난 run 의 돌지 않은 케이스는 blocked 이고 Cycle 은 finished/blocked 다(verified 아님)', async () => {
+    await post('/cycles', { cycleId: 'cx', build: 'b', targets: ['android', 'ios'] });
+    await post('/cycles/cx/runs', { targetId: 'android', runId: 'ra' });
+    await post('/cycles/cx/runs', { targetId: 'ios', runId: 'ri' });
+    const T = '로그인';
+    const full = (run: string, target: string, p: string): RunEvent[] => [
+      { ...base(`${p}0`, 0, run), type: 'run.started', cycleId: 'cx', targetId: target },
+      { ...base(`${p}1`, 1, run), type: 'attempt.started', attemptId: `${p}a1`, testId: T, attemptNo: 1 },
+      { ...base(`${p}2`, 2, run), type: 'attempt.finished', attemptId: `${p}a1`, result: 'passed', artifacts: [] },
+      { ...base(`${p}3`, 3, run), type: 'attempt.started', attemptId: `${p}a2`, testId: '결제', attemptNo: 1 },
+      { ...base(`${p}4`, 4, run), type: 'attempt.finished', attemptId: `${p}a2`, result: 'passed', artifacts: [] },
+      { ...base(`${p}5`, 5, run), type: 'run.finished', state: 'finished' },
+    ];
+    // ios 는 첫 케이스만 통과하고 취소됨(두 번째는 러너가 skipped 로 기록)
+    const cancelled: RunEvent[] = [
+      { ...base('i0', 0, 'ri'), type: 'run.started', cycleId: 'cx', targetId: 'ios' },
+      { ...base('i1', 1, 'ri'), type: 'attempt.started', attemptId: 'ia1', testId: T, attemptNo: 1 },
+      { ...base('i2', 2, 'ri'), type: 'attempt.finished', attemptId: 'ia1', result: 'passed', artifacts: [] },
+      { ...base('i3', 3, 'ri'), type: 'attempt.started', attemptId: 'ia2', testId: '결제', attemptNo: 1 },
+      { ...base('i4', 4, 'ri'), type: 'attempt.finished', attemptId: 'ia2', result: 'skipped', artifacts: [] },
+      { ...base('i5', 5, 'ri'), type: 'run.finished', state: 'cancelled' },
+    ];
+    await post('/ingest', [...full('ra', 'android', 'a'), ...cancelled]);
+    const v = (await (await fetch(url('/cycles/cx'))).json()) as CycleView;
+    expect(v).toMatchObject({ state: 'finished', verdict: 'blocked' });
+    expect(v.runs.map((r) => r.state)).toEqual(['finished', 'cancelled']);
+    expect(v.matrix['결제']!.ios).toMatchObject({ verdict: 'blocked' }); // 취소로 돌지 못한 케이스는 skipped 가 아니라 blocked
+    expect(v.matrix[T]!.ios).toMatchObject({ verdict: 'passed' });
+  });
+
   it('POST /cycles 는 suite 필터를 받아 저장하고 GET /cycles/:id 에 돌려준다; 잘못된 suite 는 400', async () => {
     expect((await post('/cycles', { cycleId: 'cs', build: 'b', targets: ['android'], suite: { tests: 'tests/smoke', tags: ['smoke'] } })).status).toBe(201);
     expect((await (await fetch(url('/cycles/cs'))).json() as CycleView).suite).toEqual({ tests: 'tests/smoke', tags: ['smoke'] });

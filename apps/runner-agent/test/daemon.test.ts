@@ -69,6 +69,47 @@ describe('runDaemon', () => {
     expect(logs.at(-1)).toBe('데몬 종료');
   });
 
+  it('heartbeat 가 not-owner 면 러너를 취소한다: 현재 테스트만 마치고 run 은 cancelled, 로그 "lease 를 잃어 중단", 다음 클레임은 계속', async () => {
+    await cp!.close();
+    const srv = await serveControlPlane(createMemoryEventStore(), { leaseTtlMs: 3_000 }); // heartbeat 간격 1초(하한)
+    url = `http://127.0.0.1:${srv.port}`;
+    try {
+      await post('/cycles', { cycleId: 'cl', build: 'b', targets: ['android'], suite: { tests: path.join(fixtures, 'three') } });
+      await post('/cycles/cl/runs', { targetId: 'android', runId: 'r-lost' });
+      await post('/cycles/cl/runs', { targetId: 'android', runId: 'r-next' });
+      // 첫 run 의 heartbeat 는 409(다른 에이전트가 가져감)로 답한다; 두 번째 테스트는 heartbeat 가 한 번 돌 때까지 붙잡는다
+      let gate!: () => void; const held = new Promise<void>((r) => { gate = r; });
+      const lostFetch: typeof fetch = async (input, init) => (String(input).endsWith('/runs/r-lost/heartbeat') ? new Response(JSON.stringify({ error: 'not-owner', code: 'not-owner' }), { status: 409 }) : fetch(input, init));
+      let opens = 0;
+      const engineHook = async () => { const h = await fakeEngine(); const open = h.engine.session!.open; h.engine.session!.open = async (t) => { await open(t); if (++opens === 2) await held; }; return h; };
+      const p = runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'n', pollMs: 10 }, deps({ maxRuns: 2, fetch: lostFetch, createEngine: engineHook }));
+      await until(() => logs.some((l) => /heartbeat r-lost: not-owner/.test(l)), 4_000);
+      gate();
+      const summary = await p;
+      expect(summary.runs.map((r) => [r.runId, r.exitCode, r.leaseLost, r.cancelled])).toEqual([['r-lost', EXIT.cancelled, true, 'lease 를 잃음'], ['r-next', EXIT.ok, undefined, undefined]]);
+      expect(logs.join('\n')).toMatch(/r-lost: lease 를 잃어 중단/);
+      const v = await view('cl');
+      expect(v.runs.map((r) => [r.runId, r.state])).toEqual([['r-lost', 'cancelled'], ['r-next', 'finished']]);
+    } finally { await srv.close(); cp = undefined; }
+  }, 15_000);
+
+  it('데몬 종료 신호는 진행 중 run 의 현재 테스트만 마치고 나머지를 skipped 로 보고해 run 이 cancelled 로 끝난다(exit 5)', async () => {
+    await post('/cycles', { cycleId: 'cc', build: 'b', targets: ['android'], suite: { tests: path.join(fixtures, 'three') } });
+    await post('/cycles/cc/runs', { targetId: 'android', runId: 'r-cancel' });
+    const aborter = new AbortController();
+    // 두 번째 테스트가 시작(open)된 직후 데몬에 종료 신호
+    let opens = 0;
+    const engineHook = async () => { const h = await fakeEngine(); const open = h.engine.session!.open; h.engine.session!.open = async (t) => { await open(t); if (++opens === 2) aborter.abort(); }; return h; };
+    const summary = await runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'n', pollMs: 10 }, deps({ signal: aborter.signal, createEngine: engineHook }));
+    expect(summary.stoppedBy).toBe('signal');
+    expect(summary.runs).toEqual([{ runId: 'r-cancel', targetId: 'android', exitCode: EXIT.cancelled, cancelled: '종료 신호' }]);
+    const v = await view('cc');
+    expect(v).toMatchObject({ state: 'finished', verdict: 'blocked', runs: [{ runId: 'r-cancel', state: 'cancelled' }] });
+    // 같은 ms 의 이벤트는 투영 순서가 바뀔 수 있어 이름으로 본다. 셋째는 돌지 않아 blocked
+    expect(['첫째', '둘째', '셋째'].map((t) => v.matrix[t]!.android!.verdict)).toEqual(['passed', 'passed', 'blocked']);
+    expect(logs.join('\n')).toMatch(/중단\(cancelled\): 종료 신호/);
+  });
+
   it('lease 가 만료된 Run 은 다른 데몬이 가져가고, lease 를 잃은 데몬은 경고를 남긴다', async () => {
     await cp!.close();
     let now = Date.parse('2026-11-08T00:00:00.000Z');
@@ -98,7 +139,7 @@ describe('runDaemon', () => {
       // 죽은 에이전트를 깨우면 엔진 실패 → infra-failed 보고 시도(blocked) 로 끝나고 루프를 나온다
       dead.abort(); release();
       const stuckSummary = await stuck;
-      expect(stuckSummary.runs).toEqual([{ runId: 'r-lease', targetId: 'android', exitCode: EXIT.blocked }]);
+      expect(stuckSummary.runs).toEqual([{ runId: 'r-lease', targetId: 'android', exitCode: EXIT.blocked, cancelled: '종료 신호' }]); // 종료 신호가 run 에 전파됐지만 엔진이 없어 blocked 로 끝남
     } finally {
       await srv.close();
       cp = undefined;

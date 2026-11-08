@@ -18,7 +18,7 @@ export interface DaemonArgs extends Omit<RunArgs, 'cycle' | 'target' | 'run'> {
 export interface ClaimedRun { run: RegisteredRun & { lease: { agentId: string; expiresAt: string } }; leaseTtlMs: number; suite?: { tests: string; tags?: string[]; retries?: number } }
 
 export interface DaemonDeps extends RunOnceDeps {
-  /** 중단 신호. abort 되면 진행 중 run 을 마치고 루프를 나온다 */
+  /** 중단 신호. abort 되면 진행 중 run 에 취소를 전파해 진행 중 테스트 하나만 마치고(나머지 skipped, run cancelled) 루프를 나온다 */
   signal?: AbortSignal;
   /** 테스트용: 한 번에 끝내는 run 수 상한 */
   maxRuns?: number;
@@ -26,7 +26,7 @@ export interface DaemonDeps extends RunOnceDeps {
   sleep?: (ms: number) => Promise<void>;
 }
 
-export interface DaemonSummary { runs: Array<{ runId: string; targetId: string; exitCode: ExitCode; leaseLost?: boolean }>; resumed: number; stoppedBy: 'signal' | 'maxRuns' }
+export interface DaemonSummary { runs: Array<{ runId: string; targetId: string; exitCode: ExitCode; leaseLost?: boolean; cancelled?: string }>; resumed: number; stoppedBy: 'signal' | 'maxRuns' }
 
 /** heartbeat 하한. lease 가 아주 짧게 설정돼도 서버를 초당 수십 번 두드리지 않는다 */
 const MIN_HEARTBEAT_MS = 1_000;
@@ -82,15 +82,19 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
       const retries = claimed.suite?.retries ?? args.retries;
       log(`run ${run.runId} 클레임 (cycle ${run.cycleId}, target ${targetId}, tests ${testsDir}${retries !== undefined ? `, retries ${retries}` : ''})`);
 
+      // run 마다 취소 컨트롤러: lease 상실과 데몬 종료 신호가 같은 길로 러너에 닿는다. 러너는 진행 중 테스트를 마치고 나머지를 skipped 로 보고하므로
+      // 두 에이전트가 같은 Run 에 보고하는 창은 "현재 테스트 하나" 로 줄고, SIGTERM 도 run 전체가 아니라 테스트 하나 뒤에 멈춘다
+      const canceller = new AbortController();
+      const onDaemonAbort = (): void => canceller.abort(new Error('종료 신호'));
+      if (deps.signal?.aborted) onDaemonAbort(); else deps.signal?.addEventListener('abort', onDaemonAbort, { once: true });
       // lease 의 1/3 마다 heartbeat: 두 번 놓쳐도 만료 전에 한 번 더 기회가 있다.
-      // lease 를 잃으면(not-owner: 만료 뒤 다른 에이전트가 가져감) heartbeat 를 멈추고 경고한다. 러너는 테스트 중간에 멈출 수 없어 run 은 끝까지 돌고,
-      // 그 결과는 같은 runId 로 보고된다(알려진 한계 — 재시도 정책 티켓에서 다룬다). 실제 창은 "클레임 뒤 첫 이벤트 전" 으로 좁다: 이벤트가 있는 Run 은 재클레임되지 않는다.
+      // lease 를 잃으면(not-owner: 만료 뒤 다른 에이전트가 가져감 / no-run) 러너를 취소한다
       let leaseLost = false;
       const heartbeatTimer = setInterval(() => {
         void heartbeat(args.controlPlane, run.runId, agentId, deps.fetch).then((r) => {
           if (r === 'ok') return;
           log(`heartbeat ${run.runId}: ${r}`);
-          if (r === 'not-owner' || r === 'no-run') { leaseLost = true; clearInterval(heartbeatTimer); }
+          if (r === 'not-owner' || r === 'no-run') { leaseLost = true; clearInterval(heartbeatTimer); canceller.abort(new Error('lease 를 잃음')); }
         });
       }, Math.max(MIN_HEARTBEAT_MS, Math.floor(leaseTtlMs / 3)));
       heartbeatTimer.unref?.();
@@ -98,15 +102,17 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
       try {
         const files = await collectTestFiles(testsDir);
         const { targets: _targets, pollMs: _poll, ...runArgs } = args; // RunArgs 에 데몬 전용 필드가 섞이지 않게
-        code = await executeRun({ ...runArgs, cycle: run.cycleId, target: targetId, run: run.runId, tests: testsDir, ...(retries !== undefined ? { retries } : {}) }, run, files, deps);
+        code = await executeRun({ ...runArgs, cycle: run.cycleId, target: targetId, run: run.runId, tests: testsDir, ...(retries !== undefined ? { retries } : {}) }, run, files, { ...deps, signal: canceller.signal });
       } catch (err) {
         log(`run ${run.runId} 준비 실패: ${err instanceof Error ? err.message : String(err)}`);
         code = EXIT.config;
       } finally {
         clearInterval(heartbeatTimer);
+        deps.signal?.removeEventListener('abort', onDaemonAbort);
       }
-      if (leaseLost) log(`경고: run ${run.runId} 의 lease 를 잃은 채 끝냄 — 다른 에이전트가 같은 Run 을 보고했을 수 있다`);
-      summary.runs.push({ runId: run.runId, targetId, exitCode: code, ...(leaseLost ? { leaseLost: true } : {}) });
+      const cancelled = canceller.signal.aborted ? (canceller.signal.reason instanceof Error ? canceller.signal.reason.message : String(canceller.signal.reason)) : undefined;
+      if (leaseLost) log(`run ${run.runId}: lease 를 잃어 중단 — 진행 중이던 테스트까지만 보고됐고 나머지는 skipped(cancelled)`);
+      summary.runs.push({ runId: run.runId, targetId, exitCode: code, ...(leaseLost ? { leaseLost: true } : {}), ...(cancelled ? { cancelled } : {}) });
       if (deps.maxRuns !== undefined && summary.runs.length >= deps.maxRuns) { summary.stoppedBy = 'maxRuns'; return summary; }
     }
     if (!worked && !deps.signal?.aborted) await sleep(args.pollMs ?? DEFAULT_POLL_MS);
