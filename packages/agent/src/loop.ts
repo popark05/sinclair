@@ -6,6 +6,7 @@ import { ACTIONS, checkToolCall, toolSchemas, type ActionSpec } from './action-s
 import { ModelConfigError, ModelCallError, type AgentTurn, type StepExecutor, type StepReply } from './executor.ts';
 import { renderObservation } from './observe.ts';
 import { addUsage } from './usage.ts';
+import type { SecretBox } from './secrets.ts';
 
 /** 기본 턴 한도: 로그인·화면 이동 같은 목표는 대개 10턴 안에 끝난다. 20 이면 헤매는 모델을 멈추면서 정상 목표는 넉넉하다 */
 export const DEFAULT_MAX_TURNS = 20;
@@ -33,7 +34,11 @@ export function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<
   return Promise.race([promise, aborted]).finally(() => signal.removeEventListener('abort', onAbort));
 }
 
-export interface ActOptions { executor: StepExecutor; maxTurns?: number; timeoutMs?: number }
+export interface ActOptions {
+  executor: StepExecutor; maxTurns?: number; timeoutMs?: number;
+  /** 이 테스트가 등록한 비밀값. type 의 text 에 온 자리표시만 실제 값으로 바뀌고, 모델에 가는 관찰·오류 문구에서 값은 가려진다. 있으면 픽셀은 보내지 않는다 */
+  secrets?: SecretBox;
+}
 export interface ActResult {
   ok: boolean;
   turns: number;
@@ -70,19 +75,23 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
   let modelCalls = 0;
   let usage: StepUsage | undefined;
   const result = (r: Pick<ActResult, 'ok' | 'summary' | 'reason'>): ActResult => ({ ...r, turns: history.length, modelCalls, ...(usage ? { usage } : {}), history });
-  const fail = (reason: string): ActResult => result({ ok: false, reason });
+  const secrets = opts.secrets;
+  const hide = (t: string): string => (secrets ? secrets.redact(t) : t);
+  const fail = (reason: string): ActResult => result({ ok: false, reason: hide(reason) });
+  // 픽셀은 가릴 수 없다: 비밀값이 있는 테스트에서는 이미지를 보내지 않는다
+  const pixels = opts.executor.pixels === true && !(secrets && secrets.size > 0);
   try {
     for (let turn = 0; turn < maxTurns; turn++) {
       if (Date.now() >= deadline) return fail(`시간 한도 ${timeoutMs}ms 에 닿음`);
-      const observed = await engine.observe(opts.executor.pixels ? { pixels: true } : undefined);
-      const observation = renderObservation(observed.root);
+      const observed = await engine.observe(pixels ? { pixels: true } : undefined);
+      const observation = hide(renderObservation(observed.root));
       // 관찰하는 사이 한도가 지났으면 묻지 않는다(abort 가 리스너보다 먼저 와서 영영 기다리는 일이 없게 raceAbort 도 같은 검사를 한다)
       if (aborter.signal.aborted) return fail(`시간 한도 ${timeoutMs}ms 에 닿음`);
       let reply: StepReply;
       try {
         modelCalls++;
         // 실행기가 시간 한도를 넘기면 기다리지 않는다. 스키마는 매번 새로(실행기가 고쳐도 다음 턴에 영향 없게)
-        const request = { goal, observation, history: history.map((h) => ({ ...h })), tools: toolSchemas(), ...(opts.executor.pixels && observed.pixels ? { pixels: observed.pixels } : {}) };
+        const request = { goal, observation, history: history.map((h) => ({ ...h })), tools: toolSchemas(), ...(pixels && observed.pixels ? { pixels: observed.pixels } : {}) };
         reply = await raceAbort(opts.executor.next(request, aborter.signal), aborter.signal);
       } catch (err) {
         if (err instanceof ModelConfigError) throw err; // 설정 문제는 테스트 실패가 아니다: 러너가 blocked 로 다룬다
@@ -101,13 +110,22 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
       const checked = checkToolCall(call);
       if (!checked.ok) { history.push({ call, result: 'rejected', detail: checked.error }); continue; }
       const spec: ActionSpec = ACTIONS[checked.call.name];
+      // 자리표시는 type 의 text 에서만 실제 값으로 바뀐다. 다른 툴·필드(ref, summary…)에 쓰면 값이 엉뚱한 곳(탭 대상·기록)으로 새므로 거부
+      const input = { ...checked.call.input };
+      const misplaced = Object.entries(input).find(([k, v]) => !(checked.call.name === 'type' && k === 'text') && (secrets?.mentions(v) || /\{\{secret:/.test(v)));
+      if (misplaced) { history.push({ call, result: 'rejected', detail: `비밀값 자리표시는 type 의 text 에만 쓸 수 있음(${checked.call.name}.${misplaced[0]})` }); continue; }
+      if (checked.call.name === 'type' && input.text !== undefined && /\{\{secret:/.test(input.text)) {
+        const revealed = secrets ? secrets.reveal(input.text) : { ok: false as const, error: '이 테스트에는 비밀값이 없음' };
+        if (!revealed.ok) { history.push({ call, result: 'rejected', detail: revealed.error }); continue; }
+        input.text = revealed.text;
+      }
       try {
-        await spec.run(engine, checked.call.input);
+        await spec.run(engine, input);
       } catch (err) {
         // 인프라 오류는 모델이 고칠 수 없다: 그 코드 그대로 던져 러너가 blocked 등으로 다루게 한다
         if (err instanceof EngineError && !CORRECTABLE.has(err.code)) throw err;
         const raw = err instanceof EngineError ? `${err.code}: ${err.message}` : err instanceof Error ? err.message : String(err);
-        history.push({ call, result: 'error', detail: scrubDetail(raw, checked.call.input) });
+        history.push({ call, result: 'error', detail: hide(scrubDetail(raw, input)) });
         continue;
       }
       history.push({ call, result: 'ok' });

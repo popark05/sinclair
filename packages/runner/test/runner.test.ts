@@ -421,3 +421,45 @@ describe('판정 동사 agent.assert·waitFor·extract (대본 judge)', () => {
     vexpect(report.tests[0]).toMatchObject({ result: 'blocked', errorCode: 'agent-config' });
   });
 });
+
+describe('비밀값 secret()', () => {
+  const VALUE = 'Tr0ub4dor&3';
+  /** 비밀번호 칸이 secure 가 아니라 입력한 값이 화면 트리에 그대로 보이는 앱 */
+  function plainPasswordApp(): FakeEngine {
+    const root: SemanticNode = structuredClone(LOGIN_SCREEN);
+    root.children![2] = { ref: '@e3', role: 'textbox', placeholder: '비밀번호' };
+    const engine = new FakeEngine({ root, onTap: (n) => (n.name === '로그인' ? HOME_SCREEN : undefined) });
+    const perform = engine.perform.bind(engine);
+    engine.perform = async (ref, action, arg) => { await perform(ref, action, arg); if (action === 'type' && ref === '@e3') { const r = structuredClone(root); r.children![2]!.value = arg ?? ''; engine.setRoot(r); } };
+    return engine;
+  }
+  const loginScript = [
+    { name: 'type', input: { ref: '@e2', text: 'qa' } },
+    { name: 'type', input: { ref: '@e3', text: '{{secret:QA_PASSWORD}}' } },
+    { name: 'tap', input: { ref: '@e4' } },
+    { name: 'done', input: { summary: '로그인함' } },
+  ];
+
+  it('엔진에는 실제 값, 모델·이벤트·테스트 오류·screen-tree 아티팩트에는 값이 없다. 없는 비밀값은 blocked(secret-missing)', async () => {
+    const engine = plainPasswordApp();
+    const exec = scriptedExecutor(loginScript);
+    const report = await runTests([fixture('agent-secret.sinclair.ts')], { engine, artifactsDir, timeoutMs: 300, agent: { executor: exec }, secrets: { get: (n) => (n === 'QA_PASSWORD' ? VALUE : undefined) } });
+    vexpect(report.tests.map((t) => [t.result, t.errorCode])).toEqual([['passed', undefined], ['failed', 'assertion'], ['blocked', 'secret-missing']]);
+    vexpect(engine.performed.filter((p) => p.ref === '@e3').map((p) => p.arg)).toEqual([VALUE, VALUE]); // 에이전트·screen 둘 다 실제 값을 입력했다
+    vexpect(report.tests[1]!.error).toMatch(/secret:QA_PASSWORD/); // 화면 요약에 보인 값은 자리표시로
+    vexpect(report.tests[2]!.error).toMatch(/NOT_CONFIGURED.*SINCLAIR_SECRET_NOT_CONFIGURED/);
+    const tree = fs.readdirSync(artifactsDir).filter((f) => f.endsWith('.screen-tree.json')).map((f) => fs.readFileSync(path.join(artifactsDir, f), 'utf8')).join('');
+    vexpect(tree).toContain('secret:QA_PASSWORD');
+    for (const text of [JSON.stringify(exec.requests), JSON.stringify(report), tree]) vexpect(text).not.toContain(VALUE);
+  });
+
+  it('기본 저장소는 환경변수 SINCLAIR_SECRET_<이름>', async () => {
+    process.env.SINCLAIR_SECRET_QA_PASSWORD = VALUE;
+    try {
+      const engine = plainPasswordApp();
+      const report = await runTests([fixture('agent-secret.sinclair.ts')], { engine, timeoutMs: 300, agent: { executor: scriptedExecutor(loginScript) } });
+      vexpect(report.tests[0]).toMatchObject({ result: 'passed' });
+      vexpect(engine.performed).toContainEqual({ ref: '@e3', action: 'type', arg: VALUE });
+    } finally { delete process.env.SINCLAIR_SECRET_QA_PASSWORD; }
+  });
+});

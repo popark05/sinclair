@@ -10,6 +10,8 @@ export interface ScreenOptions {
   pollMs?: number;
   /** locator 액션 한 건이 끝날 때(성공·실패 모두) 알린다. 러너가 스텝 기록에 쓴다 */
   onStep?: (step: StepEvent) => void;
+  /** type 에 넘긴 글자의 비밀값 자리표시를 실제 값으로(러너가 준다). 없으면 글자 그대로 */
+  reveal?: (text: string) => string;
 }
 
 /** 스텝 기록용 이벤트. instruction 은 사람이 읽는 한 줄, error 는 실패 시 메시지 */
@@ -142,7 +144,7 @@ export function createScreen(engine: Engine, options: ScreenOptions = {}): Scree
       const instruction = `${action}${arg !== undefined && action !== 'type' ? `(${JSON.stringify(arg)})` : action === 'type' ? '(…)' : ''} ${self.describe()}`;
       try {
         const node = await resolveActionable(spec);
-        await engine.perform(node.ref, action, arg);
+        await engine.perform(node.ref, action, action === 'type' && arg !== undefined && options.reveal ? options.reveal(arg) : arg);
         options.onStep?.({ kind: 'locator', instruction, durationMs: Date.now() - started });
       } catch (e) {
         options.onStep?.({ kind: 'locator', instruction, durationMs: Date.now() - started, error: e instanceof Error ? e.message : String(e) });

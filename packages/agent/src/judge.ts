@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { raceAbort, recordProgress } from './loop.ts';
 import { renderObservation } from './observe.ts';
 import { addUsage } from './usage.ts';
+import type { SecretBox } from './secrets.ts';
 
 /** assert·extract 한 번의 기한: 모델 호출 하나(재시도 포함)에 넉넉하게 */
 export const DEFAULT_JUDGE_TIMEOUT_MS = 60_000;
@@ -32,7 +33,11 @@ export interface JudgeResult<V = unknown> {
   modelCalls: number;
   usage?: StepUsage;
 }
-export interface JudgeOptions { executor: StepExecutor; timeoutMs?: number }
+export interface JudgeOptions {
+  executor: StepExecutor; timeoutMs?: number;
+  /** 있으면 관찰에서 값을 가리고 픽셀을 보내지 않는다 */
+  secrets?: SecretBox;
+}
 export interface WaitOptions extends JudgeOptions { intervalMs?: number }
 
 type Schema = Record<string, unknown>;
@@ -91,12 +96,16 @@ function refsOf(root: SemanticNode, out = new Map<string, SemanticNode>()): Map<
 class Asker {
   modelCalls = 0;
   usage: StepUsage | undefined;
-  constructor(private readonly engine: Engine, private readonly executor: StepExecutor) {
+  private readonly pixels: boolean;
+  get pixelsOn(): boolean { return this.pixels; }
+  constructor(private readonly engine: Engine, private readonly executor: StepExecutor, private readonly secrets?: SecretBox) {
     if (!executor.judge) throw new ModelConfigError('판정 동사(agent.assert·waitFor·extract)를 쓰려면 실행기에 judge 가 필요함');
+    this.pixels = executor.pixels === true && !(secrets && secrets.size > 0); // 픽셀은 가릴 수 없다
   }
+  hide(t: string): string { return this.secrets ? this.secrets.redact(t) : t; }
   async observe() {
-    const observed = await this.engine.observe(this.executor.pixels ? { pixels: true } : undefined);
-    return { observed, text: renderObservation(observed.root) };
+    const observed = await this.engine.observe(this.pixels ? { pixels: true } : undefined);
+    return { observed, text: this.hide(renderObservation(observed.root)) };
   }
   /** 답이 스키마에 맞으면 answer, 아니면 invalid 사유. 호출 실패(거절 등)도 invalid 사유로 */
   /** 실행 도중 던진 오류에 진행(호출 수·토큰)을 붙여 러너가 실패 스텝에도 비용을 남기게 한다 */
@@ -104,7 +113,7 @@ class Asker {
   async ask(kind: JudgeRequest['kind'], question: string, schema: Schema, obs: Awaited<ReturnType<Asker['observe']>>, signal: AbortSignal): Promise<{ answer: Record<string, unknown> } | { invalid: string }> {
     if (signal.aborted) throw signal.reason as Error; // 기한이 지났으면 부르지 않는다(호출 수도 세지 않는다)
     this.modelCalls++;
-    const req: JudgeRequest = { kind, question, observation: obs.text, schema: structuredClone(schema), ...(this.executor.pixels && obs.observed.pixels ? { pixels: obs.observed.pixels } : {}) };
+    const req: JudgeRequest = { kind, question, observation: obs.text, schema: structuredClone(schema), ...(this.pixels && obs.observed.pixels ? { pixels: obs.observed.pixels } : {}) };
     try {
       const reply = await raceAbort(this.executor.judge!(req, signal), signal);
       this.usage = addUsage(this.usage, reply.usage);
@@ -117,7 +126,7 @@ class Asker {
     }
   }
   result<V>(r: { ok: boolean; reason: string; failure?: JudgeFailure; value?: V; sourceRefs?: string[] }): JudgeResult<V> {
-    return { ...r, modelCalls: this.modelCalls, ...(this.usage ? { usage: this.usage } : {}) };
+    return { ...r, reason: this.hide(r.reason), modelCalls: this.modelCalls, ...(this.usage ? { usage: this.usage } : {}) };
   }
 }
 
@@ -129,7 +138,7 @@ function deadline(ms: number): { signal: AbortSignal; clear: () => void } {
 }
 
 export async function judgeAssert(engine: Engine, question: string, opts: JudgeOptions): Promise<JudgeResult> {
-  const asker = new Asker(engine, opts.executor);
+  const asker = new Asker(engine, opts.executor, opts.secrets);
   const timeoutMs = opts.timeoutMs ?? DEFAULT_JUDGE_TIMEOUT_MS;
   const d = deadline(timeoutMs);
   try {
@@ -143,7 +152,7 @@ export async function judgeAssert(engine: Engine, question: string, opts: JudgeO
 }
 
 export async function judgeWaitFor(engine: Engine, question: string, opts: WaitOptions): Promise<JudgeResult> {
-  const asker = new Asker(engine, opts.executor);
+  const asker = new Asker(engine, opts.executor, opts.secrets);
   const timeoutMs = opts.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS;
   const intervalMs = opts.intervalMs ?? DEFAULT_WAIT_INTERVAL_MS;
   const d = deadline(timeoutMs);
@@ -156,7 +165,7 @@ export async function judgeWaitFor(engine: Engine, question: string, opts: WaitO
       if (d.signal.aborted) break;
       // 화면이 지난번에 거짓으로 판정한 그대로면 모델을 다시 부르지 않는다(같은 질문, 같은 화면 → 같은 답이라 비용만 든다)
       // 모델이 보는 것 전부로 비교한다: 트리 + 위치, 이미지를 보는 실행기면 이미지 해시까지(트리는 같고 픽셀만 바뀌는 화면이 있다)
-      const seen = [obs.text, obs.observed.location ?? '', opts.executor.pixels && obs.observed.pixels ? createHash('sha1').update(obs.observed.pixels).digest('hex') : ''].join('\u0000');
+      const seen = [obs.text, obs.observed.location ?? '', asker.pixelsOn && obs.observed.pixels ? createHash('sha1').update(obs.observed.pixels).digest('hex') : ''].join('\u0000');
       if (seen !== lastAsked) {
         const a = await asker.ask('assert', question, ASSERT_SCHEMA, obs, d.signal);
         if ('invalid' in a) return asker.result({ ok: false, failure: 'invalid', reason: a.invalid });
@@ -177,7 +186,7 @@ export async function judgeWaitFor(engine: Engine, question: string, opts: WaitO
 
 /** 근거 ref 가 secure 노드면 EngineError('secure-read') 로 던진다(러너의 secure 읽기 규칙과 같다) */
 export async function judgeExtract<T extends ExtractType>(engine: Engine, what: string, type: T, opts: JudgeOptions): Promise<JudgeResult<ExtractValue<T>>> {
-  const asker = new Asker(engine, opts.executor);
+  const asker = new Asker(engine, opts.executor, opts.secrets);
   const timeoutMs = opts.timeoutMs ?? DEFAULT_JUDGE_TIMEOUT_MS;
   const d = deadline(timeoutMs);
   try {

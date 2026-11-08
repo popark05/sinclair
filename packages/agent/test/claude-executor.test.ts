@@ -5,8 +5,9 @@ import * as os from 'node:os';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { loginScenario } from '@sinclair/protocol/testing';
-import { createClaudeExecutor, claudeOptionsFromEnv, runAct, judgeAssert, judgeExtract, toolSchemas, DEFAULT_AGENT_MODEL, ModelConfigError, type ClaudeExecutorOptions } from '../src/index.ts';
+import { loginScenario, FakeEngine, LOGIN_SCREEN, HOME_SCREEN } from '@sinclair/protocol/testing';
+import type { SemanticNode } from '@sinclair/protocol';
+import { createClaudeExecutor, claudeOptionsFromEnv, runAct, judgeAssert, judgeExtract, SecretBox, secretPlaceholder, toolSchemas, DEFAULT_AGENT_MODEL, ModelConfigError, type ClaudeExecutorOptions } from '../src/index.ts';
 
 const KEY = 'sk-ant-test-0123456789abcdef';
 type Reply = { status?: number; body: unknown };
@@ -189,6 +190,24 @@ describe('createClaudeExecutor · judge(판정 동사)', () => {
     expect(await judgeAssert(loginScenario(), 'x', { executor: createClaudeExecutor(opts(api.baseURL)) })).toMatchObject({ ok: false, failure: 'invalid', reason: expect.stringMatching(/거절.*cyber/), usage: { inputTokens: 500 } });
     const api2 = await fakeApi([{ body: { ...(jsonReply({}).body as object), content: [{ type: 'text', text: '참입니다' }] } }]);
     expect(await judgeAssert(loginScenario(), 'x', { executor: createClaudeExecutor(opts(api2.baseURL)) })).toMatchObject({ ok: false, failure: 'invalid', reason: expect.stringMatching(/JSON/) });
+  });
+});
+
+describe('createClaudeExecutor · 비밀값', () => {
+  it('비밀번호 칸이 secure 가 아니어도 요청 본문(목표·관찰·지난 턴)에는 자리표시만, 엔진에는 실제 값', async () => {
+    const VALUE = 'Tr0ub4dor&3';
+    const P = secretPlaceholder('QA_PASSWORD');
+    const root: SemanticNode = structuredClone(LOGIN_SCREEN);
+    root.children![2] = { ref: '@e3', role: 'textbox', placeholder: '비밀번호' };
+    const engine = new FakeEngine({ root, onTap: (n) => (n.name === '로그인' ? HOME_SCREEN : undefined) });
+    const perform = engine.perform.bind(engine);
+    engine.perform = async (ref, action, arg) => { await perform(ref, action, arg); if (action === 'type' && ref === '@e3') { const r = structuredClone(root); r.children![2]!.value = arg ?? ''; engine.setRoot(r); } };
+    const api = await fakeApi([toolUse('type', { ref: '@e3', text: P }), toolUse('tap', { ref: '@e4' }), toolUse('done', { summary: '환영합니다' })]);
+    const r = await runAct(engine, `비밀번호 ${P} 로 로그인`, { executor: createClaudeExecutor(opts(api.baseURL)), secrets: new SecretBox([['QA_PASSWORD', VALUE]]) });
+    expect(r.ok).toBe(true);
+    expect(engine.performed).toContainEqual({ ref: '@e3', action: 'type', arg: VALUE });
+    expect(api.captured[1]!.raw).toContain('secret:QA_PASSWORD'); // 칸에 보인 값은 자리표시로 관찰됐다
+    for (const c of api.captured) expect(c.raw).not.toContain(VALUE);
   });
 });
 

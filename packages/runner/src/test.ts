@@ -10,6 +10,9 @@ export interface Fixtures {
   screen: Screen;
   expect: (locator: Locator, options?: ExpectOptions) => LocatorAssertions;
   /** 자연어 목표를 화면 조작으로(agent-layer). 실행기(모델)는 runTests 의 agent 옵션으로 준다 */
+  /** 비밀값 자리표시({{secret:이름}})를 돌려준다. 값은 agent.act 목표나 screen 의 type 에 넣으면 러너가 입력 순간에만 바꾼다.
+   *  값은 SINCLAIR_SECRET_<이름> 환경변수(또는 runTests 의 secrets 저장소)에서, 없으면 blocked(secret-missing) */
+  secret(name: string): string;
   agent: {
     act(goal: string): Promise<void>;
     /** 지금 화면에서 참이어야 한다(화면을 바꾸지 않는다). 거짓이면 판정 실패 */

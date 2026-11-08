@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { runAct, actProgressOf, judgeAssert, judgeWaitFor, judgeExtract, ModelConfigError, type JudgeResult, type StepExecutor } from '@sinclair/agent';
+import { runAct, actProgressOf, judgeAssert, judgeWaitFor, judgeExtract, ModelConfigError, SecretBox, SECRET_NAME, secretPlaceholder, type JudgeResult, type StepExecutor } from '@sinclair/agent';
 import { EngineError, parseRunEvent, type AttemptFinished, type AttemptResult, type Engine, type RunEvent, type StepRecorded } from '@sinclair/protocol';
 import { createScreen, type StepEvent } from './screen.ts';
 import { expect as makeExpect, AssertionError } from './expect.ts';
@@ -22,8 +22,16 @@ export interface Reporter {
   readonly warnings?: readonly string[];
 }
 
+/** 비밀값 저장소. 기본은 환경변수 SINCLAIR_SECRET_<이름>(envSecretStore). 사내 비밀 저장소는 이 모양의 어댑터로 */
+export interface SecretStore { get(name: string): string | undefined }
+export const SECRET_ENV_PREFIX = 'SINCLAIR_SECRET_';
+/** 접두사를 붙여 읽는다: secret('PATH') 가 아무 환경변수나 읽게 두지 않는다 */
+export const envSecretStore = (env: Record<string, string | undefined> = process.env): SecretStore => ({ get: (name) => env[`${SECRET_ENV_PREFIX}${name}`] });
+
 export interface RunOptions {
   engine: Engine;
+  /** secret(이름) 의 값을 찾는 곳(기본 envSecretStore()) */
+  secrets?: SecretStore;
   /** 이벤트 수신자. 없으면 리포트의 events[] 에만 쌓인다 */
   reporter?: Reporter;
   /** reporter.flush 와 보류 중인 onEvent 를 기다리는 기한(ms, 기본 10초). 넘기면 경고를 남기고 리포트를 돌려준다 */
@@ -83,6 +91,12 @@ export const MAX_RETRIES = 5;
 /** 모델 실행기 설정 오류(키 없음·잘못된 키·실행기 없음)의 errorCode. 결과는 blocked */
 export const AGENT_CONFIG_CODE = 'agent-config';
 
+/** secret(이름) 의 값이 저장소에 없거나 이름이 잘못됨. 테스트 탓이 아니라 실행 환경 설정이라 blocked */
+export class SecretMissingError extends Error {
+  override name = 'SecretMissingError';
+}
+export const SECRET_MISSING_CODE = 'secret-missing';
+
 /** agent.act 가 목표를 이루지 못함(턴·시간 한도, 모델 오류). errorCode 'agent' 로 판정 실패와 구분된다 */
 export class AgentActError extends Error {}
 /** 취소로 시작하지 못한 테스트의 skipped attempt 에 붙는 errorCode. control-plane Verdict 가 이것만 blocked 로 본다(같은 문자열을 따로 둔다) */
@@ -111,8 +125,14 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
   const warnings: string[] = [];
   const pending: Promise<void>[] = [];
   const base = () => ({ schema: 1 as const, eventId: randomUUID(), runId, at: new Date().toISOString() });
+  // 이 run 에서 secret() 으로 쓴 값들. 러너의 모든 출구(이벤트·테스트 오류·경고·screen-tree)에서 값 일치로 자리표시로 가린다 — 앞 테스트가 입력한 값이 뒤 테스트 화면에 남아도
+  const secretBox = new SecretBox();
+  const secretStore = options.secrets ?? envSecretStore();
+  const hide = (t: string): string => (secretBox.size ? secretBox.redact(t) : t);
+  const hideDeep = <T>(v: T): T => (secretBox.size === 0 ? v : (JSON.parse(hide(JSON.stringify(v))) as T));
   // 발생 즉시 Reporter 로 넘긴다. Reporter 의 실패·지연이 테스트 실행을 막지 않도록 기다리지 않고 run 끝에 모아서 기다린다
-  const emit = (event: RunEvent): void => {
+  const emit = (raw: RunEvent): void => {
+    const event = hideDeep(raw);
     events.push(event);
     const parsed = parseRunEvent(event);
     if (!parsed.ok) warnings.push(`이벤트 ${event.type} 검증 실패: ${parsed.errors.join(', ')}`);
@@ -150,7 +170,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
   emit({ ...base(), type: 'run.finished', state: cancelled ? 'cancelled' : summary.blocked > 0 ? 'infra-failed' : 'finished' });
   await flushReporter();
   // flush 기한을 넘긴 Reporter 가 나중에 경고를 더해도 리포트는 바뀌지 않도록 복사한다
-  return { runId, tests, summary, events, ...(warnings.length ? { warnings: [...warnings] } : {}), ...(cancelled ? { cancelled } : {}) };
+  return { runId, tests, summary, events, ...(warnings.length ? { warnings: warnings.map(hide) } : {}), ...(cancelled ? { cancelled } : {}) };
 
   async function flushReporter(): Promise<void> {
     if (!options.reporter) return;
@@ -196,26 +216,34 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
     emit({ ...base(), type: 'attempt.started', attemptId, testId: tc.name, attemptNo });
 
     const finish = (result: AttemptResult, error?: Error): TestResult => {
-      const errorCode = cancelledSkip ? CANCELLED_CODE : error instanceof EngineError ? error.code : error instanceof AssertionError ? 'assertion' : error instanceof AgentActError ? 'agent' : error instanceof ModelConfigError ? AGENT_CONFIG_CODE : error ? 'error' : undefined;
+      const errorCode = cancelledSkip ? CANCELLED_CODE : error instanceof EngineError ? error.code : error instanceof AssertionError ? 'assertion' : error instanceof AgentActError ? 'agent' : error instanceof ModelConfigError ? AGENT_CONFIG_CODE : error instanceof SecretMissingError ? SECRET_MISSING_CODE : error ? 'error' : undefined;
       emit({ ...base(), type: 'attempt.finished', attemptId, result, ...(errorCode ? { errorCode } : {}), artifacts });
       return {
         name: tc.name, file, result, attempts: attemptNo, durationMs: Date.now() - started, steps, artifacts,
-        ...(error ? { error: error.message } : {}), ...(errorCode ? { errorCode } : {}), ...(attemptWarnings.length ? { warnings: attemptWarnings } : {}),
+        ...(error ? { error: hide(error.message) } : {}), ...(errorCode ? { errorCode } : {}), ...(attemptWarnings.length ? { warnings: attemptWarnings.map(hide) } : {}),
       };
     };
 
     if (tc.skip || cancelledSkip) return finish('skipped');
 
     const onStep = (step: StepEvent): void => {
-      const ev: StepRecorded = {
-        ...base(), type: 'step.recorded', attemptId, stepIndex: steps.length, kind: step.kind,
+      // 결과(TestResult.steps)와 이벤트가 같은 가린 객체를 쓴다
+      const ev: StepRecorded = hideDeep({
+        ...base(), type: 'step.recorded' as const, attemptId, stepIndex: steps.length, kind: step.kind,
         instruction: step.error ? `${step.instruction} → 실패: ${step.error}` : step.instruction, modelCalls: step.modelCalls ?? 0, durationMs: step.durationMs,
         ...(step.usage ? { usage: step.usage } : {}),
-      };
+      });
       steps.push(ev);
       emit(ev);
     };
-    const screen = createScreen(engine, { timeoutMs, onStep });
+    /** screen 의 type 에 온 자리표시를 실제 값으로(에이전트와 같은 규칙: 등록된 이름만) */
+    const reveal = (text: string): string => {
+      if (!text.includes('{{secret:')) return text;
+      const r = secretBox.reveal(text);
+      if (!r.ok) throw new SecretMissingError(r.error);
+      return r.text;
+    };
+    const screen = createScreen(engine, { timeoutMs, onStep, reveal });
     /** 판정 동사 하나 = 스텝 하나. 거짓·기한 초과·못 찾음은 판정 실패(assertion), 모델이 계약을 어긴 답은 agent, secure 는 엔진 오류(secure-read) 그대로.
      *  스텝에는 질문과 판정·근거만 남기고 추출한 값은 남기지 않는다(화면의 개인정보일 수 있다) */
     async function judgeStep<V>(kind: 'assert' | 'waitFor' | 'extract', verb: string, question: string, run: (executor: StepExecutor) => Promise<JudgeResult<V>>): Promise<JudgeResult<V>> {
@@ -256,7 +284,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
           const started = Date.now();
           let r;
           try {
-            r = await runAct(engine, goal, { executor: options.agent.executor, ...(options.agent.maxTurns !== undefined ? { maxTurns: options.agent.maxTurns } : {}), ...(options.agent.timeoutMs !== undefined ? { timeoutMs: options.agent.timeoutMs } : {}) });
+            r = await runAct(engine, goal, { executor: options.agent.executor, secrets: secretBox, ...(options.agent.maxTurns !== undefined ? { maxTurns: options.agent.maxTurns } : {}), ...(options.agent.timeoutMs !== undefined ? { timeoutMs: options.agent.timeoutMs } : {}) });
           } catch (err) {
             // 관찰 실패·인프라 오류(기기 없음 등)로 루프가 던져도 act 스텝은 남긴다(act 하나 = 스텝 하나). 오류는 그대로 올려 엔진 코드가 errorCode 가 된다
             const p = actProgressOf(err); // 던지기 전까지 쓴 모델 호출·토큰도 비용으로 남긴다
@@ -270,11 +298,18 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
           onStep({ kind: 'act', instruction, durationMs: Date.now() - started, modelCalls: r.modelCalls, ...(r.usage ? { usage: r.usage } : {}), ...(r.ok ? {} : { error: r.reason ?? '실패' }) });
           if (!r.ok) throw new AgentActError(`agent.act ${JSON.stringify(goal)} 실패: ${r.reason}`);
         },
-        assert: (statement) => judgeStep('assert', 'agent.assert', statement, (executor) => judgeAssert(engine, statement, { executor })).then(() => undefined),
-        waitFor: (condition, o) => judgeStep('waitFor', 'agent.waitFor', condition, (executor) => judgeWaitFor(engine, condition, { executor, ...o })).then(() => undefined),
-        extract: (what, type) => judgeStep('extract', 'agent.extract', what, (executor) => judgeExtract(engine, what, type, { executor })).then((r) => r.value!),
+        assert: (statement) => judgeStep('assert', 'agent.assert', statement, (executor) => judgeAssert(engine, statement, { executor, secrets: secretBox })).then(() => undefined),
+        waitFor: (condition, o) => judgeStep('waitFor', 'agent.waitFor', condition, (executor) => judgeWaitFor(engine, condition, { executor, secrets: secretBox, ...o })).then(() => undefined),
+        extract: (what, type) => judgeStep('extract', 'agent.extract', what, (executor) => judgeExtract(engine, what, type, { executor, secrets: secretBox })).then((r) => r.value!),
       },
       attemptNo,
+      secret(name) {
+        if (!SECRET_NAME.test(name)) throw new SecretMissingError(`비밀값 이름 ${JSON.stringify(name)}: 대문자로 시작하는 대문자·숫자·_ 여야 함`);
+        const value = secretStore.get(name);
+        if (value === undefined || value === '') throw new SecretMissingError(`비밀값 ${name} 이 없음: 환경변수 ${SECRET_ENV_PREFIX}${name} 또는 runTests 의 secrets 저장소에 넣는다`);
+        secretBox.add(name, value);
+        return secretPlaceholder(name);
+      },
     };
 
     try {
@@ -286,7 +321,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
       const error = e instanceof Error ? e : new Error(String(e));
       // 기기가 없거나 모델 실행기 설정이 틀렸으면 테스트 판정이 아니다(재시도해도 같다)
       const deviceGone = error instanceof EngineError && error.code === 'device-unavailable';
-      const blocked = deviceGone || error instanceof ModelConfigError;
+      const blocked = deviceGone || error instanceof ModelConfigError || error instanceof SecretMissingError;
       await capture(attemptId).catch((err: unknown) => attemptWarnings.push(`아티팩트 저장 실패: ${errorMessage(err)}`));
       // 실패한 시도가 남긴 앱 상태를 바로 버린다(재시도·다음 테스트·마지막 테스트 모두). 기기가 없으면 restart 도 안 되므로 건너뛴다
       if (!deviceGone) await session('restart').catch((err: unknown) => attemptWarnings.push(`restart 실패: ${errorMessage(err)}`));
@@ -309,7 +344,8 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
       const obs = await engine.observe({ pixels: true });
       await fs.mkdir(options.artifactsDir, { recursive: true });
       const treeKey = `${id}.screen-tree.json`;
-      await fs.writeFile(path.join(options.artifactsDir, treeKey), JSON.stringify({ root: obs.root, atomic: obs.atomic ?? null }, null, 2));
+      // 트리는 값 일치로 가린다(secure 가 아닌 칸에 입력한 비밀값). 스크린샷 픽셀은 가릴 수 없다 — 아티팩트 디렉터리는 비밀로 다룬다
+      await fs.writeFile(path.join(options.artifactsDir, treeKey), hide(JSON.stringify({ root: obs.root, atomic: obs.atomic ?? null }, null, 2)));
       artifacts.push({ kind: 'screen-tree', key: treeKey });
       if (obs.pixels) {
         const shotKey = `${id}.screenshot.png`;
