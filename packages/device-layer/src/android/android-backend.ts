@@ -27,9 +27,9 @@ const HELPER_RETRY_BACKOFF_MS = 10_000;
  *  1초 간격으로 몇 번 다시 쓴다. */
 const ACTIVATE_RETRY_MS = 1_000;
 const ACTIVATE_RETRIES = 5;
-/** 리포 안에서 빌드한 헬퍼 APK(android-helper README 의 빌드 절차). 개발 전용 — 설치본(번들)은 helperApkPath 를 넘긴다. 번들에서는 소스 트리가 없어 undefined */
+/** 리포 안에서 빌드한 헬퍼 APK(android-helper README 의 빌드 절차). 개발 전용 — 설치본은 helperApkPath 를 넘긴다.
+ *  번들에서는 이 상대 경로가 존재하지 않는 곳을 가리켜 자연히 "APK 없음" 이 된다(앱 빌드 설정을 알 필요 없음) */
 function devHelperApk(): string | undefined {
-  if (process.env.SINCLAIR_BUNDLED === '1') return undefined;
   try { return fileURLToPath(new URL('../../android-helper/app/build/outputs/apk/debug/app-debug.apk', import.meta.url)); } catch { return undefined; }
 }
 

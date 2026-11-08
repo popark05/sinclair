@@ -14,7 +14,7 @@
  * 사용: node scripts/build-bundles.mjs [--out dist]
  */
 import { build } from 'esbuild';
-import { readFileSync, readdirSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { readFileSync, readdirSync, copyFileSync, mkdirSync, rmSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -44,25 +44,38 @@ export async function buildBundles(dir = outdir) {
     logLevel: 'warning',
     metafile: true,
   });
-  writeFileSync(path.join(dir, 'hooks.mjs'), HOOKS);
-  // 가드: 소스 트리 절대 경로가 번들에 남아 있으면 리포 밖에서 깨진다
-  const leaked = [];
-  for (const name of readdirSync(dir)) {
-    if (!name.endsWith('.mjs')) continue;
-    const text = readFileSync(path.join(dir, name), 'utf8');
-    if (text.includes(root)) leaked.push(name);
-  }
-  if (leaked.length) throw new Error(`번들에 리포 절대 경로(${root})가 남음: ${leaked.join(', ')} — import.meta.url/__dirname 로 소스 트리를 가리키는 자산 참조를 resourcesDir() 로 바꾼다`);
+  copyFileSync(path.join(root, 'apps/runner-agent/src/hooks.mjs'), path.join(dir, 'hooks.mjs'));
+  guardBundles(dir);
   return { outdir: dir, outputs: Object.keys(result.metafile.outputs).map((p) => path.basename(p)) };
 }
 
-const HOOKS = `// node:module resolve 훅: 사용자 테스트 파일의 '@sinclair/runner' 를 번들의 runner.mjs 로 넘긴다(에이전트와 같은 모듈 인스턴스).
-const RUNNER = new URL('./runner.mjs', import.meta.url).href;
-export async function resolve(specifier, context, next) {
-  if (specifier === '@sinclair/runner') return { url: RUNNER, shortCircuit: true };
-  return next(specifier, context);
+/**
+ * 번들 가드. 리포 밖에서 깨질 참조를 빌드 시점에 잡는다(EverMock proxy-worker 번들의 `__dirname` 가드와 같은 목적).
+ *  - 리포 절대 경로: 소스 트리를 가리키는 자산 참조.
+ *  - `__dirname`/`__filename`: ESM 번들에는 없어 ReferenceError 가 된다(CJS 의존성이 파일 자산을 읽는 신호).
+ *  - `import.meta.url` 사용 수: 아래 허용 목록만. 새 사용처(= 새 파일 자산)가 생기면 여기 목록과 02 배포본 구성을 함께 갱신한다.
+ */
+const IMPORT_META_URL_ALLOWED = [
+  'apps/runner-agent/src/hooks.mjs (runner.mjs 위치)',
+  'apps/runner-agent/src/cli.ts (훅 등록)',
+  'apps/runner-agent/src/resources.ts (resources/ 위치)',
+  'packages/device-layer/src/android/android-backend.ts (개발용 APK 경로, 번들에선 존재하지 않는 경로가 되어 무시됨)',
+  'apps/runner-agent/src/helper-apk.ts (개발용 리포 빌드 경로, isBundled() 가 접혀 번들에서는 쓰이지 않음)',
+];
+function guardBundles(dir) {
+  const problems = [];
+  let importMetaUrlUses = 0;
+  for (const name of readdirSync(dir)) {
+    if (!name.endsWith('.mjs') || name === 'hooks.mjs') continue;
+    const text = readFileSync(path.join(dir, name), 'utf8');
+    if (text.includes(root)) problems.push(`${name}: 리포 절대 경로(${root}) 포함`);
+    if (/\b__dirname\b|\b__filename\b/.test(text)) problems.push(`${name}: __dirname/__filename 사용(ESM 번들에서 ReferenceError)`);
+    importMetaUrlUses += (text.match(/import\.meta\.url/g) ?? []).length;
+  }
+  const allowed = IMPORT_META_URL_ALLOWED.length - 1; // hooks.mjs 는 검사에서 뺐다
+  if (importMetaUrlUses > allowed) problems.push(`import.meta.url 사용처가 ${importMetaUrlUses}곳(허용 ${allowed}): 새 파일 자산 참조가 생겼다. IMPORT_META_URL_ALLOWED 와 배포본 구성을 갱신`);
+  if (problems.length) throw new Error(`번들 가드 실패:\n  ${problems.join('\n  ')}`);
 }
-`;
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { outputs } = await buildBundles();

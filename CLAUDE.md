@@ -19,7 +19,12 @@ pnpm test             # vitest (packages/*/test, apps/*/test)
 pnpm lint             # oxlint
 pnpm check            # lint + typecheck + test
 npx vitest run packages/protocol   # 단일 패키지
+pnpm control-plane -- --help   # 서버 CLI (리포 체크아웃에서 .ts 실행)
+pnpm agent run --help          # 에이전트 CLI
+pnpm bundle                    # dist/ 에 ESM 번들(control-plane·runner-agent·runner + 훅). 설치본은 .scratch/packaging 참고
 ```
+
+Node 는 22.18 이상(`node:sqlite` 와 사용자 테스트 파일 `.sinclair.ts` 의 네이티브 타입 스트리핑). 환경변수 `SINCLAIR_RESOURCES_DIR` 로 자산(헬퍼 APK) 위치를, `SINCLAIR_BUNDLED` 는 번들 빌드가 고정한다.
 
 사내망(SSL 인터셉션)에서는 `export NODE_EXTRA_CA_CERTS=$HOME/.certs/all-system-certs.pem` 후 설치한다.
 

@@ -29,7 +29,7 @@ control-plane 은 Ingest 로 들어온 RunEvent 를 eventId 로 멱등 저장하
 - 단일 파일의 쓰기 직렬화가 ingest 처리량을 막는다(배치 전송이라 당분간 아님).
 
 ## 결과
-- `package.json` `engines.node >= 22.13`.
+- `package.json` `engines.node >= 22.18`(`node:sqlite` 는 22.13+, 사용자 테스트 파일의 네이티브 타입 스트리핑은 22.18+).
 - `openSqlite(file)` 이 열고 마이그레이션하며, `createSqliteEventStore`/`createSqliteCycleStore` 가 한 핸들을 공유한다. `SQLITE_SCHEMA_VERSION = 2`(`events`; `cycles`, `cycle_runs`). 스키마를 바꾸면 `SQLITE_MIGRATIONS` 에 단계를 더하고 버전을 올린다.
 - WAL 때문에 `*.db-wal`/`*.db-shm` 파일이 함께 생긴다. 백업·이동 시 함께 다룬다.
 - 다중 프로세스 쓰기는 지원 범위 밖(동시성 보장은 단일 프로세스 안의 `INSERT OR IGNORE` + UNIQUE 제약). Cycle/Run 레코드는 JSON 컬럼이라 조건 갱신(클레임·heartbeat)은 "읽은 텍스트 그대로일 때만 바꾼다"(`UPDATE … WHERE record = ?`, CAS) 로 한다. 새 값은 parse → spread → stringify 라 키 순서가 보존돼 비교가 성립한다. 같은 파일을 연 두 핸들까지는 공유 스위트로 검증한다.

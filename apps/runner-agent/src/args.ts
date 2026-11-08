@@ -106,6 +106,7 @@ ${helpTable(OPTIONS)}
   --help
 
 종료 코드: 0 전부 통과, 1 실패 있음, 2 기기 불가(blocked), 3 설정·등록 오류
+테스트 파일(*.sinclair.ts)은 Node 의 타입 스트리핑으로 그대로 로드한다(Node 22.18+ 또는 24).
 `;
 
 export const RESUME_HELP = `사용법: sinclair-agent resume [옵션]

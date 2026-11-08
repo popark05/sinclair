@@ -15,6 +15,7 @@ const bundle = path.join(here, '..', 'dist', 'control-plane.mjs');
 const hasSource = existsSync(path.join(here, '..', 'src', 'main.ts'));
 const FLAG = '--experimental-transform-types';
 if (!hasSource && existsSync(bundle)) {
+  // 번들 모드는 자식 없이 같은 프로세스에서 돈다(변환 플래그 불필요). 신호는 main() 이 직접 받고 IPC 고아 방지는 해당 없음
   await import(bundle);
 } else if (!process.execArgv.includes(FLAG)) {
   // IPC 채널을 하나 열어 둔다: 이 셸이 SIGKILL 등으로 죽으면 채널이 닫혀 자식이 'disconnect' 로 알고 종료한다(고아 서버 방지)

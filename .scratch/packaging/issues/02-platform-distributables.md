@@ -2,6 +2,12 @@
 
 **What to build:** `pnpm dist [--targets mac-arm64,mac-x64,win-x64,win-arm64]` 가 타깃마다 `release/sinclair-<version>-<target>.zip` 을 만든다. 안에는 고정 버전 Node 실행 파일(SHA-256 검증, LICENSE 동봉; EverMock `fetch-node` 패턴, 코드 복사 없이), 01 의 두 번들, 해당 플랫폼의 `@node-usb` 네이티브 패키지(`scripts/fetch-usb-binaries.mjs` 재사용), `resources/helper/sinclair-helper-<V>.apk` + `.sha256`, 실행 스크립트(`bin/sinclair-control-plane`, `bin/sinclair-agent`; mac/Linux `.sh`, Windows `.cmd`), `VERSION`, `README`(설치·Gatekeeper 우회·사내망 CA). QA 담당자는 zip 을 풀고 실행 스크립트만 치면 된다.
 
+**설치 레이아웃 계약(01 이 코드로 전제하는 것):**
+- `<install>/dist/{control-plane,runner-agent,runner,hooks}.mjs` + `chunk-*.mjs` 가 한 디렉터리에(훅은 `./runner.mjs`, 청크는 상대 import).
+- `<install>/resources/helper/sinclair-helper-<V>.apk` + `.sha256` (`resourcesDir()` = `<dist>/../resources`; `SINCLAIR_RESOURCES_DIR` 로 덮어쓸 수 있음).
+- `usb`: Node 해석이 `<install>/dist/node_modules/usb` → `<install>/node_modules/usb` 순으로 올라간다. **`<install>/node_modules/usb` + `@node-usb/usb-<platform>`** 에 둔다.
+- 런처는 동봉 Node 24 계열로 `dist/<app>.mjs` 를 플래그 없이 실행(`--no-warnings=ExperimentalWarning` 만). 사용자 테스트 파일 `.ts` 는 네이티브 타입 스트리핑에 의존(22.18+).
+
 **Blocked by:** 01 (번들)
 
 **Status:** ready-for-agent
