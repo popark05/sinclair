@@ -1,5 +1,6 @@
 // CLI 엔트리: `sinclair-agent run [옵션]`. bin/sinclair-agent.mjs 가 부른다.
 import { parseRunArgs, parseResumeArgs, parseDaemonArgs, AgentConfigError, RUN_HELP, RESUME_HELP, DAEMON_HELP } from './args.ts';
+import { agentFromEnv, ModelConfigError } from '@sinclair/agent';
 import { runOnce, EXIT } from './run-once.ts';
 import { resumeSpool } from './spool.ts';
 import { runDaemon } from './daemon.ts';
@@ -29,6 +30,7 @@ export async function main(argv = process.argv.slice(2), env = process.env): Pro
     if (command === 'daemon') {
       const args = parseDaemonArgs(rest, env);
       if ('help' in args) { process.stdout.write(DAEMON_HELP); return EXIT.ok; }
+      agentFromEnv(env); // 잘못된 SINCLAIR_AGENT_* 는 클레임 전에(워커는 같은 환경변수를 물려받는다)
       const aborter = new AbortController();
       const stop = (sig: string) => { console.log(`${sig} 수신, 멈춤(진행 중 run 이 있으면 현재 테스트까지 마치고 나머지는 skipped, run 은 cancelled)`); aborter.abort(); };
       process.once('SIGTERM', () => stop('SIGTERM'));
@@ -49,7 +51,7 @@ export async function main(argv = process.argv.slice(2), env = process.env): Pro
     console.log(`resume: 완료 ${result.resumed.length}, 미완 ${result.pending.length} (${args.spool})`);
     return result.pending.length ? EXIT.incomplete : EXIT.ok;
   } catch (err) {
-    if (err instanceof AgentConfigError) { console.error(`설정 오류: ${err.message}\n\n${help}`); return EXIT.config; }
+    if (err instanceof AgentConfigError || err instanceof ModelConfigError) { console.error(`설정 오류: ${err.message}\n\n${help}`); return EXIT.config; }
     throw err;
   }
 }

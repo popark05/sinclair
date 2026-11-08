@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { FakeEngine, HOME_SCREEN, LOGIN_SCREEN } from '@sinclair/protocol/testing';
 import { EngineError } from '@sinclair/protocol';
-import { runAct, scriptedExecutor, renderObservation, type ToolCall } from '../src/index.ts';
+import { runAct, scriptedExecutor, renderObservation, ModelConfigError, ModelCallError, type ToolCall, type StepExecutor } from '../src/index.ts';
 
 const login = () => new FakeEngine({ root: LOGIN_SCREEN, onTap: (n) => (n.name === '로그인' ? HOME_SCREEN : undefined) });
 const script: ToolCall[] = [
@@ -34,7 +34,7 @@ describe('runAct', () => {
     expect(first!.tools.map((t) => t.name)).toContain('tap');
     expect(first!.observation).toMatch(/@e4 button "로그인"/);
     expect(third!.observation).toMatch(/환영합니다/); // 실행 뒤 새 관찰
-    expect(third!.history.map((h) => [h.call.name, h.result])).toEqual([['type', 'ok'], ['type', 'ok'], ['tap', 'ok']]);
+    expect(third!.history.map((h) => [h.call?.name, h.result])).toEqual([['type', 'ok'], ['type', 'ok'], ['tap', 'ok']]);
     for (const req of exec.requests) expect(JSON.stringify(req)).not.toMatch(/hunter2/); // secure 값은 모델에 가지 않는다
   });
 
@@ -102,5 +102,47 @@ describe('runAct · 견고함', () => {
     const detail = exec.requests[1]!.history[0]!.detail!;
     expect(detail).toMatch(/<입력값>/);
     expect(JSON.stringify(exec.requests.slice(1))).not.toMatch(/secret-typed-value'/); // 오류 문구로는 되돌아가지 않는다(호출 기록 자체는 모델이 쓴 것)
+  });
+});
+
+describe('runAct · 모델 사용량과 설정', () => {
+  it('실행기가 턴마다 돌려준 토큰 사용량을 act 결과에 더한다(캐시 필드는 보고된 것만)', async () => {
+    const exec = scriptedExecutor(script.map((call, i) => ({ call, usage: { inputTokens: 100, outputTokens: 10, ...(i > 0 ? { cacheReadTokens: 900 } : {}) } })));
+    const r = await runAct(login(), '로그인', { executor: exec });
+    expect(r).toMatchObject({ ok: true, modelCalls: 4, usage: { inputTokens: 400, outputTokens: 40, cacheReadTokens: 2700 } });
+    expect(r.usage).not.toHaveProperty('cacheWriteTokens');
+  });
+
+  it('사용량을 모르는 실행기(대본)면 usage 가 없다', async () => {
+    expect(await runAct(login(), '로그인', { executor: scriptedExecutor(script) })).not.toHaveProperty('usage');
+  });
+
+  it('툴을 부르지 않은 턴은 거부로 기록해 다음 턴에 모델이 다시 고르게 한다', async () => {
+    const exec = scriptedExecutor([{ text: '어떤 칸에 입력할까요?' }, ...script]);
+    const r = await runAct(login(), '로그인', { executor: exec });
+    expect(r).toMatchObject({ ok: true, turns: 5, modelCalls: 5 });
+    expect(exec.requests[1]!.history[0]).toMatchObject({ result: 'rejected', detail: expect.stringMatching(/툴을 부르지 않음/) });
+    expect(exec.requests[1]!.history[0]).not.toHaveProperty('call');
+  });
+
+  it('모델 호출 실패(거절 등)가 쓴 토큰도 결과에 남는다', async () => {
+    const refused = scriptedExecutor(() => { throw new ModelCallError('모델이 거절함(general_harms)', { inputTokens: 50, outputTokens: 0 }); });
+    expect(await runAct(login(), '로그인', { executor: refused })).toMatchObject({ ok: false, reason: expect.stringMatching(/거절/), usage: { inputTokens: 50, outputTokens: 0 } });
+  });
+
+  it('설정 오류(키 없음 등)는 실패 결과로 뭉개지 않고 그대로 던진다', async () => {
+    const noKey = scriptedExecutor(() => { throw new ModelConfigError('ANTHROPIC_API_KEY 가 없음'); });
+    await expect(runAct(login(), '로그인', { executor: noKey })).rejects.toBeInstanceOf(ModelConfigError);
+  });
+
+  it('화면 이미지는 실행기가 원할 때만 요청에 싣는다(기본: 트리만)', async () => {
+    const plain = scriptedExecutor(script);
+    await runAct(login(), '로그인', { executor: plain });
+    expect(plain.requests[0]).not.toHaveProperty('pixels');
+    const seen: Array<Uint8Array | undefined> = [];
+    const inner = scriptedExecutor(script);
+    const visual: StepExecutor = { pixels: true, next: (req, signal) => { seen.push(req.pixels); return inner.next(req, signal); } };
+    await runAct(login(), '로그인', { executor: visual });
+    expect(seen[0]?.slice(0, 4)).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
   });
 });

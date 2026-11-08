@@ -1,6 +1,7 @@
 // @vitest-environment node
 // runOnce: 인프로세스 control-plane + FakeEngine 으로 Run 등록 → 실행 → 보고 → GET /cycles/:id 가 finished. 종료 코드 0/1/2/3.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import * as http from 'node:http';
 import * as path from 'node:path';
 import { FakeEngine, LOGIN_SCREEN, withDeviceUnavailable } from '@sinclair/protocol/testing';
 import { startControlPlane, type RunningControlPlane, type CycleView } from '@sinclair/control-plane';
@@ -138,5 +139,64 @@ describe('runOnce', () => {
     const runView = (await (await fetch(`${url}/runs/r-spool`)).json()) as { state: string; attempts: unknown[] };
     expect(runView).toMatchObject({ state: 'finished' });
     expect(runView.attempts).toHaveLength(1);
+  });
+});
+
+describe('runOnce · agent.act 실행기(환경변수 설정)', () => {
+  let api: http.Server | undefined;
+  const requests: string[] = [];
+  afterEach(async () => { vi.unstubAllEnvs(); await new Promise((r) => (api ? api.close(r) : r(undefined))); api = undefined; requests.length = 0; });
+  /** 가짜 Messages API: tap @e4 → done 순서로 답한다 */
+  const fakeClaude = async (): Promise<string> => {
+    const turns = [{ name: 'tap', input: { ref: '@e4' } }, { name: 'done', input: { summary: '환영합니다 가 보인다' } }];
+    api = http.createServer((req, res) => {
+      let raw = ''; req.on('data', (c: Buffer) => { raw += c.toString(); });
+      req.on('end', () => {
+        requests.push(raw);
+        const t = turns[Math.min(requests.length - 1, turns.length - 1)]!;
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ id: 'm', type: 'message', role: 'assistant', model: 'claude-sonnet-5-5', stop_reason: 'tool_use', stop_sequence: null,
+          usage: { input_tokens: 1000, output_tokens: 30, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }, content: [{ type: 'tool_use', id: 'toolu', name: t.name, input: t.input }] }));
+      });
+    });
+    await new Promise<void>((r) => api!.listen(0, '127.0.0.1', r));
+    return `http://127.0.0.1:${(api.address() as { port: number }).port}`;
+  };
+  const args = () => ({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'agent-login'), engine: 'fake' as const, spool, helperCache: path.join(spool, 'helper-cache') });
+  const noCredentials = () => {
+    for (const v of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_PROFILE', 'ANTHROPIC_IDENTITY_TOKEN', 'ANTHROPIC_IDENTITY_TOKEN_FILE', 'ANTHROPIC_FEDERATION_RULE_ID']) vi.stubEnv(v, undefined);
+    vi.stubEnv('ANTHROPIC_CONFIG_DIR', fs.mkdtempSync(path.join(os.tmpdir(), 'sinclair-no-creds-')));
+  };
+
+  it('ANTHROPIC_* 와 SINCLAIR_AGENT_* 로 만든 Claude 실행기가 act 를 돌리고, 스텝의 토큰 사용량이 Run 뷰에 남는다', async () => {
+    await createCycle();
+    noCredentials();
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-test-key');
+    vi.stubEnv('ANTHROPIC_BASE_URL', await fakeClaude());
+    vi.stubEnv('SINCLAIR_AGENT_MODEL', 'claude-opus-5-5');
+    expect(await runOnce(args(), deps())).toBe(EXIT.ok);
+    expect(JSON.parse(requests[0]!)).toMatchObject({ model: 'claude-opus-5-5' });
+    const v = await view();
+    expect(v.verdict).toBe('verified');
+    const run = (await (await fetch(`${url}/runs/${v.runs[0]!.runId}`)).json()) as { attempts: Array<{ steps: Array<{ kind: string; modelCalls: number; usage?: unknown }> }> };
+    expect(run.attempts[0]!.steps.find((st) => st.kind === 'act')).toMatchObject({ modelCalls: 2, usage: { inputTokens: 2000, outputTokens: 60 } });
+    expect(logs.join('\n')).not.toContain('sk-ant-test-key');
+  });
+
+  it('자격 증명이 없으면 act 는 설정 오류(agent-config)로 blocked — 종료 코드 2, 테스트 실패(1)가 아니다', async () => {
+    await createCycle();
+    noCredentials();
+    vi.stubEnv('ANTHROPIC_BASE_URL', 'http://127.0.0.1:9');
+    expect(await runOnce(args(), deps())).toBe(EXIT.blocked);
+    expect(logs.join('\n')).toMatch(/blocked: .*ANTHROPIC_API_KEY/);
+    expect((await view()).verdict).toBe('blocked');
+  });
+
+  it('SINCLAIR_AGENT_* 값이 잘못되면 Run 을 등록하기 전에 설정 오류 3', async () => {
+    await createCycle();
+    vi.stubEnv('SINCLAIR_AGENT_MODEL_EFFORT', 'turbo');
+    expect(await runOnce(args(), deps())).toBe(EXIT.config);
+    expect(logs.join('\n')).toMatch(/SINCLAIR_AGENT_MODEL_EFFORT/);
+    expect((await view()).runs).toEqual([]);
   });
 });

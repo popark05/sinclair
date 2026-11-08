@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { agentFromEnv, ModelConfigError, type AgentSetup } from '@sinclair/agent';
 import { runTests, type Reporter } from '@sinclair/runner';
 import { AgentConfigError, type RunArgs } from './args.ts';
 import { ControlPlaneError, registerRun, type RegisteredRun } from './control-plane-client.ts';
@@ -21,6 +22,8 @@ export interface RunOnceDeps {
   createEngine?: (args: RunArgs, log: (line: string) => void) => Promise<EngineHandle>;
   /** 03(스풀) 이 HTTP Reporter 를 감싼 Reporter 로 바꾼다 */
   createReporter?: (args: RunArgs, run: RegisteredRun) => Reporter;
+  /** agent.act 설정(실행기·한도). 기본은 환경변수(SINCLAIR_AGENT_*, 키는 ANTHROPIC_API_KEY)로 만든 Claude 실행기 */
+  agent?: AgentSetup;
   /** 러너 취소 신호(데몬이 lease 상실·종료 신호 때 abort). 진행 중 테스트는 마치고 나머지는 skipped, run 은 cancelled */
   signal?: AbortSignal;
 }
@@ -43,6 +46,8 @@ export async function runOnce(args: RunArgs, deps: RunOnceDeps = {}): Promise<Ex
   let files: string[];
   let run: RegisteredRun;
   try {
+    // 잘못된 SINCLAIR_AGENT_* 는 Run 을 등록하기 전에 드러낸다(키가 없는 것은 agent.act 를 쓰는 테스트만의 문제라 여기서 막지 않는다)
+    if (!deps.agent) agentFromEnv(process.env);
     files = await collectTestFiles(path.resolve(args.tests));
     try {
       run = await registerRun(args.controlPlane, args.cycle, args.target, args.run);
@@ -67,6 +72,15 @@ export async function executeRun(args: RunArgs, run: RegisteredRun, files: strin
   const agentId = args.agent ?? os.hostname();
   const reporter = (deps.createReporter ?? defaultReporter)(args, run);
 
+  let agent: AgentSetup;
+  try {
+    agent = deps.agent ?? agentFromEnv(process.env);
+  } catch (err) {
+    if (!(err instanceof ModelConfigError)) throw err;
+    log(`설정 오류: ${err.message}`);
+    return EXIT.config;
+  }
+
   let handle: EngineHandle;
   try {
     handle = await (deps.createEngine ?? createEngine)(args, log);
@@ -84,7 +98,7 @@ export async function executeRun(args: RunArgs, run: RegisteredRun, files: strin
     // Reporter 가 재시도 예산을 알려 주면 러너의 flush 기한을 그에 맞춘다(기본 10초면 스풀의 60초 예산이 무의미해진다)
     const flushBudgetMs = (reporter as { flushBudgetMs?: number }).flushBudgetMs;
     const report = await runTests(files, {
-      engine: handle.engine, reporter, runId: run.runId, cycleId: run.cycleId, targetId: run.targetId, agentId,
+      engine: handle.engine, reporter, runId: run.runId, cycleId: run.cycleId, targetId: run.targetId, agentId, agent,
       ...(flushBudgetMs !== undefined ? { reporterFlushTimeoutMs: flushBudgetMs } : {}),
       ...(handle.deviceId ? { deviceId: handle.deviceId } : {}), ...(args.artifacts ? { artifactsDir: args.artifacts } : {}), ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}), ...(args.retries !== undefined ? { retries: args.retries } : {}), ...(deps.signal ? { signal: deps.signal } : {}),
     });

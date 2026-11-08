@@ -1,9 +1,10 @@
-// StepExecutor 경계: 에이전트 루프는 "목표 + 지금 화면 + 지난 턴 → 다음 툴 호출" 만 묻는다. 모델(Claude, agent-layer 02)이든
+// StepExecutor 경계: 에이전트 루프는 "목표 + 지금 화면 + 지난 턴 → 다음 툴 호출" 만 묻는다. 모델(Claude)이든
 // 대본(테스트)이든 이 모양만 지키면 바꿔 끼울 수 있다(e2e 의 교체 가능한 StepExecutor 구조).
+import type { StepUsage } from '@sinclair/protocol';
 import type { ToolCall, ToolSchema } from './action-spec.ts';
 
-/** 지난 턴 하나: 모델이 낸 호출과 그 결과. 거부(rejected)·엔진 오류(error)도 모델이 고칠 수 있게 그대로 돌려준다 */
-export interface AgentTurn { call: ToolCall; result: 'ok' | 'rejected' | 'error'; detail?: string }
+/** 지난 턴 하나: 모델이 낸 호출과 그 결과. 거부(rejected)·엔진 오류(error)도 모델이 고칠 수 있게 그대로 돌려준다. 툴을 부르지 않은 턴은 call 이 없다 */
+export interface AgentTurn { call?: ToolCall; result: 'ok' | 'rejected' | 'error'; detail?: string }
 
 export interface StepRequest {
   goal: string;
@@ -11,26 +12,47 @@ export interface StepRequest {
   observation: string;
   history: readonly AgentTurn[];
   tools: readonly ToolSchema[];
+  /** 화면 이미지(PNG/JPEG). 실행기가 pixels 를 원할 때만 */
+  pixels?: Uint8Array;
 }
+
+/** 실행기의 답: 툴 호출 하나, 또는 툴 없이 낸 글(거부로 기록돼 다음 턴에 다시 묻는다). usage 는 이 턴의 토큰(모르면 생략) */
+export interface StepReply { call?: ToolCall; text?: string; usage?: StepUsage }
 
 export interface StepExecutor {
-  next(request: StepRequest, signal: AbortSignal): Promise<ToolCall>;
+  /** true 면 루프가 화면 이미지도 함께 관찰해 요청에 싣는다(비용이 크다. 기본 트리만) */
+  readonly pixels?: boolean;
+  next(request: StepRequest, signal: AbortSignal): Promise<StepReply>;
 }
 
-/** 테스트용 실행기: 대본(호출 배열 — 다 쓰면 실패) 또는 함수. 받은 요청을 requests 에 남겨 무엇이 모델에 갔는지 검사할 수 있다 */
+/** 실행기 설정 문제(키 없음·잘못된 키·잘못된 설정값). 테스트 탓이 아니므로 루프는 실패 결과로 뭉개지 않고 그대로 던진다 */
+export class ModelConfigError extends Error {
+  override name = 'ModelConfigError';
+}
+
+/** 모델 호출이 답을 못 냄(거절·잘림 등). 그 호출이 쓴 토큰을 실어 비용 집계에서 빠지지 않게 한다 */
+export class ModelCallError extends Error {
+  override name = 'ModelCallError';
+  constructor(message: string, readonly usage?: StepUsage) { super(message); }
+}
+
+/** 테스트용 실행기: 대본(호출·답 배열 — 다 쓰면 실패) 또는 함수. 받은 요청을 requests 에 남겨 무엇이 모델에 갔는지 검사할 수 있다 */
 export interface ScriptedExecutor extends StepExecutor { readonly requests: StepRequest[] }
 
-export function scriptedExecutor(script: readonly ToolCall[] | ((request: StepRequest, index: number) => ToolCall | Promise<ToolCall>)): ScriptedExecutor {
+type ScriptItem = ToolCall | StepReply;
+const toReply = (item: ScriptItem): StepReply => ('name' in item ? { call: item } : item);
+
+export function scriptedExecutor(script: readonly ScriptItem[] | ((request: StepRequest, index: number) => ScriptItem | Promise<ScriptItem>)): ScriptedExecutor {
   const requests: StepRequest[] = [];
   return {
     requests,
     async next(request) {
       requests.push(structuredClone(request));
       const i = requests.length - 1;
-      if (typeof script === 'function') return script(request, i);
-      const call = script[i];
-      if (!call) throw new Error(`대본이 ${script.length}턴에서 끝남`);
-      return call;
+      if (typeof script === 'function') return toReply(await script(request, i));
+      const item = script[i];
+      if (!item) throw new Error(`대본이 ${script.length}턴에서 끝남`);
+      return toReply(item);
     },
   };
 }

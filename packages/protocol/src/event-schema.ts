@@ -1,6 +1,6 @@
 // RunEvent 런타임 검증기. 러너 Reporter 와 control-plane Ingest 가 같은 검증을 쓴다.
 // 닫힌 스키마: 모르는 type·키, 빠진 필수 필드, 상수 밖의 값은 모두 거부한다. 오류는 모아서 한 번에 돌려준다.
-import { ARTIFACT_KINDS, EVENT_SCHEMA_VERSION, RUN_FINISHED_STATES, STEP_KINDS, type AttemptFinished, type AttemptStarted, type RunEvent, type RunEventType, type RunFinished, type RunStarted, type StepRecorded } from './events.ts';
+import { ARTIFACT_KINDS, EVENT_SCHEMA_VERSION, RUN_FINISHED_STATES, STEP_KINDS, type AttemptFinished, type AttemptStarted, type RunEvent, type RunEventType, type RunFinished, type RunStarted, type StepRecorded, type StepUsage } from './events.ts';
 import { ATTEMPT_RESULTS, CACHE_DECISIONS } from './status.ts';
 
 export type ParseResult = { ok: true; event: RunEvent } | { ok: false; errors: string[] };
@@ -27,6 +27,22 @@ const artifacts = (v: unknown) => {
   return undefined;
 };
 
+const USAGE: Record<keyof StepUsage, FieldRule> = {
+  inputTokens: { required: true, check: int }, outputTokens: { required: true, check: int },
+  cacheReadTokens: { required: false, check: int }, cacheWriteTokens: { required: false, check: int },
+};
+const usage = (v: unknown) => {
+  if (!isRecord(v)) return '객체여야 함';
+  const problems: string[] = [];
+  for (const [key, rule] of Object.entries(USAGE)) {
+    if (!Object.hasOwn(v, key)) { if (rule.required) problems.push(`${key} 누락`); continue; }
+    const p = rule.check(v[key]);
+    if (p) problems.push(`${key} ${p}`);
+  }
+  for (const key of Object.keys(v)) if (!Object.hasOwn(USAGE, key)) problems.push(`${key} 모르는 키`);
+  return problems.length ? problems.join(', ') : undefined;
+};
+
 const BASE: Record<string, FieldRule> = {
   schema: { required: true, check: (v) => (v === EVENT_SCHEMA_VERSION ? undefined : `${EVENT_SCHEMA_VERSION} 이어야 함`) },
   eventId: { required: true, check: str },
@@ -42,7 +58,7 @@ const BY_TYPE: Record<RunEventType, Record<string, FieldRule>> = {
     attemptId: { required: true, check: str }, stepIndex: { required: true, check: int }, kind: { required: true, check: oneOf(STEP_KINDS) },
     // instruction 은 빈 문자열 허용(지시가 없는 스텝). cache 는 에이전트 스텝에만 있다
     instruction: { required: false, check: (v) => (typeof v === 'string' ? undefined : '문자열이어야 함') }, cache: { required: false, check: oneOf(CACHE_DECISIONS) },
-    modelCalls: { required: true, check: int }, durationMs: { required: true, check: int },
+    modelCalls: { required: true, check: int }, durationMs: { required: true, check: int }, usage: { required: false, check: usage },
   } satisfies Rules<StepRecorded>,
   'attempt.finished': { attemptId: { required: true, check: str }, result: { required: true, check: oneOf(ATTEMPT_RESULTS) }, errorCode: { required: false, check: str }, artifacts: { required: true, check: artifacts } } satisfies Rules<AttemptFinished>,
   'run.finished': { state: { required: true, check: oneOf(RUN_FINISHED_STATES) } } satisfies Rules<RunFinished>,

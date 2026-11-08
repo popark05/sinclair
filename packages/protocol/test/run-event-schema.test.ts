@@ -12,6 +12,9 @@ const VALID: RunEvent[] = [
   { ...base, type: 'step.recorded', attemptId: 'a1', stepIndex: 1, kind: 'act', cache: 'replayed', modelCalls: 0, durationMs: 10 },
   { ...base, type: 'attempt.finished', attemptId: 'a1', result: 'failed', errorCode: 'not-found', artifacts: [{ kind: 'screenshot', key: 'a1.screenshot.png' }] },
   { ...base, type: 'run.finished', state: 'infra-failed' },
+  // 모델 스텝의 토큰 사용량(Console 비용). 캐시 필드는 적중·기록이 있을 때만
+  { ...base, type: 'step.recorded', attemptId: 'a1', stepIndex: 3, kind: 'act', instruction: 'act "로그인" → tap @e4 (2턴)', modelCalls: 2, durationMs: 4100, usage: { inputTokens: 2400, outputTokens: 180 } },
+  { ...base, type: 'step.recorded', attemptId: 'a1', stepIndex: 4, kind: 'act', modelCalls: 3, durationMs: 5000, usage: { inputTokens: 300, outputTokens: 90, cacheReadTokens: 4200, cacheWriteTokens: 0 } },
   { ...base, at: '2026-11-07T09:00:00+09:00', type: 'step.recorded', attemptId: 'a1', stepIndex: 2, kind: 'locator', instruction: '', modelCalls: 0, durationMs: 0 }, // 오프셋 타임존, 빈 instruction 허용
 ];
 
@@ -43,6 +46,10 @@ describe('parseRunEvent', () => {
     ['artifacts 원소에 모르는 키', { ...base, type: 'attempt.finished', attemptId: 'a1', result: 'passed', artifacts: [{ kind: 'trace', key: 'x', size: 1 }] }, /artifacts/],
     ['errorCode 가 빈 문자열', { ...base, type: 'attempt.finished', attemptId: 'a1', result: 'failed', errorCode: '', artifacts: [] }, /errorCode/],
     ['stepIndex 가 음수', { ...base, type: 'step.recorded', attemptId: 'a1', stepIndex: -1, kind: 'act', modelCalls: 0, durationMs: 1 }, /stepIndex/],
+    ['usage 가 객체가 아님', { ...base, type: 'step.recorded', attemptId: 'a1', stepIndex: 0, kind: 'act', modelCalls: 1, durationMs: 1, usage: 12 }, /usage/],
+    ['usage 의 필수 토큰 누락', { ...base, type: 'step.recorded', attemptId: 'a1', stepIndex: 0, kind: 'act', modelCalls: 1, durationMs: 1, usage: { inputTokens: 1 } }, /usage.*outputTokens/],
+    ['usage 에 모르는 키', { ...base, type: 'step.recorded', attemptId: 'a1', stepIndex: 0, kind: 'act', modelCalls: 1, durationMs: 1, usage: { inputTokens: 1, outputTokens: 1, costUsd: 0.1 } }, /usage.*costUsd/],
+    ['usage 토큰이 음수', { ...base, type: 'step.recorded', attemptId: 'a1', stepIndex: 0, kind: 'act', modelCalls: 1, durationMs: 1, usage: { inputTokens: -1, outputTokens: 1 } }, /usage.*inputTokens/],
     ['attemptNo 가 0', { ...base, type: 'attempt.started', attemptId: 'a1', testId: 't', attemptNo: 0 }, /attemptNo/],
   ])('거부: %s', (_, input, pattern) => {
     const r = parseRunEvent(input);

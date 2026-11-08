@@ -34,6 +34,13 @@ describe('projectRun', () => {
     expect(projectRun([...RUN].reverse())).toEqual(expected);
   });
 
+  it('모델 스텝의 토큰 사용량을 스텝 투영에 그대로 싣는다(Console 비용)', () => {
+    const act: RunEvent = { ...base('e9', 2), type: 'step.recorded', attemptId: 'a1', stepIndex: 2, kind: 'act', instruction: 'act "로그인"', modelCalls: 3, durationMs: 4000, usage: { inputTokens: 3000, outputTokens: 120, cacheReadTokens: 2400 } };
+    const steps = projectRun([...RUN, act]).attempts[0]!.steps;
+    expect(steps[2]).toEqual({ stepIndex: 2, kind: 'act', instruction: 'act "로그인"', modelCalls: 3, durationMs: 4000, usage: { inputTokens: 3000, outputTokens: 120, cacheReadTokens: 2400 } });
+    expect(steps[0]).not.toHaveProperty('usage');
+  });
+
   it('run.finished 가 아직 없으면 running, attempt.finished 가 없으면 result 없음', () => {
     const view = projectRun(RUN.slice(0, 3));
     expect(view.state).toBe('running');

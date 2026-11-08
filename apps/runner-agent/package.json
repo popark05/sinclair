@@ -10,10 +10,11 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@sinclair/protocol": "workspace:*",
-    "@sinclair/runner": "workspace:*",
+    "@sinclair/agent": "workspace:*",
+    "@sinclair/device-layer": "workspace:*",
     "@sinclair/engine-mobile": "workspace:*",
-    "@sinclair/device-layer": "workspace:*"
+    "@sinclair/protocol": "workspace:*",
+    "@sinclair/runner": "workspace:*"
   },
   "devDependencies": {
     "@sinclair/control-plane": "workspace:*"

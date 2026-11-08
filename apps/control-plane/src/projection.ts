@@ -2,7 +2,7 @@
 // 정렬·선택은 이벤트의 내용(at, eventId, stepIndex)으로만 한다. 배열 순서(도착 순서)는 쓰지 않는다.
 // 같은 자리(run.started, attempt.started, attempt.finished, 같은 stepIndex)에 eventId 가 다른 이벤트가 둘 오면
 // at 이 빠른 것, 같으면 eventId 가 작은 것을 택한다. Reporter 는 재시도에 같은 eventId 를 쓰므로 정상 경로에서는 생기지 않는다.
-import type { ArtifactKind, AttemptResult, RunEvent, RunState, StepKind, CacheDecision } from '@sinclair/protocol';
+import type { ArtifactKind, AttemptResult, RunEvent, RunState, StepKind, CacheDecision, StepUsage } from '@sinclair/protocol';
 
 export interface StepView {
   stepIndex: number;
@@ -11,6 +11,8 @@ export interface StepView {
   cache?: CacheDecision;
   modelCalls: number;
   durationMs: number;
+  /** 모델 스텝의 토큰 사용량(Console 비용) */
+  usage?: StepUsage;
 }
 
 export interface AttemptView {
@@ -74,7 +76,7 @@ export function projectRun(events: RunEvent[]): RunView {
     for (const e of of('step.recorded')) if (e.attemptId === attemptId) stepsByIndex.set(e.stepIndex, [...(stepsByIndex.get(e.stepIndex) ?? []), e]);
     const steps = [...stepsByIndex.keys()].sort((a, b) => a - b).map((i) => {
       const e = pick(stepsByIndex.get(i)!)!;
-      return defined<StepView>({ stepIndex: e.stepIndex, kind: e.kind, instruction: e.instruction, cache: e.cache, modelCalls: e.modelCalls, durationMs: e.durationMs });
+      return defined<StepView>({ stepIndex: e.stepIndex, kind: e.kind, instruction: e.instruction, cache: e.cache, modelCalls: e.modelCalls, durationMs: e.durationMs, usage: e.usage });
     });
     return defined<AttemptView>({
       attemptId, testId: s?.testId, attemptNo: s?.attemptNo, startedAt: s?.at, finishedAt: f?.at,

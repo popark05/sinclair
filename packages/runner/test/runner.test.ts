@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import { EngineError, RUN_EVENT_TYPES, parseRunEvent, type Engine, type RunEvent, type SemanticNode } from '@sinclair/protocol';
 import { FakeEngine, HOME_SCREEN, LOGIN_SCREEN, withDeviceUnavailable } from '@sinclair/protocol/testing';
 import { runTests, MAX_RETRIES, type Reporter } from '../src/index.ts';
-import { scriptedExecutor } from '@sinclair/agent';
+import { scriptedExecutor, ModelConfigError } from '@sinclair/agent';
 
 const SETTINGS_SCREEN: SemanticNode = {
   ref: '@s0', role: 'root', rect: { x: 0, y: 0, width: 1080, height: 2400 }, children: [
@@ -350,8 +350,22 @@ describe('agent.act (대본 실행기)', () => {
     vexpect(report.events.filter((e) => e.type === 'step.recorded' && e.kind === 'act')).toHaveLength(1);
   });
 
-  it('실행기 없이 agent.act 를 부르면 분명한 설정 오류로 실패한다', async () => {
-    const report = await runTests([fixture('agent-login.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 500 });
-    vexpect(report.tests[0]).toMatchObject({ result: 'failed', error: vexpect.stringMatching(/agent\.executor/) });
+  it('모델이 보고한 토큰 사용량이 act 스텝(step.recorded usage)에 남는다', async () => {
+    const exec = scriptedExecutor(loginScript.map((call) => ({ call, usage: { inputTokens: 1000, outputTokens: 50, cacheReadTokens: 800 } })));
+    const report = await runTests([fixture('agent-login.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 500, agent: { executor: exec } });
+    const act = report.events.find((e): e is Extract<RunEvent, { type: 'step.recorded' }> => e.type === 'step.recorded' && e.kind === 'act');
+    vexpect(act).toMatchObject({ modelCalls: 3, usage: { inputTokens: 3000, outputTokens: 150, cacheReadTokens: 2400 } });
+    vexpect(parseRunEvent(act).ok).toBe(true);
+    const plain = await runTests([fixture('agent-login.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 500, agent: { executor: scriptedExecutor(loginScript) } });
+    vexpect(plain.events.find((e) => e.type === 'step.recorded' && e.kind === 'act')).not.toHaveProperty('usage');
+  });
+
+  it('실행기 설정 오류(키 없음)와 실행기 없음은 테스트 실패가 아니라 blocked(errorCode agent-config)', async () => {
+    const noKey = scriptedExecutor(() => { throw new ModelConfigError('Claude API 자격 증명이 없음: ANTHROPIC_API_KEY 를 설정'); });
+    const report = await runTests([fixture('agent-login.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 500, agent: { executor: noKey }, retries: 2 });
+    vexpect(report.tests[0]).toMatchObject({ result: 'blocked', errorCode: 'agent-config', attempts: 1, error: vexpect.stringMatching(/ANTHROPIC_API_KEY/) });
+    vexpect(report.events.filter((e) => e.type === 'step.recorded' && e.kind === 'act')).toHaveLength(1);
+    const none = await runTests([fixture('agent-login.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 500 });
+    vexpect(none.tests[0]).toMatchObject({ result: 'blocked', errorCode: 'agent-config', error: vexpect.stringMatching(/agent\.executor/) });
   });
 });

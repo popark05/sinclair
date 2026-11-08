@@ -105,6 +105,21 @@ const OPTIONS = [
   { name: 'helper-cache', key: 'helperCache', env: 'SINCLAIR_AGENT_HELPER_CACHE', required: false, help: '헬퍼 APK 다운로드 캐시 (기본 OS 데이터 디렉터리/sinclair/cache/helper)' },
 ] as const;
 
+/** agent.act(모델 실행기) 환경변수. 플래그는 없다: 키는 명령줄(ps·셸 기록)에 남기지 않는다 */
+const AGENT_ENV_HELP = `agent.act(모델) 환경변수:
+  ANTHROPIC_API_KEY                 Claude API 키(또는 ANTHROPIC_AUTH_TOKEN·ANTHROPIC_PROFILE). 없으면 agent.act 를 쓰는 테스트만 blocked(agent-config)
+  ANTHROPIC_BASE_URL                API 주소(기본 공식 API)
+  SINCLAIR_AGENT_MODEL              모델 (기본 claude-sonnet-5-5; claude-opus-5-5, claude-haiku-5-5)
+  SINCLAIR_AGENT_MODEL_EFFORT       low|medium|high|xhigh|max (기본 medium)
+  SINCLAIR_AGENT_MODEL_TIMEOUT_MS   모델 요청 하나의 기한 (기본 60000)
+  SINCLAIR_AGENT_MODEL_RETRIES      일시 오류(연결·429·5xx) 재시도 (기본 2)
+  SINCLAIR_AGENT_MODEL_MAX_TOKENS   요청 하나의 최대 출력 토큰 (기본 8192)
+  SINCLAIR_AGENT_MODEL_PIXELS       1 이면 화면 이미지도 보낸다 (기본 0: 접근성 트리만)
+  SINCLAIR_AGENT_ACT_MAX_TURNS      act 하나의 턴 한도 (기본 20)
+  SINCLAIR_AGENT_ACT_TIMEOUT_MS     act 하나의 시간 한도 (기본 120000)
+  NODE_EXTRA_CA_CERTS               사내망(SSL 인터셉션)이면 CA 묶음 PEM (예: $HOME/.certs/all-system-certs.pem)
+`;
+
 export const RUN_HELP = `사용법: sinclair-agent run [옵션]
 
 ${helpTable(OPTIONS)}
@@ -112,7 +127,8 @@ ${helpTable(OPTIONS)}
 
 종료 코드: 0 전부 통과, 1 실패 있음, 2 기기 불가(blocked), 3 설정·등록 오류
 테스트 파일(*.sinclair.ts)은 Node 의 타입 스트리핑으로 그대로 로드한다(Node 22.18+ 또는 24).
-`;
+
+${AGENT_ENV_HELP}`;
 
 export const RESUME_HELP = `사용법: sinclair-agent resume [옵션]
 
@@ -174,7 +190,8 @@ ${helpTable(DAEMON_OPTIONS)}
 run 은 run 마다 워커 프로세스로 돌고 기기마다 동시에 돈다(--concurrency 로 상한). USB 는 데몬만 잡고 워커는 데몬의 로컬 디바이스 RPC 로 기기를 조작한다.
 화면이 잠긴 기기는 한 번 깨우고 위로 스와이프해 본다(비보안 잠금은 풀린다). 보안 잠금(PIN·패턴)이면 화면을 다시 끄고 사람이 풀 때까지 다시 깨우지 않는다 — 기기 노드의 폰은 잠금 없음 또는 '화면 켜짐 상태 유지'로 두는 것을 권한다.
 종료 코드: 0 모든 run 통과(lease 상실·종료 신호로 중단된 run 은 실패로 세지 않는다), 1 실패·blocked·오류가 있던 run 있음, 3 설정 오류
-`;
+
+${AGENT_ENV_HELP}`;
 
 export interface DaemonCliArgs extends Omit<RunArgs, 'cycle' | 'target' | 'run'> { targets: string[]; pollMs?: number; concurrency?: number; fakeDevices?: string }
 

@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { runAct, type StepExecutor } from '@sinclair/agent';
+import { runAct, ModelConfigError, type StepExecutor } from '@sinclair/agent';
 import { EngineError, parseRunEvent, type AttemptFinished, type AttemptResult, type Engine, type RunEvent, type StepRecorded } from '@sinclair/protocol';
 import { createScreen, type StepEvent } from './screen.ts';
 import { expect as makeExpect, AssertionError } from './expect.ts';
@@ -79,6 +79,9 @@ export interface RunReport {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 export const MAX_RETRIES = 5;
+
+/** 모델 실행기 설정 오류(키 없음·잘못된 키·실행기 없음)의 errorCode. 결과는 blocked */
+export const AGENT_CONFIG_CODE = 'agent-config';
 
 /** agent.act 가 목표를 이루지 못함(턴·시간 한도, 모델 오류). errorCode 'agent' 로 판정 실패와 구분된다 */
 export class AgentActError extends Error {}
@@ -193,7 +196,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
     emit({ ...base(), type: 'attempt.started', attemptId, testId: tc.name, attemptNo });
 
     const finish = (result: AttemptResult, error?: Error): TestResult => {
-      const errorCode = cancelledSkip ? CANCELLED_CODE : error instanceof EngineError ? error.code : error instanceof AssertionError ? 'assertion' : error instanceof AgentActError ? 'agent' : error ? 'error' : undefined;
+      const errorCode = cancelledSkip ? CANCELLED_CODE : error instanceof EngineError ? error.code : error instanceof AssertionError ? 'assertion' : error instanceof AgentActError ? 'agent' : error instanceof ModelConfigError ? AGENT_CONFIG_CODE : error ? 'error' : undefined;
       emit({ ...base(), type: 'attempt.finished', attemptId, result, ...(errorCode ? { errorCode } : {}), artifacts });
       return {
         name: tc.name, file, result, attempts: attemptNo, durationMs: Date.now() - started, steps, artifacts,
@@ -207,6 +210,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
       const ev: StepRecorded = {
         ...base(), type: 'step.recorded', attemptId, stepIndex: steps.length, kind: step.kind,
         instruction: step.error ? `${step.instruction} → 실패: ${step.error}` : step.instruction, modelCalls: step.modelCalls ?? 0, durationMs: step.durationMs,
+        ...(step.usage ? { usage: step.usage } : {}),
       };
       steps.push(ev);
       emit(ev);
@@ -222,7 +226,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
       expect: (locator, o) => makeExpect(locator, { timeoutMs: timeoutMs / 2, ...o, onStep }),
       agent: {
         async act(goal) {
-          if (!options.agent) throw new Error('agent.act 를 쓰려면 runTests 에 agent.executor(모델 실행기)가 필요함');
+          if (!options.agent) throw new ModelConfigError('agent.act 를 쓰려면 runTests 에 agent.executor(모델 실행기)가 필요함');
           const started = Date.now();
           let r;
           try {
@@ -234,9 +238,9 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
           }
           // 툴 요약: 이름과 대상 ref 만(입력한 글자는 남기지 않는다 — 비밀값일 수 있다). ref 는 모델이 쓴 값이라 ref 모양일 때만 싣는다
           const refOf = (input: unknown): string => { const v = (input as { ref?: unknown } | null)?.ref; return typeof v === 'string' && /^@[\w:.-]{1,40}$/.test(v) ? ` ${v}` : ''; };
-          const tools = r.history.map((h) => `${h.call.name}${refOf(h.call.input)}${h.result === 'ok' ? '' : `(${h.result})`}`).join(', ');
+          const tools = r.history.map((h) => `${h.call ? `${h.call.name}${refOf(h.call.input)}` : '(툴 없음)'}${h.result === 'ok' ? '' : `(${h.result})`}`).join(', ');
           const instruction = `act ${JSON.stringify(goal)} → ${tools || '(툴 없음)'} (${r.turns}턴)`;
-          onStep({ kind: 'act', instruction, durationMs: Date.now() - started, modelCalls: r.modelCalls, ...(r.ok ? {} : { error: r.reason ?? '실패' }) });
+          onStep({ kind: 'act', instruction, durationMs: Date.now() - started, modelCalls: r.modelCalls, ...(r.usage ? { usage: r.usage } : {}), ...(r.ok ? {} : { error: r.reason ?? '실패' }) });
           if (!r.ok) throw new AgentActError(`agent.act ${JSON.stringify(goal)} 실패: ${r.reason}`);
         },
       },
@@ -250,10 +254,12 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
       return finish('passed');
     } catch (e) {
       const error = e instanceof Error ? e : new Error(String(e));
-      const blocked = error instanceof EngineError && error.code === 'device-unavailable';
+      // 기기가 없거나 모델 실행기 설정이 틀렸으면 테스트 판정이 아니다(재시도해도 같다)
+      const deviceGone = error instanceof EngineError && error.code === 'device-unavailable';
+      const blocked = deviceGone || error instanceof ModelConfigError;
       await capture(attemptId).catch((err: unknown) => attemptWarnings.push(`아티팩트 저장 실패: ${errorMessage(err)}`));
       // 실패한 시도가 남긴 앱 상태를 바로 버린다(재시도·다음 테스트·마지막 테스트 모두). 기기가 없으면 restart 도 안 되므로 건너뛴다
-      if (!blocked) await session('restart').catch((err: unknown) => attemptWarnings.push(`restart 실패: ${errorMessage(err)}`));
+      if (!deviceGone) await session('restart').catch((err: unknown) => attemptWarnings.push(`restart 실패: ${errorMessage(err)}`));
       return finish(blocked ? 'blocked' : 'failed', error);
     }
 

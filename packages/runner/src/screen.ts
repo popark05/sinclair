@@ -1,6 +1,6 @@
 // 결정적 locator: `screen.getByRole('button', { name: '로그인' }).tap()`. 설계는 e2e 방식(ADR 0001), 규칙은 specs/0002.
 // lazy 질의, 호출마다 재조회, strict(정확히 하나), 기한 내 자동 대기, secure 읽기 거부. 엔진 내부는 보지 않는다.
-import { EngineError, type Engine, type LocatorQuery, type NodeAction, type SemanticNode } from '@sinclair/protocol';
+import { EngineError, type Engine, type LocatorQuery, type NodeAction, type SemanticNode, type StepUsage } from '@sinclair/protocol';
 import { summarize } from './summary.ts';
 
 export interface ScreenOptions {
@@ -14,7 +14,7 @@ export interface ScreenOptions {
 
 /** 스텝 기록용 이벤트. instruction 은 사람이 읽는 한 줄, error 는 실패 시 메시지 */
 /** modelCalls: 에이전트 스텝(act)이 모델을 부른 횟수. 결정적 스텝은 0 */
-export interface StepEvent { kind: 'locator' | 'assert' | 'act'; instruction: string; durationMs: number; error?: string; modelCalls?: number }
+export interface StepEvent { kind: 'locator' | 'assert' | 'act'; instruction: string; durationMs: number; error?: string; modelCalls?: number; usage?: StepUsage }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_POLL_MS = 100;

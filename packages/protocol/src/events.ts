@@ -38,6 +38,16 @@ export interface StepRecorded extends Base {
   cache?: CacheDecision;
   modelCalls: number;
   durationMs: number;
+  /** 이 스텝의 모델 토큰 사용량 합(Console 비용). 모델을 부르지 않은 스텝에는 없다 */
+  usage?: StepUsage;
+}
+
+/** 모델 토큰 사용량. 캐시 필드는 API 가 돌려줄 때만(프롬프트 캐시 읽기·쓰기) */
+export interface StepUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
 }
 
 export const ARTIFACT_KINDS = ['screenshot', 'video', 'trace', 'ai-trace', 'device-log', 'screen-tree'] as const;

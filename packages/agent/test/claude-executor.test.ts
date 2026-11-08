@@ -1,0 +1,158 @@
+// Claude 실행기: 가짜 Messages API 서버(SDK 의 baseURL)로 요청 본문을 가로채 무엇이 모델에 가는지, 응답이 어떻게 툴 호출·사용량이 되는지 본다.
+import * as http from 'node:http';
+import type { AddressInfo } from 'node:net';
+import * as os from 'node:os';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { loginScenario } from '@sinclair/protocol/testing';
+import { createClaudeExecutor, claudeOptionsFromEnv, runAct, toolSchemas, DEFAULT_AGENT_MODEL, ModelConfigError, type ClaudeExecutorOptions } from '../src/index.ts';
+
+const KEY = 'sk-ant-test-0123456789abcdef';
+type Reply = { status?: number; body: unknown };
+interface Captured { url: string; headers: http.IncomingHttpHeaders; body: Record<string, unknown>; raw: string }
+
+let server: http.Server | undefined;
+afterEach(async () => { vi.unstubAllEnvs(); await new Promise((r) => (server ? server.close(r) : r(undefined))); server = undefined; });
+
+/** 요청마다 replies 를 차례로 돌려주는 가짜 API. 받은 요청은 captured 에 */
+async function fakeApi(replies: Array<Reply | ((req: Captured) => Reply)>): Promise<{ baseURL: string; captured: Captured[] }> {
+  const captured: Captured[] = [];
+  server = http.createServer((req, res) => {
+    let raw = '';
+    req.on('data', (c: Buffer) => { raw += c.toString('utf8'); });
+    req.on('end', () => {
+      const c: Captured = { url: req.url ?? '', headers: req.headers, body: JSON.parse(raw) as Record<string, unknown>, raw };
+      captured.push(c);
+      const next = replies[Math.min(captured.length - 1, replies.length - 1)]!;
+      const r = typeof next === 'function' ? next(c) : next;
+      res.writeHead(r.status ?? 200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(r.body));
+    });
+  });
+  await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r));
+  return { baseURL: `http://127.0.0.1:${(server!.address() as AddressInfo).port}`, captured };
+}
+
+const usage = (input: number, output: number, cacheRead = 0) => ({ input_tokens: input, output_tokens: output, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: 0 });
+const toolUse = (name: string, input: Record<string, string>, u = usage(1200, 40)): Reply => ({
+  body: { id: 'msg_1', type: 'message', role: 'assistant', model: DEFAULT_AGENT_MODEL, stop_reason: 'tool_use', stop_sequence: null, usage: u,
+    content: [{ type: 'text', text: '로그인 칸에 입력한다' }, { type: 'tool_use', id: 'toolu_1', name, input }] },
+});
+const LOGIN: Reply[] = [
+  toolUse('type', { ref: '@e2', text: 'qa' }), toolUse('type', { ref: '@e3', text: 'qa-pass' }, usage(300, 30, 900)),
+  toolUse('tap', { ref: '@e4' }, usage(300, 20, 900)), toolUse('done', { summary: '환영합니다 가 보인다' }, usage(300, 25, 900)),
+];
+const opts = (baseURL: string, extra: Partial<ClaudeExecutorOptions> = {}): ClaudeExecutorOptions => ({ apiKey: KEY, baseURL, maxRetries: 0, ...extra });
+
+describe('createClaudeExecutor', () => {
+  it('실제 모델 경로로 FakeEngine 로그인을 끝내고, 턴마다 토큰 사용량을 모은다', async () => {
+    const api = await fakeApi(LOGIN);
+    const r = await runAct(loginScenario(), '아이디 qa, 비밀번호 qa-pass 로 로그인해줘', { executor: createClaudeExecutor(opts(api.baseURL)) });
+    expect(r).toMatchObject({ ok: true, turns: 4, modelCalls: 4, usage: { inputTokens: 2100, outputTokens: 115, cacheReadTokens: 2700 } });
+    expect(r.usage).not.toHaveProperty('cacheWriteTokens'); // 0 은 남기지 않는다
+    expect(api.captured).toHaveLength(4);
+  });
+
+  it('요청: 기본 Sonnet 5.5·effort medium, action spec 툴을 그대로(strict), 툴 하나씩, 서버 측 fallback, 고정 system 에 캐시 표시', async () => {
+    const api = await fakeApi(LOGIN);
+    await runAct(loginScenario(), '로그인', { executor: createClaudeExecutor(opts(api.baseURL)) });
+    const b = api.captured[0]!.body;
+    expect(b).toMatchObject({ model: 'claude-sonnet-5-5', fallbacks: 'default', output_config: { effort: 'medium' }, tool_choice: { type: 'auto', disable_parallel_tool_use: true } });
+    expect(api.captured[0]!.headers['anthropic-beta']).toMatch(/server-side-fallback-2026-07-01/);
+    expect(b.tools).toEqual(toolSchemas().map((t) => ({ ...t, strict: true })));
+    const system = b.system as Array<{ text: string; cache_control?: unknown }>;
+    expect(system.at(-1)!.cache_control).toEqual({ type: 'ephemeral' });
+    // 매 턴 같은 system·툴이라 캐시가 맞는다(바뀌는 것은 user 메시지뿐)
+    expect(api.captured[3]!.body.system).toEqual(b.system);
+    expect(api.captured[3]!.body.tools).toEqual(b.tools);
+    expect(b.messages).toHaveLength(1);
+  });
+
+  it('개인정보·비밀: secure 값·API 키·지난 턴에 입력한 글자는 요청 본문에 없고, 키는 헤더로만 간다. 기본은 이미지 없음', async () => {
+    const api = await fakeApi(LOGIN);
+    await runAct(loginScenario(), '로그인해줘', { executor: createClaudeExecutor(opts(api.baseURL)) });
+    for (const c of api.captured) {
+      expect(c.raw).not.toContain('hunter2'); // 비밀번호 칸(secure)의 값
+      expect(c.raw).not.toContain(KEY);
+      expect(c.raw).not.toContain('"image"');
+      expect(c.headers['x-api-key'] === KEY || c.headers.authorization === `Bearer ${KEY}`).toBe(true);
+    }
+    const last = JSON.stringify(api.captured[3]!.body.messages);
+    expect(last).not.toContain('qa-pass'); // 지난 턴의 type 글자는 가린다
+    expect(last).toMatch(/type @e3/);
+  });
+
+  it('pixels 를 켜면 화면 이미지를 함께 보낸다', async () => {
+    const api = await fakeApi(LOGIN);
+    await runAct(loginScenario(), '로그인', { executor: createClaudeExecutor(opts(api.baseURL, { pixels: true })) });
+    const content = (api.captured[0]!.body.messages as Array<{ content: Array<{ type: string; source?: { media_type: string } }> }>)[0]!.content;
+    expect(content.find((p) => p.type === 'image')?.source?.media_type).toBe('image/png');
+  });
+
+  it('툴 없이 글만 내면 거부로 되돌려 다시 묻고, 거절은 범주와 함께 실패(쓴 토큰 포함)', async () => {
+    const text: Reply = { body: { id: 'm', type: 'message', role: 'assistant', model: DEFAULT_AGENT_MODEL, stop_reason: 'end_turn', stop_sequence: null, usage: usage(100, 10), content: [{ type: 'text', text: '무엇을 할까요?' }] } };
+    const api = await fakeApi([text, ...LOGIN]);
+    const r = await runAct(loginScenario(), '로그인', { executor: createClaudeExecutor(opts(api.baseURL)) });
+    expect(r).toMatchObject({ ok: true, turns: 5 });
+    expect(JSON.stringify(api.captured[1]!.body.messages)).toMatch(/툴을 부르지 않음/);
+
+    const refusal: Reply = { body: { id: 'm', type: 'message', role: 'assistant', model: DEFAULT_AGENT_MODEL, stop_reason: 'refusal', stop_details: { type: 'refusal', category: 'general_harms', explanation: null }, stop_sequence: null, usage: usage(80, 0), content: [] } };
+    const api2 = await fakeApi([refusal]);
+    const f = await runAct(loginScenario(), '로그인', { executor: createClaudeExecutor(opts(api2.baseURL)) });
+    expect(f).toMatchObject({ ok: false, modelCalls: 1, reason: expect.stringMatching(/거절.*general_harms/), usage: { inputTokens: 80, outputTokens: 0 } });
+  });
+
+  it('일시 오류(5xx·429)는 재시도하고, 그 밖의 API 오류는 재시도 없이 실패한다', async () => {
+    const overloaded: Reply = { status: 529, body: { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } } };
+    const api = await fakeApi([overloaded, ...LOGIN]);
+    const r = await runAct(loginScenario(), '로그인', { executor: createClaudeExecutor(opts(api.baseURL, { maxRetries: 2 })) });
+    expect(r).toMatchObject({ ok: true, modelCalls: 4 });
+    expect(api.captured).toHaveLength(5);
+
+    const bad: Reply = { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'bad tools' } } };
+    const api2 = await fakeApi([bad]);
+    const f = await runAct(loginScenario(), '로그인', { executor: createClaudeExecutor(opts(api2.baseURL, { maxRetries: 2 })) });
+    expect(f).toMatchObject({ ok: false, reason: expect.stringMatching(/400/) });
+    expect(api2.captured).toHaveLength(1);
+  });
+
+  it('키가 없거나(자격 증명 없음) 거부되면(401) 분명한 설정 오류로 던진다 — 키 값은 메시지에 없다', async () => {
+    // 이 머신의 자격 증명(환경변수·프로필)을 모두 가린다
+    for (const v of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_PROFILE', 'ANTHROPIC_IDENTITY_TOKEN', 'ANTHROPIC_IDENTITY_TOKEN_FILE', 'ANTHROPIC_FEDERATION_RULE_ID']) vi.stubEnv(v, undefined);
+    vi.stubEnv('ANTHROPIC_CONFIG_DIR', fs.mkdtempSync(path.join(os.tmpdir(), 'sinclair-no-creds-')));
+    const noKey = createClaudeExecutor({ baseURL: 'http://127.0.0.1:9', maxRetries: 0 });
+    await expect(runAct(loginScenario(), '로그인', { executor: noKey })).rejects.toThrow(ModelConfigError);
+    await expect(runAct(loginScenario(), '로그인', { executor: noKey })).rejects.toThrow(/ANTHROPIC_API_KEY/);
+
+    const api = await fakeApi([{ status: 401, body: { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } } }]);
+    const err = await runAct(loginScenario(), '로그인', { executor: createClaudeExecutor(opts(api.baseURL)) }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ModelConfigError);
+    expect(String((err as Error).message)).not.toContain(KEY);
+  });
+});
+
+describe('claudeOptionsFromEnv', () => {
+  it('환경변수로 모델·effort·요청 기한·재시도·최대 토큰·이미지를 바꾼다. 없으면 기본값', () => {
+    expect(claudeOptionsFromEnv({})).toEqual({});
+    expect(claudeOptionsFromEnv({ SINCLAIR_AGENT_MODEL: 'claude-opus-5-5', SINCLAIR_AGENT_MODEL_EFFORT: 'high', SINCLAIR_AGENT_MODEL_TIMEOUT_MS: '30000', SINCLAIR_AGENT_MODEL_RETRIES: '0', SINCLAIR_AGENT_MODEL_MAX_TOKENS: '4096', SINCLAIR_AGENT_MODEL_PIXELS: '1' }))
+      .toEqual({ model: 'claude-opus-5-5', effort: 'high', requestTimeoutMs: 30000, maxRetries: 0, maxTokens: 4096, pixels: true });
+  });
+
+  it('잘못된 값은 어느 변수인지 밝힌 설정 오류', () => {
+    expect(() => claudeOptionsFromEnv({ SINCLAIR_AGENT_MODEL_EFFORT: 'turbo' })).toThrow(/SINCLAIR_AGENT_MODEL_EFFORT/);
+    expect(() => claudeOptionsFromEnv({ SINCLAIR_AGENT_MODEL_RETRIES: '-1' })).toThrow(ModelConfigError);
+    expect(() => claudeOptionsFromEnv({ SINCLAIR_AGENT_MODEL_MAX_TOKENS: 'lots' })).toThrow(/SINCLAIR_AGENT_MODEL_MAX_TOKENS/);
+    expect(() => claudeOptionsFromEnv({ SINCLAIR_AGENT_MODEL_PIXELS: 'yes' })).toThrow(/SINCLAIR_AGENT_MODEL_PIXELS/);
+  });
+});
+
+describe('agentFromEnv', () => {
+  it('act 한도(SINCLAIR_AGENT_ACT_*)와 실행기를 한 벌로 만든다. 잘못된 한도는 설정 오류', async () => {
+    const { agentFromEnv } = await import('../src/index.ts');
+    expect(agentFromEnv({})).toEqual({ executor: expect.any(Object) });
+    expect(agentFromEnv({ SINCLAIR_AGENT_ACT_MAX_TURNS: '8', SINCLAIR_AGENT_ACT_TIMEOUT_MS: '60000' })).toMatchObject({ maxTurns: 8, timeoutMs: 60000 });
+    expect(() => agentFromEnv({ SINCLAIR_AGENT_ACT_MAX_TURNS: '0' })).toThrow(/SINCLAIR_AGENT_ACT_MAX_TURNS/);
+    expect(agentFromEnv({ SINCLAIR_AGENT_MODEL_PIXELS: '1' }).executor.pixels).toBe(true);
+  });
+});
