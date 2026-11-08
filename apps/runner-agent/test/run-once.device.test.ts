@@ -3,6 +3,7 @@
  * 실기기(opt-in): 설정 앱 샘플을 engine mobile 로 돌려 인프로세스 control-plane 까지 흐른 증거를 남긴다.
  *   adb kill-server && SINCLAIR_TEST_USB=1 npx vitest run apps/runner-agent/test/run-once.device.test.ts
  * 전제: 기기 잠금 해제, 헬퍼 APK 설치, 설정 앱 제목이 "설정"(한국어 UI).
+ * 두 번째 Cycle 은 `retries: 1` 로 첫 시도만 실패하는 샘플(fixtures/device-flaky)을 돌려 Cycle 매트릭스의 `passed-flaky` 셀을 증거로 남긴다.
  */
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -34,6 +35,23 @@ describe.skipIf(!target)('실기기 sinclair-agent run', () => {
       }, null, 2) + '\n');
       expect(code).toBe(EXIT.ok);
       expect(view).toMatchObject({ state: 'finished', verdict: 'verified' });
+
+      // 재시도: 같은 기기에서 첫 시도만 실패하는 샘플을 --retries 1 로 → control-plane 매트릭스 셀이 passed-flaky
+      await fetch(`${url}/cycles`, { method: 'POST', body: JSON.stringify({ cycleId: 'device-retry', build: 'b', targets: ['android'] }) });
+      const retryLogs: string[] = [];
+      const retryCode = await runOnce({
+        controlPlane: url, cycle: 'device-retry', target: 'android', engine: 'mobile', app: 'com.android.settings', retries: 1, timeoutMs: 5_000,
+        tests: path.resolve(import.meta.dirname, 'fixtures/device-flaky'), spool: path.resolve(import.meta.dirname, '../../../.e2e/agent-spool'), helperCache: path.resolve(import.meta.dirname, '../../../.e2e/helper-cache'), ...(target !== '1' ? { device: target! } : {}),
+      }, { log: (l) => retryLogs.push(l) });
+      const retryView = (await (await fetch(`${url}/cycles/device-retry`)).json()) as CycleView & { runs: Array<{ runId: string }> };
+      const retryRun = await (await fetch(`${url}/runs/${retryView.runs[0]!.runId}`)).json() as { attempts: Array<{ testId?: string; attemptNo?: number; result?: string }> };
+      await fs.writeFile(path.join(dir, '02-run-once-retry-device-latest.json'), JSON.stringify({
+        at: new Date().toISOString(), exitCode: retryCode, device: masked, retries: 1, cycle: { state: retryView.state, verdict: retryView.verdict, matrix: retryView.matrix },
+        attempts: retryRun.attempts.map((a) => ({ testId: a.testId, attemptNo: a.attemptNo, result: a.result })), log: retryLogs,
+      }, null, 2) + '\n');
+      expect(retryCode).toBe(EXIT.ok);
+      expect(retryView).toMatchObject({ state: 'finished', verdict: 'verified' });
+      expect(Object.values(retryView.matrix)[0]!.android).toMatchObject({ verdict: 'passed-flaky' });
     } finally {
       await cp.close();
     }

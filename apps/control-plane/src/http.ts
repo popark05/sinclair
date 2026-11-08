@@ -31,7 +31,7 @@ export interface ControlPlaneOptions {
 }
 
 export const DEFAULT_LEASE_TTL_MS = 60_000;
-/** 러너 MAX_RETRIES 와 같은 값. apps 는 러너를 import 하지 않으므로 숫자를 따로 둔다(러너 쪽 테스트가 같음을 확인) */
+/** 러너 MAX_RETRIES 와 같은 값. apps 는 러너를 import 하지 않으므로 숫자를 따로 둔다(apps/runner-agent/test/args.test.ts 가 같음을 확인) */
 export const MAX_SUITE_RETRIES = 5;
 
 /** /ingest 본문 상한. 인증이 없으므로 같은 호스트의 다른 프로세스가 메모리를 채우지 못하게 막는다.

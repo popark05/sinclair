@@ -84,7 +84,7 @@ const positiveInt = (name: string, text: string | undefined, min = 0, max = Infi
   if (!/^\d+$/.test(text) || Number(text) < min || Number(text) > max) throw new AgentConfigError(`--${name} 은 ${min} 이상${Number.isFinite(max) ? ` ${max} 이하` : ''}의 정수여야 함: ${text}`);
   return Number(text);
 };
-/** 러너 MAX_RETRIES 와 같은 값(러너 테스트가 같음을 확인한다) */
+/** 러너 MAX_RETRIES 와 같은 값(test/args.test.ts 가 세 패키지의 상수를 함께 읽어 확인한다) */
 export const MAX_RETRIES = 5;
 
 const OPTIONS = [

@@ -48,6 +48,7 @@ export interface TestResult {
   result: AttemptResult;
   /** 실제로 돈 시도 수(1 이상). 재시도 끝에 통과했는지는 Verdict(passed-flaky)가 attemptNo 로 판단한다 */
   attempts: number;
+  /** 마지막 시도의 소요 시간. 앞선 시도는 이벤트(attempt.started/finished 의 at)로 본다 */
   durationMs: number;
   steps: StepRecorded[];
   artifacts: AttemptFinished['artifacts'];
@@ -150,11 +151,16 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
   }
 
   async function runOne(tc: TestCase, file: string): Promise<TestResult> {
-    // skip 은 시도 없이 한 번만 보고한다
     let last = await runAttempt(tc, file, 1);
-    // failed 만 다시 돈다: blocked 는 기기 문제라 반복해도 같고, skipped 는 돌지 않았다
-    for (let no = 2; last.result === 'failed' && no <= retries + 1; no++) last = await runAttempt(tc, file, no);
-    return last;
+    // failed 만 다시 돈다: blocked 는 기기 문제라 반복해도 같고, skipped 는 attempt 하나(attemptNo 1)로 보고하고 끝난다
+    const earlierWarnings: string[] = [];
+    for (let no = 2; last.result === 'failed' && no <= retries + 1; no++) {
+      // 앞선 시도의 경고(아티팩트·restart 실패)는 재시도가 통과해도 버리지 않는다
+      earlierWarnings.push(...(last.warnings ?? []).map((w) => `시도 ${last.attempts}: ${w}`));
+      last = await runAttempt(tc, file, no);
+    }
+    const warnings = [...earlierWarnings, ...(last.warnings ?? [])];
+    return warnings.length ? { ...last, warnings } : last;
   }
 
   async function runAttempt(tc: TestCase, file: string, attemptNo: number): Promise<TestResult> {

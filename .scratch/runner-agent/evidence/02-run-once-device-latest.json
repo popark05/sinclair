@@ -1,16 +1,16 @@
 {
-  "at": "2026-11-08T00:05:16.278Z",
-  "exitCode": 1,
+  "at": "2026-11-08T04:48:27.811Z",
+  "exitCode": 0,
   "device": "…XLZW",
   "agentId": "(호스트명, 생략)",
   "cycle": {
     "state": "finished",
-    "verdict": "blocked",
+    "verdict": "verified",
     "matrix": {
       "설정 앱 > 열면 \"설정\" 제목이 보인다": {
         "android": {
-          "verdict": "failed",
-          "attemptId": "cdcbeadc-5796-4db9-9722-072a9640ca83"
+          "verdict": "passed",
+          "attemptId": "16818aff-a564-43b6-b7c4-49a5a480d409"
         }
       }
     }
@@ -18,18 +18,19 @@
   "attempts": [
     {
       "testId": "설정 앱 > 열면 \"설정\" 제목이 보인다",
-      "result": "failed",
+      "result": "passed",
       "steps": 1
     }
   ],
   "log": [
-    "run 8be701cd-77d3-49e5-8ce1-17592a9d2109 등록 (cycle device, target android, 테스트 파일 1개)",
+    "run ed95d80b-a029-40b3-82c0-14c3712a8d00 등록 (cycle device, target android, 테스트 파일 1개)",
     "헬퍼 APK: /Users/popark05/01.learning/10.development/sinclair/packages/device-layer/android-helper/app/build/outputs/apk/debug/app-debug.apk (repo-build)",
     "헬퍼 온보딩(…XLZW): 헬퍼 이미 설치됨",
     "헬퍼 온보딩(…XLZW): 접근성 서비스 활성화됨",
     "헬퍼 온보딩(…XLZW): 헬퍼 준비됨 v0.1.0",
     "기기 SM-N981N (…XLZW) Android 13, 헬퍼 ready",
-    "결과: passed 0, failed 1, blocked 0, skipped 0 / 전송 5건(accepted 5, duplicate 0, rejected 0, retries 0)",
-    "  failed: 설정 앱 > 열면 \"설정\" 제목이 보인다 — { text=\"설정\", exact=true } 가 toBeVisible() 를 5123ms 안에 만족하지 않음. 실제: \"0개\". 마지막 관찰: (없음)"
+    "화면: 켜짐, 잠금 없음",
+    "헬퍼를 방금 켰으므로 대상 앱을 한 번 열어 트리를 예열함",
+    "결과: passed 1, failed 0, blocked 0, skipped 0 / 전송 5건(accepted 5, duplicate 0, rejected 0, retries 0)"
   ]
 }

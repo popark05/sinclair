@@ -1,10 +1,16 @@
 // parseRunArgs: 플래그 > 환경변수 > 기본값, 필수값 누락과 잘못된 값은 AgentConfigError.
 import { describe, it, expect } from 'vitest';
-import { parseRunArgs, parseResumeArgs, AgentConfigError } from '../src/index.ts';
+import { MAX_RETRIES as RUNNER_MAX_RETRIES } from '@sinclair/runner';
+import { MAX_SUITE_RETRIES } from '@sinclair/control-plane';
+import { parseRunArgs, parseResumeArgs, AgentConfigError, MAX_RETRIES } from '../src/index.ts';
 
 const required = ['--control-plane', 'http://127.0.0.1:4780', '--cycle', 'c1', '--target', 'android', '--tests', './tests'];
 
 describe('parseRunArgs', () => {
+  it('재시도 상한은 러너·control-plane·runner-agent 가 같은 숫자다(apps 가 러너를 import 하지 않아 상수를 따로 둔다)', () => {
+    expect([MAX_RETRIES, MAX_SUITE_RETRIES]).toEqual([RUNNER_MAX_RETRIES, RUNNER_MAX_RETRIES]);
+  });
+
   it('필수값과 기본값', () => {
     expect(parseRunArgs(required, { HOME: '/home/qa' }, 'linux')).toEqual({ controlPlane: 'http://127.0.0.1:4780', cycle: 'c1', target: 'android', tests: './tests', engine: 'mobile', spool: '/home/qa/.local/share/sinclair/spool', helperCache: '/home/qa/.local/share/sinclair/cache/helper' });
   });

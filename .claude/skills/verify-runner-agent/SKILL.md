@@ -40,7 +40,7 @@ $S/daemon.sh $RUN            # DAEMON … state=finished verdict=verified leases
 ```
 
 - 기본 테스트 디렉터리는 `apps/runner-agent/test/fixtures/only-login`(통과 1). `apps/runner-agent/test/fixtures`(통과 1 + 실패 1)를 주면 exit=1, verdict=blocked 가 정상이다.
-- 실기기: `adb kill-server && SINCLAIR_TEST_USB=1 npx vitest run apps/runner-agent/test/run-once.device.test.ts`. 설정 앱 샘플을 engine mobile 로 돌려 `.scratch/runner-agent/evidence/02-run-once-device-latest.json` 에 남긴다(시리얼 마스킹).
+- 실기기: `adb kill-server && SINCLAIR_TEST_USB=1 npx vitest run apps/runner-agent/test/run-once.device.test.ts`. 설정 앱 샘플을 engine mobile 로 돌려 `.scratch/runner-agent/evidence/02-run-once-device-latest.json` 에 남긴다(시리얼 마스킹). 같은 실행이 두 번째 Cycle 을 `retries: 1` 로 돌려(`fixtures/device-flaky`, 첫 시도만 실패) 매트릭스 셀 `passed-flaky` 를 `02-run-once-retry-device-latest.json` 에 남긴다.
 - 레시피는 `features/` 에 있다. 먼저 `features/README.md` 를 읽는다.
 
 ## Evidence

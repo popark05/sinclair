@@ -211,6 +211,20 @@ describe('재시도 (retries)', () => {
     for (const e of report.events) vexpect(parseRunEvent(e).ok).toBe(true);
   });
 
+  it('skipped 는 retries 가 있어도 attempt 하나로 끝나고, 앞선 시도의 경고는 재시도가 통과해도 남는다', async () => {
+    const engine = engineWithApps();
+    const report = await runTests([fixture('mixed.sinclair.ts')], { engine, timeoutMs: 200, retries: 2 });
+    vexpect(report.tests.map((t) => [t.result, t.attempts])).toEqual([['passed', 1], ['failed', 3], ['skipped', 1], ['passed', 1]]);
+    vexpect(report.events.filter((e) => e.type === 'attempt.started' && e.testId === '아직 안 만든 기능')).toHaveLength(1);
+    // restart 가 깨진 엔진: 첫 시도 실패 뒤 restart 경고가 나고, 재시도가 통과해도 경고는 "시도 1:" 로 남는다
+    const flakyRestart = engineWithApps();
+    let restarts = 0;
+    const origRestart = flakyRestart.session!.restart;
+    flakyRestart.session!.restart = async () => { if (restarts++ === 0) throw new Error('restart 불가'); return origRestart(); };
+    const r2 = await runTests([fixture('flaky.sinclair.ts')], { engine: flakyRestart, timeoutMs: 200, retries: 1 });
+    vexpect(r2.tests[0]).toMatchObject({ result: 'passed', attempts: 2, warnings: [vexpect.stringMatching(/^시도 1: restart 실패: restart 불가/)] });
+  });
+
   it('retries 기본값은 0 이고 blocked 는 재시도하지 않는다', async () => {
     const plain = await runTests([fixture('flaky.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 200 });
     vexpect(plain.tests.map((t) => [t.result, t.attempts])).toEqual([['failed', 1], ['failed', 1], ['passed', 1]]);
@@ -221,7 +235,7 @@ describe('재시도 (retries)', () => {
   });
 
   it('retries 는 0~5 의 정수여야 한다', async () => {
-    vexpect(MAX_RETRIES).toBe(5); // control-plane MAX_SUITE_RETRIES, runner-agent MAX_RETRIES 와 같은 숫자(apps 는 러너를 import 하지 않아 따로 둔다)
+    vexpect(MAX_RETRIES).toBe(5); // 다른 패키지 상수와 같음은 apps/runner-agent/test/args.test.ts 가 세 값을 함께 읽어 확인한다
     await vexpect(runTests([fixture('sample.sinclair.ts')], { engine: engineWithApps(), retries: 6 })).rejects.toThrow(/retries/);
     await vexpect(runTests([fixture('sample.sinclair.ts')], { engine: engineWithApps(), retries: 1.5 })).rejects.toThrow(/retries/);
   });

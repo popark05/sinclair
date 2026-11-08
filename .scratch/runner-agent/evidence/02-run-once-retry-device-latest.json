@@ -1,0 +1,41 @@
+{
+  "at": "2026-11-08T04:48:37.463Z",
+  "exitCode": 0,
+  "device": "…XLZW",
+  "retries": 1,
+  "cycle": {
+    "state": "finished",
+    "verdict": "verified",
+    "matrix": {
+      "설정 앱 — 첫 시도만 실패, 재시도에 \"설정\" 제목": {
+        "android": {
+          "verdict": "passed-flaky",
+          "attemptId": "a1614264-e4ab-4744-a45b-1b38bbf52506"
+        }
+      }
+    }
+  },
+  "attempts": [
+    {
+      "testId": "설정 앱 — 첫 시도만 실패, 재시도에 \"설정\" 제목",
+      "attemptNo": 1,
+      "result": "failed"
+    },
+    {
+      "testId": "설정 앱 — 첫 시도만 실패, 재시도에 \"설정\" 제목",
+      "attemptNo": 2,
+      "result": "passed"
+    }
+  ],
+  "log": [
+    "run 1acdbed5-0f4c-4aa7-8a99-81f3a731e220 등록 (cycle device-retry, target android, 테스트 파일 1개)",
+    "헬퍼 APK: /Users/popark05/01.learning/10.development/sinclair/packages/device-layer/android-helper/app/build/outputs/apk/debug/app-debug.apk (repo-build)",
+    "헬퍼 온보딩(…XLZW): 헬퍼 이미 설치됨",
+    "헬퍼 온보딩(…XLZW): 접근성 서비스 활성화됨",
+    "헬퍼 온보딩(…XLZW): 헬퍼 준비됨 v0.1.0",
+    "기기 SM-N981N (…XLZW) Android 13, 헬퍼 ready",
+    "화면: 켜짐, 잠금 없음",
+    "헬퍼를 방금 켰으므로 대상 앱을 한 번 열어 트리를 예열함",
+    "결과: passed 1, failed 0, blocked 0, skipped 0 / 전송 8건(accepted 8, duplicate 0, rejected 0, retries 0)"
+  ]
+}
