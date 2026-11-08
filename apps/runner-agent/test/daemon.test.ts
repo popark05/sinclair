@@ -391,17 +391,31 @@ describe('runDaemon · 구버전 control-plane', () => {
 });
 
 describe('runDaemon · --fake-devices', () => {
-  it('fake 엔진 데몬이 파일의 가짜 기기들을 보고하고, 잘못된 목록·mobile 엔진에서는 설정 오류', async () => {
-    const file = path.join(spool, 'fake.json');
-    fs.writeFileSync(file, JSON.stringify([
+  const file = () => path.join(spool, 'fake.json');
+  const run = (agent: string, extra: Record<string, unknown> = {}) => runDaemon({ controlPlane: url, targets: [], tests: fixtures, engine: 'fake', fakeDevices: file(), spool, helperCache: path.join(spool, 'hc'), agent, pollMs: 50, ...extra } as Parameters<typeof runDaemon>[0], deps({ signal: AbortSignal.timeout(300) }));
+
+  it('fake 엔진 데몬이 파일의 가짜 기기들을 보고한다', async () => {
+    fs.writeFileSync(file(), JSON.stringify([
       { id: 'F-A13', platform: 'android', model: 'FakePhone', osVersion: '13', connection: 'device', helper: 'ready', locked: false },
       { id: 'F-IOS', platform: 'ios', model: 'FakePad', osVersion: '17', connection: 'device' },
     ]));
-    await runDaemon({ controlPlane: url, targets: [], tests: fixtures, engine: 'fake', fakeDevices: file, spool, helperCache: path.join(spool, 'hc'), agent: 'node-fd', pollMs: 50 }, deps({ signal: AbortSignal.timeout(300) }));
+    await run('node-fd');
     const f = (await (await fetch(`${url}/fleet`)).json()) as FleetView;
     expect(f.nodes.find((n) => n.agentId === 'node-fd')!.devices.map((d) => [d.id, d.platform, d.state])).toEqual([['F-A13', 'android', 'idle'], ['F-IOS', 'ios', 'idle']]);
-    fs.writeFileSync(file, JSON.stringify([{ id: 'X', platform: 'windows' }]));
-    await expect(runDaemon({ controlPlane: url, targets: [], tests: fixtures, engine: 'fake', fakeDevices: file, spool, helperCache: path.join(spool, 'hc'), agent: 'node-fe', pollMs: 50 }, deps({ signal: AbortSignal.timeout(300) }))).rejects.toThrow(/--fake-devices 가 올바르지 않음/);
-    expect(() => parseDaemonArgs(['--control-plane', 'http://x', '--tests', 'd', '--engine', 'mobile', '--fake-devices', file], {})).toThrow(/--engine fake/);
+  });
+
+  it('잘못된 목록·없는 파일은 설정 오류이고, 네트워크를 건드리기 전에(스풀 이어 보내기보다 먼저) 실패한다', async () => {
+    fs.writeFileSync(file(), JSON.stringify([{ id: 'X', platform: 'windows' }]));
+    await expect(run('node-fe')).rejects.toThrow(/--fake-devices 가 올바르지 않음/);
+    fs.rmSync(file());
+    let touched = 0;
+    const counting: typeof fetch = (input, init) => { touched++; return fetch(input, init); };
+    await expect(runDaemon({ controlPlane: url, targets: [], tests: fixtures, engine: 'fake', fakeDevices: file(), spool, helperCache: path.join(spool, 'hc'), agent: 'node-fm', pollMs: 50 }, deps({ signal: AbortSignal.timeout(300), fetch: counting }))).rejects.toThrow(/--fake-devices 파일을 읽지 못함/);
+    expect(touched).toBe(0);
+  });
+
+  it('mobile 엔진에는 쓸 수 없다(CLI 와 라이브러리 모두)', async () => {
+    expect(() => parseDaemonArgs(['--control-plane', 'http://x', '--tests', 'd', '--engine', 'mobile', '--fake-devices', file()], {})).toThrow(/--engine fake/);
+    await expect(run('node-fx', { engine: 'mobile' })).rejects.toThrow(/--engine fake/);
   });
 });

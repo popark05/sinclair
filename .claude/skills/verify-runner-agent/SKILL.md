@@ -38,7 +38,7 @@ $S/run-fake.sh $RUN [cycleId] [tests-dir]
 $S/spool-resume.sh $RUN      # RUN exit=0 spool=[…jsonl …meta.json] → RESUME exit=0 spool=[] run.state=finished (약 1분)
 $S/daemon.sh $RUN            # DAEMON … state=finished verdict=verified leases=node-a,node-b exits=0,0
 $S/fleet.sh $RUN             # Fleet(자체 control-plane, TTL 2초): fake 데몬 2개 → idle → 느린 Run 중 leased → 끝나면 idle → 하나 SIGKILL → offline
-$S/fleet-e2e.sh $RUN         # Fleet 종단(자체 control-plane, TTL 2초): 데몬 2개·기기 4대·조건 타깃 → FLEET-E2E OK checks=11/11 (약 40초)
+$S/fleet-e2e.sh $RUN         # Fleet 종단(자체 control-plane, TTL 2초): 데몬 2개·기기 4대·조건 타깃 → FLEET-E2E OK checks=11/11 (약 15~40초)
 $S/retry-e2e.sh $RUN         # 재시도 정책 종단(자체 control-plane, TTL 2초): kill·limit·lease 세 경로 → RETRY-E2E OK checks=10/10 (약 45초)
 ```
 

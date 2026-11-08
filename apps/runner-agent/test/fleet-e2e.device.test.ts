@@ -50,7 +50,7 @@ describe.skipIf(!target)('실기기 · Fleet 종단', () => {
       leasedSeen = await until('실기기가 leased', async () => { const d = (await fleet()).nodes.find((n) => n.agentId === 'real-node')?.devices.find((x) => x.id === real!.id); return d?.state === 'leased' ? { state: d.state, runId: d.runId } : undefined; }, 60_000);
       const view = await until('Cycle finished', async () => { const v = (await (await fetch(`${url}/cycles/fleet-real`)).json()) as CycleView; return v.state === 'finished' ? v : undefined; }, 120_000);
       const idleAfter = await until('실기기가 다시 idle', async () => { const d = (await fleet()).nodes.find((n) => n.agentId === 'real-node')?.devices.find((x) => x.id === real!.id); return d?.state === 'idle' ? d.state : undefined; }, 20_000);
-      const rows = view.runs.map((r) => ({ runId: r.runId, targetId: r.targetId, state: r.state, agent: r.lease?.agentId, onRealDevice: r.lease?.deviceId === real!.id }));
+      const rows = view.runs.map((r) => ({ runId: r.runId, targetId: r.targetId, state: r.state, agent: r.lease?.agentId, onRealDevice: r.lease?.deviceId === real!.id, ...(r.lease?.deviceId && r.lease.deviceId !== real!.id ? { deviceId: r.lease.deviceId } : {}) }));
       evidence = { device: { id: `…${real.id.slice(-4)}`, model: real.model, osVersion: real.osVersion }, fleetStates: { before: idleBefore, during: leasedSeen, after: idleAfter }, cycle: { state: view.state, verdict: view.verdict, runs: rows, cells: Object.fromEntries(Object.entries(view.matrix).map(([t, row]) => [t, Object.fromEntries(Object.entries(row).map(([k, c]) => [k, c.verdict]))])) } };
       expect(view).toMatchObject({ state: 'finished', verdict: 'verified' });
       expect(rows.find((r) => r.targetId === 'real-model')).toMatchObject({ state: 'finished', agent: 'real-node', onRealDevice: true });
@@ -59,8 +59,9 @@ describe.skipIf(!target)('실기기 · Fleet 종단', () => {
     } finally {
       aborter.abort();
       const summaries = await Promise.allSettled(daemons);
-      const serial = real?.id;
-      const mask = (l: string): string => (serial ? l.split(serial).join(`…${serial.slice(-4)}`) : l).split(REPO).join('<repo>').split(os.homedir()).join('<home>').replace(SERIALISH, (t) => `…${t.slice(-4)}`);
+      // 노드가 보고하지 않아 real 이 없어도 지정한 시리얼(SINCLAIR_TEST_USB)은 지운다
+      const serials = [real?.id, target !== '1' ? target : undefined].filter((x): x is string => !!x);
+      const mask = (l: string): string => serials.reduce((x, id) => x.split(id).join(`…${id.slice(-4)}`), l).split(REPO).join('<repo>').split(os.homedir()).join('<home>').replace(SERIALISH, (t) => `…${t.slice(-4)}`);
       const dir = path.join(REPO, '.scratch/device-fleet/evidence');
       await fs.mkdir(dir, { recursive: true });
       await fs.writeFile(path.join(dir, '06-device-latest.json'), JSON.stringify({
@@ -70,6 +71,9 @@ describe.skipIf(!target)('실기기 · Fleet 종단', () => {
       }, null, 2) + '\n');
       await cp.close();
     }
-    for (const s of await Promise.allSettled(daemons)) if (s.status === 'fulfilled') expect(s.value.runs.map((r) => r.exitCode)).toEqual([EXIT.ok]);
+    for (const s of await Promise.allSettled(daemons)) {
+      expect(s.status).toBe('fulfilled'); // 데몬이 예외로 끝났으면 여기서 드러난다
+      if (s.status === 'fulfilled') expect(s.value.runs.map((r) => r.exitCode)).toEqual([EXIT.ok]);
+    }
   }, 240_000);
 });

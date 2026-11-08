@@ -53,7 +53,8 @@ function daemon(node) {
   const out = path.join(runDir, `fleet-e2e-${node}-${Date.now()}.out`);
   const fd = fs.openSync(out, 'w');
   const child = spawn(process.execPath, [BIN, 'daemon', '--control-plane', URL0, '--tests', SUITE, '--engine', 'fake', '--fake-devices', path.join(runDir, `fake-devices-${node}.json`), '--timeout', '200', '--agent', name, '--spool', path.join(runDir, `spool-${node}`), '--poll', '200'], { env, stdio: ['ignore', fd, fd] });
-  const exited = new Promise((resolve) => child.on('exit', (code, signal) => resolve({ code, signal })));
+  // 띄우지 못해도(spawn 오류) 기다림이 풀리게 한다: 증거를 쓰기 전에 스크립트가 매달리지 않도록
+  const exited = new Promise((resolve) => { child.on('exit', (code, signal) => resolve({ code, signal })); child.on('error', (err) => resolve({ code: null, signal: `spawn 오류: ${err.message}` })); });
   return { name, child, exited, log: () => fs.readFileSync(out, 'utf8').split('\n').filter(Boolean).map(mask) };
 }
 async function stop(d) {
@@ -98,8 +99,12 @@ try {
     evidence.phases.concurrent = { cycle: s, fleetDuringRuns: fleetSummary(during), overlapMs: earliestEnd - latestStart, daemons: { a: { exit: aEnd.code, log: aEnd.log }, b: { exit: bEnd.code, log: bEnd.log } } };
     check('동시', 'Cycle finished/verified', s.state === 'finished' && s.verdict === 'verified');
     check('동시', '조건마다 맞는 기기: a14→B-AND14, a13plus→A-AND13, ios→A-IOS17', s.runs.find((r) => r.targetId === 'a14')?.deviceId === 'B-AND14' && s.runs.find((r) => r.targetId === 'a13plus')?.deviceId === 'A-AND13' && s.runs.find((r) => r.targetId === 'ios')?.deviceId === 'A-IOS17');
-    check('동시', '셀마다 돈 기기가 보인다', Object.values(s.cells).every((row) => Object.values(row).every((c) => /^passed@/.test(c))) && Object.keys(s.cells).length > 0);
-    check('동시', '도는 동안 Fleet 에 leased 셋', fleetSummary(during).flatMap((n) => n.devices).filter((d) => d.state === 'leased').length === 3);
+    // 셀의 기기는 그 타깃의 run 이 lease 받은 기기와 같아야 한다(기기가 비면 'passed@-' 라 실패한다)
+    const wantCell = { a14: 'B-AND14', a13plus: 'A-AND13', ios: 'A-IOS17' };
+    check('동시', '셀마다 돈 기기가 보인다(타깃별 기대 기기)', Object.keys(s.cells).length > 0 && Object.values(s.cells).every((row) => Object.entries(wantCell).every(([t, d]) => row[t] === `passed@${d}`)));
+    // 도는 동안 leased 인 기기가 정확히 기대한 셋이고 각자 자기 run 을 가리킨다(셋이 될 때까지 기다린 것과 별개로 무엇이 leased 인지 본다)
+    const leasedNow = fleetSummary(during).flatMap((n) => n.devices).filter((d) => d.state === 'leased');
+    check('동시', '도는 동안 Fleet 에 leased 는 기대한 세 기기이고 각자 자기 run', leasedNow.map((d) => d.id).sort().join(',') === 'A-AND13,A-IOS17,B-AND14' && leasedNow.every((d) => d.runId === s.runs.find((r) => r.deviceId === d.id)?.runId));
     check('동시', '잠긴 기기는 untrusted(화면 잠김)이고 어떤 Run 도 받지 않음', locked?.state === 'untrusted' && locked?.reason === '화면 잠김' && !s.runs.some((r) => r.deviceId === 'B-AND13-LOCKED'));
     check('동시', '세 run 의 실행 시간이 겹친다', latestStart < earliestEnd);
     check('동시', '두 데몬 모두 정상 종료(exit 0)', aEnd.code === 0 && bEnd.code === 0);

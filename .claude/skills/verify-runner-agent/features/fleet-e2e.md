@@ -16,7 +16,7 @@ device-fleet 01~05 가 함께 도는지 실제 bin 으로 보인다. 가짜 기�
 ## Driving it with scripts
 
 ```bash
-$S/fleet-e2e.sh $RUN                 # 자체 control-plane(TTL 2초) → 두 단계 → 정리. 약 40초
+$S/fleet-e2e.sh $RUN                 # 자체 control-plane(TTL 2초) → 두 단계 → 정리. 약 15~40초
 # OK   동시: … (7줄) / OK   노드 사망: … (4줄)
 # FLEET-E2E OK checks=11/11
 # 증거: $RUN/evidence/fleet-e2e.json → 통과하면 .scratch/device-fleet/evidence/06-e2e-latest.json
@@ -28,6 +28,8 @@ adb kill-server && SINCLAIR_TEST_USB=1 npx vitest run apps/runner-agent/test/fle
 ## Gotchas
 
 - 가짜 기기 목록은 `--fake-devices <JSON>`(fake 엔진 전용)으로 준다. 스크립트가 `$RUN/fake-devices-{a,b}.json` 을 만든다.
+- 2단계는 A 를 B 가 offline 이 된 **뒤에** 띄운다: 대체 Run 이 A 에게만 갈 수 있게 해 결과를 결정적으로 만든다(다른 노드가 이미 온라인일 때의 대체 경합은 보이지 않는다).
 - 기기 배정을 결정적으로 만들려고 `a14` Run 을 먼저 등록한다(클레임은 등록 순서 FIFO — `a14` 에 맞는 기기는 B-AND14 하나뿐).
 - 실기기 종단 테스트의 suite 는 두 엔진에서 모두 도는 샘플(`fixtures/fleet-mixed`: 실기기 "설정" / FakeEngine "Sinclair 로그인")이다. 한 Cycle 에는 suite 가 하나라서다.
 - 잠금 → untrusted 의 실기기 증명은 05(`05-locked-device-latest.json`)를 인용한다. 실기기 종단은 기기가 한 대라 실기기끼리의 동시성은 보이지 않는다(가짜 기기 종단이 보인다).
+- `fleet-e2e.mjs` 와 `retry-e2e.mjs` 는 api·until·stop 도우미가 겹친다(간격·제한 시간이 조금 다르다). 셋째 종단 스크립트가 생기면 공용 모듈로 뺀다.

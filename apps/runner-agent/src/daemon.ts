@@ -98,6 +98,17 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
   const agentId = args.agent ?? os.hostname();
   const summary: DaemonSummary = { runs: [], resumed: 0, stoppedBy: 'signal' };
 
+  // fake 엔진은 기본으로 가짜 기기 한 대, --fake-devices 를 주면 그 목록(protocol 보고 검증기로 검사 — 실제 노드 보고와 같은 모양만 받는다)
+  // 설정 오류는 네트워크를 건드리기 전에(스풀 이어 보내기보다 먼저) 드러낸다
+  if (args.fakeDevices && args.engine !== 'fake') throw new AgentConfigError('--fake-devices 는 --engine fake 에서만 쓴다');
+  let fakeList: NodeDevice[] = [fakeDevice(agentId)];
+  if (args.engine === 'fake' && args.fakeDevices) {
+    let raw: unknown;
+    try { raw = JSON.parse(await fs.readFile(args.fakeDevices, 'utf8')); } catch (err) { throw new AgentConfigError(`--fake-devices 파일을 읽지 못함: ${err instanceof Error ? err.message : String(err)}`); }
+    const parsed = parseNodeReport({ devices: raw });
+    if (!parsed.ok) throw new AgentConfigError(`--fake-devices 가 올바르지 않음: ${parsed.errors.join('; ')}`);
+    fakeList = parsed.value.devices;
+  }
   // 지난번에 못 보낸 이벤트부터
   const resumed = await resumeSpool({ dir: args.spool, controlPlane: args.controlPlane, ...(deps.fetch ? { fetch: deps.fetch } : {}), log });
   summary.resumed = resumed.resumed.length;
@@ -124,15 +135,6 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
   };
   await ensureNode();
   // 기기 목록 읽기는 한 길로: 주기 보고(풀기 시도 없음)와 클레임 직전 새로 읽기(잠긴 기기 풀기 시도)가 같은 함수를 쓴다
-  // fake 엔진은 기본으로 가짜 기기 한 대, --fake-devices 를 주면 그 목록(protocol 보고 검증기로 검사 — 실제 노드 보고와 같은 모양만 받는다)
-  let fakeList: NodeDevice[] = [fakeDevice(agentId)];
-  if (args.engine === 'fake' && args.fakeDevices) {
-    let raw: unknown;
-    try { raw = JSON.parse(await fs.readFile(args.fakeDevices, 'utf8')); } catch (err) { throw new AgentConfigError(`--fake-devices 파일을 읽지 못함: ${err instanceof Error ? err.message : String(err)}`); }
-    const parsed = parseNodeReport({ devices: raw });
-    if (!parsed.ok) throw new AgentConfigError(`--fake-devices 가 올바르지 않음: ${parsed.errors.join('; ')}`);
-    fakeList = parsed.value.devices;
-  }
   const readInventory = async (opts: { tryUnlock?: boolean }): Promise<NodeDevice[]> => {
     if (deps.inventory) return deps.inventory();
     if (ownsBackend) return (await ensureNode())?.inventory(opts) ?? [];

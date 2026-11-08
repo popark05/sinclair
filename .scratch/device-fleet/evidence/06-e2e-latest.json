@@ -1,6 +1,6 @@
 {
-  "at": "2026-11-08T09:03:17.653Z",
-  "store": "sqlite",
+  "at": "2026-11-08T09:12:46.084Z",
+  "store": "memory",
   "leaseTtlMs": 2000,
   "nodes": {
     "a": [
@@ -49,7 +49,7 @@
   "phases": {
     "concurrent": {
       "cycle": {
-        "cycleId": "fleet-e2e-1-1794128597652-36488",
+        "cycleId": "fleet-e2e-1-1794129166083-40850",
         "state": "finished",
         "verdict": "verified",
         "targets": [
@@ -84,21 +84,21 @@
         },
         "runs": [
           {
-            "runId": "fleet-e2e-1-1794128597652-36488-a14",
+            "runId": "fleet-e2e-1-1794129166083-40850-a14",
             "targetId": "a14",
             "state": "finished",
             "deviceId": "B-AND14",
             "agent": "fleet-node-b"
           },
           {
-            "runId": "fleet-e2e-1-1794128597652-36488-a13plus",
+            "runId": "fleet-e2e-1-1794129166083-40850-a13plus",
             "targetId": "a13plus",
             "state": "finished",
             "deviceId": "A-AND13",
             "agent": "fleet-node-a"
           },
           {
-            "runId": "fleet-e2e-1-1794128597652-36488-ios",
+            "runId": "fleet-e2e-1-1794129166083-40850-ios",
             "targetId": "ios",
             "state": "finished",
             "deviceId": "A-IOS17",
@@ -120,26 +120,6 @@
       },
       "fleetDuringRuns": [
         {
-          "agentId": "fleet-node-a",
-          "online": true,
-          "devices": [
-            {
-              "id": "A-AND13",
-              "platform": "android",
-              "osVersion": "13",
-              "state": "leased",
-              "runId": "fleet-e2e-1-1794128597652-36488-a13plus"
-            },
-            {
-              "id": "A-IOS17",
-              "platform": "ios",
-              "osVersion": "17",
-              "state": "leased",
-              "runId": "fleet-e2e-1-1794128597652-36488-ios"
-            }
-          ]
-        },
-        {
           "agentId": "fleet-node-b",
           "online": true,
           "devices": [
@@ -148,7 +128,7 @@
               "platform": "android",
               "osVersion": "14",
               "state": "leased",
-              "runId": "fleet-e2e-1-1794128597652-36488-a14"
+              "runId": "fleet-e2e-1-1794129166083-40850-a14"
             },
             {
               "id": "B-AND13-LOCKED",
@@ -158,19 +138,39 @@
               "reason": "화면 잠김"
             }
           ]
+        },
+        {
+          "agentId": "fleet-node-a",
+          "online": true,
+          "devices": [
+            {
+              "id": "A-AND13",
+              "platform": "android",
+              "osVersion": "13",
+              "state": "leased",
+              "runId": "fleet-e2e-1-1794129166083-40850-a13plus"
+            },
+            {
+              "id": "A-IOS17",
+              "platform": "ios",
+              "osVersion": "17",
+              "state": "leased",
+              "runId": "fleet-e2e-1-1794129166083-40850-ios"
+            }
+          ]
         }
       ],
-      "overlapMs": 3999,
+      "overlapMs": 4001,
       "daemons": {
         "a": {
           "exit": 0,
           "log": [
-            "데몬 시작: agent fleet-node-a, 이름 타깃 없음(조건 타깃만), control-plane http://127.0.0.1:62756",
+            "데몬 시작: agent fleet-node-a, 이름 타깃 없음(조건 타깃만), control-plane http://127.0.0.1:63951",
             "fleet 보고: 기기 2대",
-            "run fleet-e2e-1-1794128597652-36488-a13plus 클레임 (cycle fleet-e2e-1-1794128597652-36488, target a13plus, 기기 …ND13, tests <repo>/apps/runner-agent/test/fixtures/slow)",
-            "run fleet-e2e-1-1794128597652-36488-ios 클레임 (cycle fleet-e2e-1-1794128597652-36488, target ios, 기기 …OS17, tests <repo>/apps/runner-agent/test/fixtures/slow)",
+            "run fleet-e2e-1-1794129166083-40850-a13plus 클레임 (cycle fleet-e2e-1-1794129166083-40850, target a13plus, 기기 …ND13, tests <repo>/apps/runner-agent/test/fixtures/slow)",
+            "run fleet-e2e-1-1794129166083-40850-ios 클레임 (cycle fleet-e2e-1-1794129166083-40850, target ios, 기기 …OS17, tests <repo>/apps/runner-agent/test/fixtures/slow)",
             "[run …-a13plus] 결과: passed 2, failed 0, blocked 0, skipped 0 / 전송 8건(accepted 8, duplicate 0, rejected 0, retries 0)",
-            "[run …6488-ios] 결과: passed 2, failed 0, blocked 0, skipped 0 / 전송 8건(accepted 8, duplicate 0, rejected 0, retries 0)",
+            "[run …0850-ios] 결과: passed 2, failed 0, blocked 0, skipped 0 / 전송 8건(accepted 8, duplicate 0, rejected 0, retries 0)",
             "SIGTERM 수신, 멈춤(진행 중 run 이 있으면 현재 테스트까지 마치고 나머지는 skipped, run 은 cancelled)",
             "데몬 종료",
             "데몬 요약: run 2개 (a13plus:0, ios:0), resume 0"
@@ -179,11 +179,11 @@
         "b": {
           "exit": 0,
           "log": [
-            "데몬 시작: agent fleet-node-b, 이름 타깃 없음(조건 타깃만), control-plane http://127.0.0.1:62756",
+            "데몬 시작: agent fleet-node-b, 이름 타깃 없음(조건 타깃만), control-plane http://127.0.0.1:63951",
             "fleet 보고: 기기 2대",
             "기기 …CKED 를 후보에서 뺌: 화면 잠김",
-            "run fleet-e2e-1-1794128597652-36488-a14 클레임 (cycle fleet-e2e-1-1794128597652-36488, target a14, 기기 …ND14, tests <repo>/apps/runner-agent/test/fixtures/slow)",
-            "[run …6488-a14] 결과: passed 2, failed 0, blocked 0, skipped 0 / 전송 8건(accepted 8, duplicate 0, rejected 0, retries 0)",
+            "run fleet-e2e-1-1794129166083-40850-a14 클레임 (cycle fleet-e2e-1-1794129166083-40850, target a14, 기기 …ND14, tests <repo>/apps/runner-agent/test/fixtures/slow)",
+            "[run …0850-a14] 결과: passed 2, failed 0, blocked 0, skipped 0 / 전송 8건(accepted 8, duplicate 0, rejected 0, retries 0)",
             "SIGTERM 수신, 멈춤(진행 중 run 이 있으면 현재 테스트까지 마치고 나머지는 skipped, run 은 cancelled)",
             "데몬 종료",
             "데몬 요약: run 1개 (a14:0), resume 0"
@@ -193,7 +193,7 @@
     },
     "nodeDeath": {
       "cycle": {
-        "cycleId": "fleet-e2e-2-1794128597652-36488",
+        "cycleId": "fleet-e2e-2-1794129166083-40850",
         "state": "finished",
         "verdict": "verified",
         "targets": [
@@ -213,20 +213,20 @@
         },
         "runs": [
           {
-            "runId": "fleet-e2e-2-1794128597652-36488-r1",
+            "runId": "fleet-e2e-2-1794129166083-40850-r1",
             "targetId": "a13plus",
             "state": "infra-failed",
             "deviceId": "B-AND14",
             "agent": "fleet-node-b",
-            "replacedBy": "retry:fleet-e2e-2-1794128597652-36488-r1"
+            "replacedBy": "retry:fleet-e2e-2-1794129166083-40850-r1"
           },
           {
-            "runId": "retry:fleet-e2e-2-1794128597652-36488-r1",
+            "runId": "retry:fleet-e2e-2-1794129166083-40850-r1",
             "targetId": "a13plus",
             "state": "finished",
             "deviceId": "A-AND13",
             "agent": "fleet-node-a",
-            "replaces": "fleet-e2e-2-1794128597652-36488-r1"
+            "replaces": "fleet-e2e-2-1794129166083-40850-r1"
           }
         ],
         "cells": {
@@ -243,26 +243,6 @@
         "agent": "fleet-node-b"
       },
       "fleetAfterKill": [
-        {
-          "agentId": "fleet-node-a",
-          "online": false,
-          "devices": [
-            {
-              "id": "A-AND13",
-              "platform": "android",
-              "osVersion": "13",
-              "state": "offline",
-              "reason": "노드 보고 끊김"
-            },
-            {
-              "id": "A-IOS17",
-              "platform": "ios",
-              "osVersion": "17",
-              "state": "offline",
-              "reason": "노드 보고 끊김"
-            }
-          ]
-        },
         {
           "agentId": "fleet-node-b",
           "online": false,
@@ -282,25 +262,45 @@
               "reason": "노드 보고 끊김"
             }
           ]
+        },
+        {
+          "agentId": "fleet-node-a",
+          "online": false,
+          "devices": [
+            {
+              "id": "A-AND13",
+              "platform": "android",
+              "osVersion": "13",
+              "state": "offline",
+              "reason": "노드 보고 끊김"
+            },
+            {
+              "id": "A-IOS17",
+              "platform": "ios",
+              "osVersion": "17",
+              "state": "offline",
+              "reason": "노드 보고 끊김"
+            }
+          ]
         }
       ],
       "daemons": {
         "b": {
           "signal": "SIGKILL",
           "log": [
-            "데몬 시작: agent fleet-node-b, 이름 타깃 없음(조건 타깃만), control-plane http://127.0.0.1:62756",
+            "데몬 시작: agent fleet-node-b, 이름 타깃 없음(조건 타깃만), control-plane http://127.0.0.1:63951",
             "fleet 보고: 기기 2대",
             "기기 …CKED 를 후보에서 뺌: 화면 잠김",
-            "run fleet-e2e-2-1794128597652-36488-r1 클레임 (cycle fleet-e2e-2-1794128597652-36488, target a13plus, 기기 …ND14, tests <repo>/apps/runner-agent/test/fixtures/slow)"
+            "run fleet-e2e-2-1794129166083-40850-r1 클레임 (cycle fleet-e2e-2-1794129166083-40850, target a13plus, 기기 …ND14, tests <repo>/apps/runner-agent/test/fixtures/slow)"
           ]
         },
         "a": {
           "exit": 0,
           "log": [
-            "데몬 시작: agent fleet-node-a, 이름 타깃 없음(조건 타깃만), control-plane http://127.0.0.1:62756",
+            "데몬 시작: agent fleet-node-a, 이름 타깃 없음(조건 타깃만), control-plane http://127.0.0.1:63951",
             "fleet 보고: 기기 2대",
-            "run retry:fleet-e2e-2-1794128597652-36488-r1 클레임 (cycle fleet-e2e-2-1794128597652-36488, target a13plus, 기기 …ND13, tests <repo>/apps/runner-agent/test/fixtures/slow)",
-            "[run …36488-r1] 결과: passed 2, failed 0, blocked 0, skipped 0 / 전송 8건(accepted 8, duplicate 0, rejected 0, retries 0)",
+            "run retry:fleet-e2e-2-1794129166083-40850-r1 클레임 (cycle fleet-e2e-2-1794129166083-40850, target a13plus, 기기 …ND13, tests <repo>/apps/runner-agent/test/fixtures/slow)",
+            "[run …40850-r1] 결과: passed 2, failed 0, blocked 0, skipped 0 / 전송 8건(accepted 8, duplicate 0, rejected 0, retries 0)",
             "SIGTERM 수신, 멈춤(진행 중 run 이 있으면 현재 테스트까지 마치고 나머지는 skipped, run 은 cancelled)",
             "데몬 종료",
             "데몬 요약: run 1개 (a13plus:0), resume 0"
@@ -322,12 +322,12 @@
     },
     {
       "phase": "동시",
-      "label": "셀마다 돈 기기가 보인다",
+      "label": "셀마다 돈 기기가 보인다(타깃별 기대 기기)",
       "ok": true
     },
     {
       "phase": "동시",
-      "label": "도는 동안 Fleet 에 leased 셋",
+      "label": "도는 동안 Fleet 에 leased 는 기대한 세 기기이고 각자 자기 run",
       "ok": true
     },
     {
