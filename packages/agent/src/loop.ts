@@ -26,7 +26,7 @@ function scrubDetail(detail: string, input: Record<string, string>): string {
 }
 
 /** promise 와 abort 의 경주. 이미 abort 됐으면 바로 거부하고, 끝나면 리스너를 뗀다(턴마다 쌓이지 않게) */
-function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+export function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) return Promise.reject(signal.reason as Error);
   let onAbort!: () => void;
   const aborted = new Promise<never>((_, reject) => { onAbort = () => reject(signal.reason as Error); signal.addEventListener('abort', onAbort, { once: true }); });

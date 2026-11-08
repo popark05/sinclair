@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { runAct, actProgressOf, ModelConfigError, type StepExecutor } from '@sinclair/agent';
+import { runAct, actProgressOf, judgeAssert, judgeWaitFor, judgeExtract, ModelConfigError, type JudgeResult, type StepExecutor } from '@sinclair/agent';
 import { EngineError, parseRunEvent, type AttemptFinished, type AttemptResult, type Engine, type RunEvent, type StepRecorded } from '@sinclair/protocol';
 import { createScreen, type StepEvent } from './screen.ts';
 import { expect as makeExpect, AssertionError } from './expect.ts';
@@ -216,6 +216,29 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
       emit(ev);
     };
     const screen = createScreen(engine, { timeoutMs, onStep });
+    /** 판정 동사 하나 = 스텝 하나. 거짓·기한 초과·못 찾음은 판정 실패(assertion), 모델이 계약을 어긴 답은 agent, secure 는 엔진 오류(secure-read) 그대로.
+     *  스텝에는 질문과 판정·근거만 남기고 추출한 값은 남기지 않는다(화면의 개인정보일 수 있다) */
+    async function judgeStep<V>(kind: 'assert' | 'waitFor' | 'extract', verb: string, question: string, run: (executor: StepExecutor) => Promise<JudgeResult<V>>): Promise<JudgeResult<V>> {
+      if (!options.agent) throw new ModelConfigError(`${verb} 를 쓰려면 runTests 에 agent.executor(모델 실행기)가 필요함`);
+      const started = Date.now();
+      const head = `${verb} ${JSON.stringify(question)}`;
+      const short = (t: string) => (t.length > 200 ? `${t.slice(0, 200)}…` : t);
+      let r: JudgeResult<V>;
+      try {
+        r = await run(options.agent.executor);
+      } catch (err) {
+        onStep({ kind, instruction: head, durationMs: Date.now() - started, error: err instanceof Error ? err.message : String(err) });
+        throw err;
+      }
+      const stats = { modelCalls: r.modelCalls, ...(r.usage ? { usage: r.usage } : {}) };
+      if (r.ok) {
+        onStep({ kind, instruction: `${head} → ${kind === 'extract' ? '추출함' : '참'}: ${short(r.reason)}`, durationMs: Date.now() - started, ...stats });
+        return r;
+      }
+      onStep({ kind, instruction: head, durationMs: Date.now() - started, ...stats, error: `${r.failure}: ${short(r.reason)}` });
+      if (r.failure === 'invalid') throw new AgentActError(`${head} 실패: ${r.reason}`);
+      throw new AssertionError(verb, question, r.failure, `${head} ${r.failure === 'false' ? '거짓' : r.failure === 'timeout' ? '기한 초과' : '찾지 못함'}: ${r.reason}`);
+    }
     const fixtures: Fixtures = {
       app: {
         open: (target) => session('open', target),
@@ -244,6 +267,9 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
           onStep({ kind: 'act', instruction, durationMs: Date.now() - started, modelCalls: r.modelCalls, ...(r.usage ? { usage: r.usage } : {}), ...(r.ok ? {} : { error: r.reason ?? '실패' }) });
           if (!r.ok) throw new AgentActError(`agent.act ${JSON.stringify(goal)} 실패: ${r.reason}`);
         },
+        assert: (statement) => judgeStep('assert', 'agent.assert', statement, (executor) => judgeAssert(engine, statement, { executor })).then(() => undefined),
+        waitFor: (condition, o) => judgeStep('waitFor', 'agent.waitFor', condition, (executor) => judgeWaitFor(engine, condition, { executor, ...o })).then(() => undefined),
+        extract: (what, type) => judgeStep('extract', 'agent.extract', what, (executor) => judgeExtract(engine, what, type, { executor })).then((r) => r.value!),
       },
       attemptNo,
     };

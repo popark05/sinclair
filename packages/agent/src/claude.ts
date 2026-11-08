@@ -6,7 +6,7 @@
 // 사내망(SSL 인터셉션)은 NODE_EXTRA_CA_CERTS 로 CA 묶음을 주면 Node 의 fetch 가 신뢰한다.
 import Anthropic from '@anthropic-ai/sdk';
 import type { StepUsage } from '@sinclair/protocol';
-import { ModelCallError, ModelConfigError, type AgentTurn, type StepExecutor, type StepReply, type StepRequest } from './executor.ts';
+import { ModelCallError, ModelConfigError, type AgentTurn, type JudgeReply, type JudgeRequest, type StepExecutor, type StepReply, type StepRequest } from './executor.ts';
 
 export const DEFAULT_AGENT_MODEL = 'claude-sonnet-5-5';
 /** 여러 단계 툴 사용의 권장값. 쉬운 화면 조작에 high 는 느리고 비싸다 */
@@ -45,6 +45,14 @@ const SYSTEM = [
   '지난 턴이 rejected·error 면 그 사유를 읽고 다른 대상이나 행동을 고른다. 같은 실패를 되풀이하지 않는다.',
   '목표를 이뤘음을 지금 화면으로 확인했을 때만 done 을 부르고, summary 에 화면의 근거를 적는다.',
   'secure 로 표시된 칸의 값은 보이지 않는다. 입력할 값은 목표에 주어진 것만 쓴다.',
+].join('\n');
+
+const JUDGE_SYSTEM = [
+  '너는 모바일·웹 앱 화면을 판정하는 테스트 검사자다. 화면을 조작하지 않는다.',
+  '지금 화면(접근성 트리, 한 줄에 노드 하나: @ref 역할 "이름" 속성 (상태))과 질문을 받고, 주어진 JSON 스키마에 맞는 답만 낸다.',
+  '판정(assert)은 질문이 지금 화면에서 참인지 pass 로, 화면의 근거를 reason 에 적는다. 화면에서 확인할 수 없으면 거짓이다.',
+  '추출(extract)은 찾는 값을 value 에, 값을 읽은 노드의 @ref 를 sourceRefs 에 적는다. 화면에 없으면 found 를 false 로 한다. 짐작으로 값을 지어내지 않는다.',
+  'secure 로 표시된 칸의 값은 보이지 않으며 추출 대상이 아니다.',
 ].join('\n');
 
 /** 지난 턴 한 줄. type 의 글자는 가린다(비밀번호일 수 있다 — 모델이 쓴 값이라도 되돌려 보내지 않는다) */
@@ -129,40 +137,59 @@ export function createClaudeExecutor(options: ClaudeExecutorOptions = {}): StepE
     maxRetries: options.maxRetries ?? DEFAULT_AGENT_MAX_RETRIES,
   }));
 
+  const maxTokens = options.maxTokens ?? DEFAULT_AGENT_MAX_TOKENS;
+  const imageBlock = (pixels: Uint8Array | undefined): Anthropic.Beta.BetaContentBlockParam[] =>
+    (options.pixels && pixels ? [{ type: 'image', source: { type: 'base64', media_type: mediaType(pixels), data: Buffer.from(pixels).toString('base64') } }] : []);
+
+  /** 턴·판정이 함께 쓰는 요청: 고정 system(캐시 표시) + user 메시지 하나, 서버 측 fallback. 거절은 내용보다 먼저 본다(fallback 모델까지 거절한 경우) */
+  async function send(signal: AbortSignal, r: { system: string; content: Anthropic.Beta.BetaContentBlockParam[]; extra?: Pick<Anthropic.Beta.MessageCreateParamsNonStreaming, 'tools' | 'tool_choice'>; format?: Record<string, unknown> }): Promise<Anthropic.Beta.BetaMessage> {
+    let res: Anthropic.Beta.BetaMessage;
+    try {
+      res = await getClient().beta.messages.create({
+        model,
+        max_tokens: maxTokens,
+        betas: [FALLBACK_BETA],
+        fallbacks: 'default',
+        output_config: { effort: options.effort ?? DEFAULT_AGENT_EFFORT, ...(r.format ? { format: { type: 'json_schema', schema: r.format } } : {}) },
+        system: [{ type: 'text', text: r.system, cache_control: { type: 'ephemeral' } }],
+        ...r.extra,
+        messages: [{ role: 'user', content: r.content }],
+      }, { signal });
+    } catch (err) {
+      throw translateError(err, model);
+    }
+    if (res.stop_reason === 'refusal') throw new ModelCallError(`모델이 거절함(${res.stop_details?.category ?? '범주 없음'})`, toUsage(res.usage));
+    return res;
+  }
+
   return {
     ...(options.pixels ? { pixels: true } : {}),
     async next(req, signal): Promise<StepReply> {
-      const content: Anthropic.Beta.BetaContentBlockParam[] = [];
-      if (options.pixels && req.pixels) content.push({ type: 'image', source: { type: 'base64', media_type: mediaType(req.pixels), data: Buffer.from(req.pixels).toString('base64') } });
-      content.push({ type: 'text', text: renderPrompt(req) });
-      let res: Anthropic.Beta.BetaMessage;
-      try {
-        res = await getClient().beta.messages.create({
-          model,
-          max_tokens: options.maxTokens ?? DEFAULT_AGENT_MAX_TOKENS,
-          betas: [FALLBACK_BETA],
-          fallbacks: 'default',
-          output_config: { effort: options.effort ?? DEFAULT_AGENT_EFFORT },
-          system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
-          // action spec 에서 만든 스키마 그대로 + strict(스키마를 지키는 입력만). 강제 tool_choice 는 Sonnet 5.5 에서 400 이라 auto + 지시
-          tools: req.tools.map((t) => ({ ...t, strict: true })),
-          tool_choice: { type: 'auto', disable_parallel_tool_use: true },
-          messages: [{ role: 'user', content }],
-        }, { signal });
-      } catch (err) {
-        throw translateError(err, model);
-      }
+      const res = await send(signal, {
+        system: SYSTEM,
+        content: [...imageBlock(req.pixels), { type: 'text', text: renderPrompt(req) }],
+        // action spec 에서 만든 스키마 그대로 + strict(스키마를 지키는 입력만). 강제 tool_choice 는 Sonnet 5.5 에서 400 이라 auto + 지시
+        extra: { tools: req.tools.map((t) => ({ ...t, strict: true })), tool_choice: { type: 'auto', disable_parallel_tool_use: true } },
+      });
       const usage = toUsage(res.usage);
-      // 거절을 내용보다 먼저 본다(fallback 모델까지 거절한 경우)
-      if (res.stop_reason === 'refusal') {
-        const category = res.stop_details?.category ?? '범주 없음';
-        throw new ModelCallError(`모델이 거절함(${category})`, usage);
-      }
       const tool = res.content.find((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === 'tool_use');
       if (tool) return { call: { name: tool.name, input: tool.input }, ...(usage ? { usage } : {}) };
-      if (res.stop_reason === 'max_tokens') throw new ModelCallError(`툴을 부르기 전에 max_tokens(${options.maxTokens ?? DEFAULT_AGENT_MAX_TOKENS})에서 잘림`, usage);
+      if (res.stop_reason === 'max_tokens') throw new ModelCallError(`툴을 부르기 전에 max_tokens(${maxTokens})에서 잘림`, usage);
       const text = res.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('\n');
       return { ...(text ? { text } : {}), ...(usage ? { usage } : {}) };
+    },
+    // 판정: 툴 없이 구조화 출력(json_schema). 스키마는 판정 동사가 만든 닫힌 스키마(추가 속성 금지)
+    async judge(req: JudgeRequest, signal): Promise<JudgeReply> {
+      const prompt = [`${req.kind === 'assert' ? '판정할 문장' : '추출할 값'}: ${req.question}`, '', '지금 화면:', req.observation].join('\n');
+      const res = await send(signal, { system: JUDGE_SYSTEM, content: [...imageBlock(req.pixels), { type: 'text', text: prompt }], format: req.schema });
+      const usage = toUsage(res.usage);
+      if (res.stop_reason === 'max_tokens') throw new ModelCallError(`답을 끝내기 전에 max_tokens(${maxTokens})에서 잘림`, usage);
+      const text = res.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('');
+      try {
+        return { answer: JSON.parse(text) as unknown, ...(usage ? { usage } : {}) };
+      } catch {
+        throw new ModelCallError('모델 답이 JSON 이 아님', usage);
+      }
     },
   };
 }

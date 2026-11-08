@@ -6,7 +6,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loginScenario } from '@sinclair/protocol/testing';
-import { createClaudeExecutor, claudeOptionsFromEnv, runAct, toolSchemas, DEFAULT_AGENT_MODEL, ModelConfigError, type ClaudeExecutorOptions } from '../src/index.ts';
+import { createClaudeExecutor, claudeOptionsFromEnv, runAct, judgeAssert, judgeExtract, toolSchemas, DEFAULT_AGENT_MODEL, ModelConfigError, type ClaudeExecutorOptions } from '../src/index.ts';
 
 const KEY = 'sk-ant-test-0123456789abcdef';
 type Reply = { status?: number; body: unknown };
@@ -156,6 +156,39 @@ describe('createClaudeExecutor · 오류 분류(리뷰 반영)', () => {
     expect(r.reason).toMatch(/기한/);
     expect(r.reason).not.toMatch(/NODE_EXTRA_CA_CERTS/);
     server.closeAllConnections();
+  });
+});
+
+describe('createClaudeExecutor · judge(판정 동사)', () => {
+  const jsonReply = (answer: unknown, extra: Record<string, unknown> = {}): Reply => ({
+    body: { id: 'm', type: 'message', role: 'assistant', model: DEFAULT_AGENT_MODEL, stop_reason: 'end_turn', stop_sequence: null, usage: usage(500, 20), content: [{ type: 'text', text: JSON.stringify(answer) }], ...extra },
+  });
+
+  it('툴 없이 구조화 출력(json_schema)으로 묻고, 답 JSON 을 판정으로 쓴다. secure 값은 본문에 없다', async () => {
+    const api = await fakeApi([jsonReply({ pass: true, reason: '로그인 버튼이 보인다' })]);
+    const r = await judgeAssert(loginScenario(), '로그인 화면이다', { executor: createClaudeExecutor(opts(api.baseURL)) });
+    expect(r).toMatchObject({ ok: true, reason: '로그인 버튼이 보인다', modelCalls: 1, usage: { inputTokens: 500, outputTokens: 20 } });
+    const b = api.captured[0]!.body;
+    expect(b).not.toHaveProperty('tools');
+    expect(b).not.toHaveProperty('tool_choice');
+    expect(b).toMatchObject({ model: 'claude-sonnet-5-5', fallbacks: 'default', output_config: { effort: 'medium', format: { type: 'json_schema', schema: { required: ['pass', 'reason'] } } } });
+    expect(JSON.stringify(b.messages)).toMatch(/로그인 화면이다/);
+    expect(api.captured[0]!.raw).not.toContain('hunter2');
+    expect(api.captured[0]!.raw).not.toContain(KEY);
+  });
+
+  it('extract 는 요청한 타입의 스키마로 묻는다', async () => {
+    const api = await fakeApi([jsonReply({ found: true, value: 'Sinclair 로그인', sourceRefs: ['@e1'], reason: '제목' })]);
+    const r = await judgeExtract(loginScenario(), '화면 제목', 'string', { executor: createClaudeExecutor(opts(api.baseURL)) });
+    expect(r).toMatchObject({ ok: true, value: 'Sinclair 로그인' });
+    expect(api.captured[0]!.body).toMatchObject({ output_config: { format: { schema: { properties: { value: { type: 'string' } } } } } });
+  });
+
+  it('거절·JSON 이 아닌 답은 invalid 판정(쓴 토큰 포함)', async () => {
+    const api = await fakeApi([jsonReply(null, { stop_reason: 'refusal', stop_details: { type: 'refusal', category: 'cyber', explanation: null }, content: [] })]);
+    expect(await judgeAssert(loginScenario(), 'x', { executor: createClaudeExecutor(opts(api.baseURL)) })).toMatchObject({ ok: false, failure: 'invalid', reason: expect.stringMatching(/거절.*cyber/), usage: { inputTokens: 500 } });
+    const api2 = await fakeApi([{ body: { ...(jsonReply({}).body as object), content: [{ type: 'text', text: '참입니다' }] } }]);
+    expect(await judgeAssert(loginScenario(), 'x', { executor: createClaudeExecutor(opts(api2.baseURL)) })).toMatchObject({ ok: false, failure: 'invalid', reason: expect.stringMatching(/JSON/) });
   });
 });
 

@@ -1,3 +1,4 @@
+import type { ExtractType, ExtractValue } from '@sinclair/agent';
 // `test()` API: 테스트 파일이 import 해서 등록하고, runTests 가 파일을 불러들여 모아 실행한다(e2e 방식, ADR 0001).
 import type { Screen } from './screen.ts';
 import type { LocatorAssertions, ExpectOptions } from './expect.ts';
@@ -9,7 +10,15 @@ export interface Fixtures {
   screen: Screen;
   expect: (locator: Locator, options?: ExpectOptions) => LocatorAssertions;
   /** 자연어 목표를 화면 조작으로(agent-layer). 실행기(모델)는 runTests 의 agent 옵션으로 준다 */
-  agent: { act(goal: string): Promise<void> };
+  agent: {
+    act(goal: string): Promise<void>;
+    /** 지금 화면에서 참이어야 한다(화면을 바꾸지 않는다). 거짓이면 판정 실패 */
+    assert(statement: string): Promise<void>;
+    /** 참이 될 때까지 다시 본다(기본 30초, 1초 간격. 화면이 그대로면 모델을 다시 부르지 않는다) */
+    waitFor(condition: string, options?: { timeoutMs?: number; intervalMs?: number }): Promise<void>;
+    /** 화면에서 값을 꺼낸다. type 은 'string'|'number'|'boolean' 또는 { 키: 그 셋 중 하나 }. secure 칸은 거부(secure-read) */
+    extract<T extends ExtractType>(what: string, type: T): Promise<ExtractValue<T>>;
+  };
   /** 이 테스트의 몇 번째 시도인지(1부터). 재시도 정책 검증용 샘플이 "첫 시도만 실패" 를 만들 때 쓴다; 제품 테스트가 분기하는 용도는 아니다 */
   attemptNo: number;
 }

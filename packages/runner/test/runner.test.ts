@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import { EngineError, RUN_EVENT_TYPES, parseRunEvent, type Engine, type RunEvent, type SemanticNode } from '@sinclair/protocol';
 import { FakeEngine, HOME_SCREEN, LOGIN_SCREEN, withDeviceUnavailable } from '@sinclair/protocol/testing';
 import { runTests, MAX_RETRIES, type Reporter } from '../src/index.ts';
-import { scriptedExecutor, ModelConfigError } from '@sinclair/agent';
+import { scriptedExecutor, ModelConfigError, type JudgeRequest, type StepExecutor } from '@sinclair/agent';
 
 const SETTINGS_SCREEN: SemanticNode = {
   ref: '@s0', role: 'root', rect: { x: 0, y: 0, width: 1080, height: 2400 }, children: [
@@ -367,5 +367,55 @@ describe('agent.act (대본 실행기)', () => {
     vexpect(report.events.filter((e) => e.type === 'step.recorded' && e.kind === 'act')).toHaveLength(1);
     const none = await runTests([fixture('agent-login.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 500 });
     vexpect(none.tests[0]).toMatchObject({ result: 'blocked', errorCode: 'agent-config', error: vexpect.stringMatching(/agent\.executor/) });
+  });
+});
+
+describe('판정 동사 agent.assert·waitFor·extract (대본 judge)', () => {
+  type Judge = (req: JudgeRequest) => unknown;
+  const judging = (answer: Judge): StepExecutor => ({ next: () => Promise.reject(new Error('next 금지')), judge: async (req) => ({ answer: answer(req), usage: { inputTokens: 50, outputTokens: 5 } }) });
+  /** 화면대로 답하는 정직한 judge. overrides 로 질문별 답을 바꾼다 */
+  const honest = (overrides: Record<string, unknown> = {}): Judge => (req) => {
+    if (Object.hasOwn(overrides, req.question)) return overrides[req.question];
+    const home = /환영합니다/.test(req.observation);
+    if (req.kind === 'assert') return { pass: home, reason: home ? '환영 문구가 보인다' : '로그인 화면' };
+    if (req.question === '비밀번호') return { found: true, value: 'x', sourceRefs: ['@e3'], reason: '비밀번호 칸' };
+    return { found: home, value: '환영합니다', sourceRefs: home ? ['@h1'] : [], reason: '인사 문구' };
+  };
+  const stepsOf = (events: RunEvent[], attemptNo = 0) => {
+    const attempts = events.filter((e) => e.type === 'attempt.started').map((e) => (e as { attemptId: string }).attemptId);
+    return events.filter((e): e is Extract<RunEvent, { type: 'step.recorded' }> => e.type === 'step.recorded' && e.attemptId === attempts[attemptNo]);
+  };
+
+  it('waitFor·assert·extract 가 통과하고 스텝 kind·modelCalls·usage 로 남는다. 판정은 화면을 바꾸지 않는다', async () => {
+    const engine = engineWithApps();
+    const report = await runTests([fixture('agent-judge.sinclair.ts')], { engine, timeoutMs: 500, agent: { executor: judging(honest()) } });
+    vexpect(report.tests[0]).toMatchObject({ result: 'passed' });
+    const steps = stepsOf(report.events).filter((e) => e.kind !== 'locator');
+    vexpect(steps.map((e) => e.kind)).toEqual(['waitFor', 'assert', 'extract']);
+    vexpect(steps[1]).toMatchObject({ modelCalls: 1, usage: { inputTokens: 50, outputTokens: 5 }, instruction: vexpect.stringMatching(/^agent\.assert "홈 화면이다" → 참: 환영 문구가 보인다/) });
+    vexpect(steps[2]!.instruction).not.toMatch(/환영합니다"?$/); // 추출한 값은 스텝에 남기지 않는다
+    for (const e of report.events) vexpect(parseRunEvent(e).ok).toBe(true);
+  });
+
+  it('거짓 판정은 errorCode assertion 의 failed Attempt 와 아티팩트, 근거가 오류에 실린다', async () => {
+    const report = await runTests([fixture('agent-judge.sinclair.ts')], { engine: engineWithApps(), artifactsDir, timeoutMs: 500, agent: { executor: judging(honest({ '홈 화면이다': { pass: false, reason: '설정 화면이 보인다' } })) } });
+    vexpect(report.tests[0]).toMatchObject({ result: 'failed', errorCode: 'assertion', error: vexpect.stringMatching(/홈 화면이다.*설정 화면이 보인다/) });
+    vexpect(report.tests[0]!.artifacts.map((a) => a.kind).sort()).toEqual(['screen-tree', 'screenshot']);
+  });
+
+  it('waitFor 기한 초과·추출 못 찾음은 assertion, 타입 불일치는 agent, secure 추출은 secure-read', async () => {
+    const timeout = await runTests([fixture('agent-judge.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 500, agent: { executor: judging(honest({ '환영 문구가 뜬다': { pass: false, reason: '아직' } })) } });
+    vexpect(timeout.tests[0]).toMatchObject({ result: 'failed', errorCode: 'assertion', error: vexpect.stringMatching(/2000ms/) });
+    const missing = await runTests([fixture('agent-judge.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 500, agent: { executor: judging(honest({ '인사 문구': { found: false, value: '', sourceRefs: [], reason: '없다' } })) } });
+    vexpect(missing.tests[0]).toMatchObject({ result: 'failed', errorCode: 'assertion' });
+    const wrongType = await runTests([fixture('agent-judge.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 500, agent: { executor: judging(honest({ '인사 문구': { found: true, value: 42, sourceRefs: ['@h1'], reason: 'x' } })) } });
+    vexpect(wrongType.tests[0]).toMatchObject({ result: 'failed', errorCode: 'agent' });
+    vexpect(timeout.tests[1]).toMatchObject({ result: 'failed', errorCode: 'secure-read' });
+    vexpect(stepsOf(timeout.events, 1).map((e) => e.kind)).toEqual(['extract']); // 거부돼도 스텝은 남는다
+  });
+
+  it('judge 없는 실행기면 blocked(agent-config)', async () => {
+    const report = await runTests([fixture('agent-judge.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 500, agent: { executor: scriptedExecutor([]) } });
+    vexpect(report.tests[0]).toMatchObject({ result: 'blocked', errorCode: 'agent-config' });
   });
 });

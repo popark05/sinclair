@@ -19,10 +19,23 @@ export interface StepRequest {
 /** 실행기의 답: 툴 호출 하나, 또는 툴 없이 낸 글(거부로 기록돼 다음 턴에 다시 묻는다). usage 는 이 턴의 토큰(모르면 생략) */
 export interface StepReply { call?: ToolCall; text?: string; usage?: StepUsage }
 
+/** 판정 요청: 화면을 바꾸지 않는 질문 하나. 모델은 schema(닫힌 JSON 스키마)에 맞는 답만 낸다 */
+export interface JudgeRequest {
+  kind: 'assert' | 'extract';
+  question: string;
+  /** renderObservation 결과(secure 값 없음) */
+  observation: string;
+  schema: Record<string, unknown>;
+  pixels?: Uint8Array;
+}
+export interface JudgeReply { answer: unknown; usage?: StepUsage }
+
 export interface StepExecutor {
   /** true 면 루프가 화면 이미지도 함께 관찰해 요청에 싣는다(비용이 크다. 기본 트리만) */
   readonly pixels?: boolean;
   next(request: StepRequest, signal: AbortSignal): Promise<StepReply>;
+  /** 판정 동사(assert·waitFor·extract)용. 툴 없이 구조화 답만. 없으면 판정 동사는 설정 오류 */
+  judge?(request: JudgeRequest, signal: AbortSignal): Promise<JudgeReply>;
 }
 
 /** 실행기 설정 문제(키 없음·잘못된 키·잘못된 설정값). 테스트 탓이 아니므로 루프는 실패 결과로 뭉개지 않고 그대로 던진다 */

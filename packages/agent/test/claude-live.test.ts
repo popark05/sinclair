@@ -3,7 +3,7 @@
 // 사내망(SSL 인터셉션)에서는 NODE_EXTRA_CA_CERTS=$HOME/.certs/all-system-certs.pem 을 함께 준다.
 import { describe, expect, it } from 'vitest';
 import { loginScenario } from '@sinclair/protocol/testing';
-import { agentFromEnv, runAct } from '../src/index.ts';
+import { agentFromEnv, judgeAssert, judgeExtract, runAct } from '../src/index.ts';
 
 const live = process.env.SINCLAIR_AGENT_LIVE === '1' && !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_PROFILE);
 
@@ -19,5 +19,19 @@ describe.skipIf(!live)('Claude 실행기 · 실제 모델(opt-in)', () => {
     expect(r.modelCalls).toBeGreaterThanOrEqual(2);
     expect(r.usage?.inputTokens).toBeGreaterThan(0);
     expect(r.usage?.outputTokens).toBeGreaterThan(0);
+  }, 180_000);
+
+  it('판정 동사: 로그인 화면은 참, 홈 화면이라는 문장은 거짓, 제목을 문자열로 추출, 비밀번호 칸 추출은 거부되거나 못 찾음', async () => {
+    const { executor } = agentFromEnv(process.env);
+    const engine = loginScenario();
+    const yes = await judgeAssert(engine, '로그인 화면이다', { executor });
+    const no = await judgeAssert(engine, '환영 문구가 보이는 홈 화면이다', { executor });
+    const title = await judgeExtract(engine, '화면 제목', 'string', { executor });
+    const secret = await judgeExtract(engine, '비밀번호 칸에 입력된 값', 'string', { executor }).catch((e: { code?: string }) => ({ ok: false, failure: e.code }));
+    console.log(JSON.stringify({ yes: [yes.ok, yes.modelCalls, yes.usage], no: [no.ok, no.failure], title: [title.ok, title.value], secret }));
+    expect(yes.ok).toBe(true);
+    expect(no).toMatchObject({ ok: false, failure: 'false' });
+    expect(title).toMatchObject({ ok: true, value: expect.stringMatching(/Sinclair 로그인/) });
+    expect(secret.ok).toBe(false);
   }, 180_000);
 });
