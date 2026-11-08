@@ -347,7 +347,7 @@ describe('agent.act (대본 실행기)', () => {
     engine.perform = async () => { throw new EngineError('device-unavailable', '기기 빠짐'); };
     const report = await runTests([fixture('agent-login.sinclair.ts')], { engine, timeoutMs: 500, agent: { executor: scriptedExecutor(loginScript) } });
     vexpect(report.tests[0]).toMatchObject({ result: 'blocked', errorCode: 'device-unavailable' });
-    vexpect(report.events.filter((e) => e.type === 'step.recorded' && e.kind === 'act')).toHaveLength(1);
+    vexpect(report.events.filter((e) => e.type === 'step.recorded' && e.kind === 'act')).toEqual([vexpect.objectContaining({ modelCalls: 1 })]); // 던져도 그때까지의 호출 수는 남는다
   });
 
   it('모델이 보고한 토큰 사용량이 act 스텝(step.recorded usage)에 남는다', async () => {

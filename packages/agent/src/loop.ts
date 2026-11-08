@@ -48,7 +48,14 @@ export interface ActResult {
   history: AgentTurn[];
 }
 
-/** 모델이 고칠 수 없는 엔진 오류(기기 없음 등)와 관찰 실패는 EngineError 로 던진다 — 결과로 돌려주지 않는다 */
+/** act 가 던질 때 그때까지 쓴 모델 호출 수·토큰. 오류 객체를 바꾸지 않고 옆에 둔다(러너가 실패 스텝에 싣는다) */
+export interface ActProgress { modelCalls: number; usage?: StepUsage }
+const progress = new WeakMap<object, ActProgress>();
+export function actProgressOf(err: unknown): ActProgress | undefined {
+  return typeof err === 'object' && err !== null ? progress.get(err) : undefined;
+}
+
+/** 모델이 고칠 수 없는 엔진 오류(기기 없음 등)와 관찰 실패는 EngineError 로 던진다 — 결과로 돌려주지 않는다. 던진 오류의 진행은 actProgressOf 로 읽는다 */
 export async function runAct(engine: Engine, goal: string, opts: ActOptions): Promise<ActResult> {
   const maxTurns = opts.maxTurns ?? DEFAULT_MAX_TURNS;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_ACT_TIMEOUT_MS;
@@ -104,6 +111,9 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
       if (spec.terminal) return result({ ok: true, ...(checked.call.input.summary ? { summary: checked.call.input.summary } : {}) });
     }
     return fail(`턴 한도 ${maxTurns} 안에 목표를 이루지 못함`);
+  } catch (err) {
+    if (typeof err === 'object' && err !== null) progress.set(err, { modelCalls, ...(usage ? { usage } : {}) });
+    throw err;
   } finally {
     clearTimeout(timer);
   }

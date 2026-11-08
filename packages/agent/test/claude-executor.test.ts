@@ -103,7 +103,7 @@ describe('createClaudeExecutor', () => {
     expect(f).toMatchObject({ ok: false, modelCalls: 1, reason: expect.stringMatching(/거절.*general_harms/), usage: { inputTokens: 80, outputTokens: 0 } });
   });
 
-  it('일시 오류(5xx·429)는 재시도하고, 그 밖의 API 오류는 재시도 없이 실패한다', async () => {
+  it('일시 오류(5xx·429)는 재시도하고, 그 밖의 API 오류는 재시도하지 않는다', async () => {
     const overloaded: Reply = { status: 529, body: { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } } };
     const api = await fakeApi([overloaded, ...LOGIN]);
     const r = await runAct(loginScenario(), '로그인', { executor: createClaudeExecutor(opts(api.baseURL, { maxRetries: 2 })) });
@@ -112,9 +112,8 @@ describe('createClaudeExecutor', () => {
 
     const bad: Reply = { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'bad tools' } } };
     const api2 = await fakeApi([bad]);
-    const f = await runAct(loginScenario(), '로그인', { executor: createClaudeExecutor(opts(api2.baseURL, { maxRetries: 2 })) });
-    expect(f).toMatchObject({ ok: false, reason: expect.stringMatching(/400/) });
-    expect(api2.captured).toHaveLength(1);
+    await expect(runAct(loginScenario(), '로그인', { executor: createClaudeExecutor(opts(api2.baseURL, { maxRetries: 2 })) })).rejects.toThrow(/400/);
+    expect(api2.captured).toHaveLength(1); // 재시도하지 않는다
   });
 
   it('키가 없거나(자격 증명 없음) 거부되면(401) 분명한 설정 오류로 던진다 — 키 값은 메시지에 없다', async () => {
@@ -129,6 +128,34 @@ describe('createClaudeExecutor', () => {
     const err = await runAct(loginScenario(), '로그인', { executor: createClaudeExecutor(opts(api.baseURL)) }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ModelConfigError);
     expect(String((err as Error).message)).not.toContain(KEY);
+  });
+});
+
+describe('createClaudeExecutor · 오류 분류(리뷰 반영)', () => {
+  it('요청 모양 오류(400·413·422)는 결정적이라 설정 오류이고 API 의 사유를 싣는다', async () => {
+    const api = await fakeApi([{ status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'max_tokens: 99999 > 64000, which is the maximum allowed' } } }]);
+    const err = await runAct(loginScenario(), '로그인', { executor: createClaudeExecutor(opts(api.baseURL)) }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ModelConfigError);
+    expect((err as Error).message).toMatch(/400.*max_tokens: 99999/);
+  });
+
+  it('자격 증명 사슬 오류(없는 프로필 등)도 설정 오류', async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', undefined);
+    vi.stubEnv('ANTHROPIC_AUTH_TOKEN', undefined);
+    vi.stubEnv('ANTHROPIC_CONFIG_DIR', fs.mkdtempSync(path.join(os.tmpdir(), 'sinclair-no-creds-')));
+    vi.stubEnv('ANTHROPIC_PROFILE', 'no-such-profile');
+    const err = await runAct(loginScenario(), '로그인', { executor: createClaudeExecutor({ baseURL: 'http://127.0.0.1:9', maxRetries: 0 }) }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ModelConfigError);
+  });
+
+  it('요청 기한 초과는 기한으로 알린다(CA 안내를 붙이지 않는다)', async () => {
+    server = http.createServer(() => { /* 답하지 않는다 */ });
+    await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r));
+    const baseURL = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const r = await runAct(loginScenario(), '로그인', { executor: createClaudeExecutor(opts(baseURL, { requestTimeoutMs: 200 })) });
+    expect(r.reason).toMatch(/기한/);
+    expect(r.reason).not.toMatch(/NODE_EXTRA_CA_CERTS/);
+    server.closeAllConnections();
   });
 });
 

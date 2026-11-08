@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { FakeEngine, HOME_SCREEN, LOGIN_SCREEN } from '@sinclair/protocol/testing';
 import { EngineError } from '@sinclair/protocol';
-import { runAct, scriptedExecutor, renderObservation, ModelConfigError, ModelCallError, type ToolCall, type StepExecutor } from '../src/index.ts';
+import { runAct, scriptedExecutor, renderObservation, ModelConfigError, actProgressOf, ModelCallError, type ToolCall, type StepExecutor } from '../src/index.ts';
 
 const login = () => new FakeEngine({ root: LOGIN_SCREEN, onTap: (n) => (n.name === '로그인' ? HOME_SCREEN : undefined) });
 const script: ToolCall[] = [
@@ -144,5 +144,19 @@ describe('runAct · 모델 사용량과 설정', () => {
     const visual: StepExecutor = { pixels: true, next: (req, signal) => { seen.push(req.pixels); return inner.next(req, signal); } };
     await runAct(login(), '로그인', { executor: visual });
     expect(seen[0]?.slice(0, 4)).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+  });
+});
+
+describe('runAct · 던질 때도 남는 사용량(리뷰 반영)', () => {
+  it('루프가 던지면(기기 빠짐) 그때까지의 모델 호출 수·토큰을 오류에서 읽을 수 있다', async () => {
+    const engine = login();
+    const perform = engine.perform.bind(engine);
+    let n = 0;
+    engine.perform = async (ref, action, arg) => { if (++n === 2) throw new EngineError('device-unavailable', '기기 빠짐'); return perform(ref, action, arg); };
+    const exec = scriptedExecutor(script.map((call) => ({ call, usage: { inputTokens: 100, outputTokens: 10 } })));
+    const err = await runAct(engine, '로그인', { executor: exec }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: 'device-unavailable' });
+    expect(actProgressOf(err)).toEqual({ modelCalls: 2, usage: { inputTokens: 200, outputTokens: 20 } });
+    expect(actProgressOf(new Error('x'))).toBeUndefined();
   });
 });

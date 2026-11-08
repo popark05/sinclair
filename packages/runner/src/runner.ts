@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { runAct, ModelConfigError, type StepExecutor } from '@sinclair/agent';
+import { runAct, actProgressOf, ModelConfigError, type StepExecutor } from '@sinclair/agent';
 import { EngineError, parseRunEvent, type AttemptFinished, type AttemptResult, type Engine, type RunEvent, type StepRecorded } from '@sinclair/protocol';
 import { createScreen, type StepEvent } from './screen.ts';
 import { expect as makeExpect, AssertionError } from './expect.ts';
@@ -233,7 +233,8 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
             r = await runAct(engine, goal, { executor: options.agent.executor, ...(options.agent.maxTurns !== undefined ? { maxTurns: options.agent.maxTurns } : {}), ...(options.agent.timeoutMs !== undefined ? { timeoutMs: options.agent.timeoutMs } : {}) });
           } catch (err) {
             // 관찰 실패·인프라 오류(기기 없음 등)로 루프가 던져도 act 스텝은 남긴다(act 하나 = 스텝 하나). 오류는 그대로 올려 엔진 코드가 errorCode 가 된다
-            onStep({ kind: 'act', instruction: `act ${JSON.stringify(goal)}`, durationMs: Date.now() - started, error: err instanceof Error ? err.message : String(err) });
+            const p = actProgressOf(err); // 던지기 전까지 쓴 모델 호출·토큰도 비용으로 남긴다
+            onStep({ kind: 'act', instruction: `act ${JSON.stringify(goal)}`, durationMs: Date.now() - started, ...(p ? { modelCalls: p.modelCalls, ...(p.usage ? { usage: p.usage } : {}) } : {}), error: err instanceof Error ? err.message : String(err) });
             throw err;
           }
           // 툴 요약: 이름과 대상 ref 만(입력한 글자는 남기지 않는다 — 비밀값일 수 있다). ref 는 모델이 쓴 값이라 ref 모양일 때만 싣는다

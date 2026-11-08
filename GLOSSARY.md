@@ -25,7 +25,7 @@
 - **대체 Run(replacement)**: 버려진 Run 의 몫을 같은 타깃에서 다시 돌리려고 control-plane 이 등록하는 새 Run. 대체된 Run 은 이력으로 남고 Verdict 에서 빠진다. _피할 말_: 재시도 Run, 재실행.
 - **재시도 한도(retryLimit)**: Cycle 이 타깃마다 허용하는 대체 Run 의 수. 테스트 재시도 횟수와는 별개다. _피할 말_: 재시도 횟수(이 뜻으로 쓸 때).
 - **취소(cancelled)**: lease 를 잃거나 종료 신호를 받아 Run 을 중간에 멈춘 것. 진행 중이던 테스트까지만 결과가 있고, 돌지 못한 케이스는 Verdict 에서 `blocked` 다. 대체 Run 을 자동으로 만들지 않는다.
-- **blocked vs skipped**: `blocked` 는 돌아야 했는데 기기·취소 같은 인프라 사정으로 돌지 못한 케이스, `skipped` 는 테스트 쪽에서 돌지 않기로 한 케이스다.
+- **blocked vs skipped**: `blocked` 는 돌아야 했는데 기기·취소·모델 실행기 설정(키 없음 등) 같은 인프라 사정으로 돌지 못한 케이스, `skipped` 는 테스트 쪽에서 돌지 않기로 한 케이스다.
 
 ## Fleet
 

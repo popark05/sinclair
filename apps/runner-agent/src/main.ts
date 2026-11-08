@@ -25,7 +25,7 @@ export async function main(argv = process.argv.slice(2), env = process.env): Pro
     if (command === 'run') {
       const args = parseRunArgs(rest, env);
       if ('help' in args) { process.stdout.write(RUN_HELP); return EXIT.ok; }
-      return await runOnce(args);
+      return await runOnce(args, { env });
     }
     if (command === 'daemon') {
       const args = parseDaemonArgs(rest, env);

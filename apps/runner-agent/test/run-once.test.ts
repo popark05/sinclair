@@ -180,7 +180,8 @@ describe('runOnce · agent.act 실행기(환경변수 설정)', () => {
     expect(v.verdict).toBe('verified');
     const run = (await (await fetch(`${url}/runs/${v.runs[0]!.runId}`)).json()) as { attempts: Array<{ steps: Array<{ kind: string; modelCalls: number; usage?: unknown }> }> };
     expect(run.attempts[0]!.steps.find((st) => st.kind === 'act')).toMatchObject({ modelCalls: 2, usage: { inputTokens: 2000, outputTokens: 60 } });
-    expect(logs.join('\n')).not.toContain('sk-ant-test-key');
+    // 키는 로그·모델 요청 본문·Run 뷰(저장된 이벤트의 투영) 어디에도 없다(스풀은 보낸 뒤 비워진다)
+    for (const text of [logs.join('\n'), requests.join('\n'), JSON.stringify(run)]) { expect(text.length).toBeGreaterThan(0); expect(text).not.toContain('sk-ant-test-key'); }
   });
 
   it('자격 증명이 없으면 act 는 설정 오류(agent-config)로 blocked — 종료 코드 2, 테스트 실패(1)가 아니다', async () => {

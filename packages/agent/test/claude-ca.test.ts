@@ -50,7 +50,8 @@ describe.skipIf(!hasOpenssl)('Claude 실행기 · 사내망 CA(NODE_EXTRA_CA_CER
   };
 
   it('CA 없이는 연결 실패이고 사유가 NODE_EXTRA_CA_CERTS 를 가리킨다, CA 를 주면 호출이 끝난다', async () => {
-    expect(await call()).toMatchObject({ ok: false, reason: expect.stringMatching(/연결하지 못함.*NODE_EXTRA_CA_CERTS/) });
+    // 사유에 TLS 원인 코드가 있어야 "CA 때문" 이 증명된다(서버가 없어서 실패한 것이 아니다)
+    expect(await call()).toMatchObject({ ok: false, reason: expect.stringMatching(/연결하지 못함\((SELF_SIGNED|UNABLE_TO_VERIFY|DEPTH_ZERO)[A-Z_]*\).*NODE_EXTRA_CA_CERTS/) });
     expect(await call(path.join(dir, 'ca.pem'))).toEqual({ ok: true });
   }, 30_000);
 });

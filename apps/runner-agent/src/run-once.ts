@@ -24,6 +24,8 @@ export interface RunOnceDeps {
   createReporter?: (args: RunArgs, run: RegisteredRun) => Reporter;
   /** agent.act 설정(실행기·한도). 기본은 환경변수(SINCLAIR_AGENT_*, 키는 ANTHROPIC_API_KEY)로 만든 Claude 실행기 */
   agent?: AgentSetup;
+  /** agent 가 없을 때 실행기 설정을 읽을 환경변수(기본 process.env). main 이 받은 env 를 그대로 넘긴다 */
+  env?: Record<string, string | undefined>;
   /** 러너 취소 신호(데몬이 lease 상실·종료 신호 때 abort). 진행 중 테스트는 마치고 나머지는 skipped, run 은 cancelled */
   signal?: AbortSignal;
 }
@@ -47,7 +49,7 @@ export async function runOnce(args: RunArgs, deps: RunOnceDeps = {}): Promise<Ex
   let run: RegisteredRun;
   try {
     // 잘못된 SINCLAIR_AGENT_* 는 Run 을 등록하기 전에 드러낸다(키가 없는 것은 agent.act 를 쓰는 테스트만의 문제라 여기서 막지 않는다)
-    if (!deps.agent) agentFromEnv(process.env);
+    if (!deps.agent) agentFromEnv(deps.env ?? process.env);
     files = await collectTestFiles(path.resolve(args.tests));
     try {
       run = await registerRun(args.controlPlane, args.cycle, args.target, args.run);
@@ -72,20 +74,14 @@ export async function executeRun(args: RunArgs, run: RegisteredRun, files: strin
   const agentId = args.agent ?? os.hostname();
   const reporter = (deps.createReporter ?? defaultReporter)(args, run);
 
+  let handle: EngineHandle;
   let agent: AgentSetup;
   try {
-    agent = deps.agent ?? agentFromEnv(process.env);
-  } catch (err) {
-    if (!(err instanceof ModelConfigError)) throw err;
-    log(`설정 오류: ${err.message}`);
-    return EXIT.config;
-  }
-
-  let handle: EngineHandle;
-  try {
+    // 실행기 설정은 runOnce·데몬 시작 때 이미 검증했다. 그래도 여기서 틀리면(다른 환경으로 불림) 엔진 실패와 같이 Run 을 닫아 lease 만료까지 매달리지 않게 한다
+    agent = deps.agent ?? agentFromEnv(deps.env ?? process.env);
     handle = await (deps.createEngine ?? createEngine)(args, log);
   } catch (err) {
-    log(`${err instanceof HelperApkError ? '헬퍼 APK 없음(기기 불가)' : '엔진 준비 실패(기기 불가)'}: ${err instanceof Error ? err.message : String(err)}`);
+    log(`${err instanceof ModelConfigError ? '모델 실행기 설정 오류' : err instanceof HelperApkError ? '헬퍼 APK 없음(기기 불가)' : '엔진 준비 실패(기기 불가)'}: ${err instanceof Error ? err.message : String(err)}`);
     const base = () => ({ schema: 1 as const, eventId: randomUUID(), runId: run.runId, at: new Date().toISOString() });
     await reporter.onEvent({ ...base(), type: 'run.started', cycleId: run.cycleId, targetId: run.targetId, agentId });
     await reporter.onEvent({ ...base(), type: 'run.finished', state: 'infra-failed' });

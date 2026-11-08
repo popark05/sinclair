@@ -1,6 +1,7 @@
 // Claude 실행기: StepExecutor 뒤에서 Claude API(공식 SDK)가 다음 툴을 고른다.
 // 턴마다 상태 없는 요청 하나: 고정 system + action spec 툴(닫힌 strict 스키마) + user 메시지 하나(목표·지난 턴·지금 화면).
-// system 과 툴이 매 턴 같아 프롬프트 캐시가 맞고, 바뀌는 것은 user 메시지뿐이다.
+// system 과 툴이 매 턴 같아 그 앞부분에 캐시 표시를 둔다. 다만 지금 크기(약 1~1.5천 토큰)는 모델의 최소 캐시 길이에 못 미칠 수 있어
+// 실제 적중은 opt-in 실호출의 cacheWriteTokens/cacheReadTokens 로 확인한다(툴·system 이 커지면 저절로 맞는다).
 // 키는 SDK 가 환경변수(ANTHROPIC_API_KEY 등)·프로필에서 읽는다. 키는 헤더로만 가고 로그·이벤트·오류 문구에 싣지 않는다.
 // 사내망(SSL 인터셉션)은 NODE_EXTRA_CA_CERTS 로 CA 묶음을 주면 Node 의 fetch 가 신뢰한다.
 import Anthropic from '@anthropic-ai/sdk';
@@ -83,17 +84,34 @@ function toUsage(u: { input_tokens: number; output_tokens: number; cache_read_in
   };
 }
 
-/** SDK 오류 → 루프가 다루는 오류. 자격 증명 문제는 설정 오류(테스트 탓 아님), 그 밖은 모델 호출 실패. 응답 본문·키는 싣지 않는다 */
+const apiMessage = (err: InstanceType<typeof Anthropic.APIError>): string => {
+  const m = (err.error as { error?: { message?: unknown } } | undefined)?.error?.message;
+  return typeof m === 'string' && m ? `: ${m.slice(0, 200)}` : '';
+};
+
+/** SDK 오류 → 루프가 다루는 오류. 결정적인 문제(자격 증명·요청 모양·없는 모델)는 설정 오류(테스트 탓 아님, blocked), 그 밖은 모델 호출 실패.
+ *  응답 본문 전체·키는 싣지 않는다(API 검증 메시지는 파라미터를 말할 뿐 프롬프트 내용을 싣지 않아 200자까지만) */
 function translateError(err: unknown, model: string): unknown {
   if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) {
     return new ModelConfigError(`Claude API 가 자격 증명을 거부함(${err.status}): ANTHROPIC_API_KEY 를 확인`);
   }
-  if (err instanceof Anthropic.NotFoundError) return new ModelConfigError(`Claude API 에 모델 ${model} 이 없음(404): SINCLAIR_AGENT_MODEL 을 확인`);
-  if (err instanceof Anthropic.APIUserAbortError) return err;
-  if (err instanceof Anthropic.APIConnectionError) {
-    return new ModelCallError(`Claude API 에 연결하지 못함: ${err.message} — 사내망이면 NODE_EXTRA_CA_CERTS 에 CA 묶음을 지정`);
+  if (err instanceof Anthropic.NotFoundError) return new ModelConfigError(`Claude API 404(모델 ${model} 또는 주소): SINCLAIR_AGENT_MODEL·ANTHROPIC_BASE_URL 을 확인${apiMessage(err)}`);
+  if (err instanceof Anthropic.BadRequestError || err instanceof Anthropic.ContentTooLargeError || err instanceof Anthropic.UnprocessableEntityError) {
+    return new ModelConfigError(`Claude API 가 요청을 거부함(${err.status})${apiMessage(err)} — 모델·SINCLAIR_AGENT_MODEL_* 설정을 확인`);
   }
-  if (err instanceof Anthropic.APIError) return new ModelCallError(`Claude API 오류 ${err.status ?? ''} ${(err.error as { error?: { type?: string } } | undefined)?.error?.type ?? ''}`.trim());
+  if (err instanceof Anthropic.APIUserAbortError) return err;
+  if (err instanceof Anthropic.APIConnectionTimeoutError) return new ModelCallError(`Claude API 요청 기한 초과(SINCLAIR_AGENT_MODEL_TIMEOUT_MS): ${err.message}`);
+  if (err instanceof Anthropic.APIConnectionError) {
+    // 원인 코드(SELF_SIGNED_CERT_IN_CHAIN·ECONNREFUSED 등)를 실어 CA 문제와 주소 문제를 가른다
+    const code = (err.cause as { code?: unknown; cause?: { code?: unknown } } | undefined);
+    const why = [code?.code, code?.cause?.code].find((c) => typeof c === 'string');
+    return new ModelCallError(`Claude API 에 연결하지 못함(${why ?? err.message}) — 사내망이면 NODE_EXTRA_CA_CERTS 에 CA 묶음을 지정`);
+  }
+  if (err instanceof Anthropic.APIError) return new ModelCallError(`Claude API 오류 ${err.status ?? ''}${apiMessage(err)}`.trim());
+  // 그 밖의 SDK 오류는 자격 증명 사슬(키 없음·없는 프로필·토큰 파일)에서 난다
+  if (err instanceof Anthropic.AnthropicError) {
+    return new ModelConfigError(`Claude API 자격 증명을 얻지 못함(${err.message.slice(0, 200)}): ANTHROPIC_API_KEY(또는 ANTHROPIC_AUTH_TOKEN·ANTHROPIC_PROFILE)를 설정`);
+  }
   if (err instanceof Error && /resolve authentication/i.test(err.message)) {
     return new ModelConfigError('Claude API 자격 증명이 없음: ANTHROPIC_API_KEY(또는 ANTHROPIC_AUTH_TOKEN·ANTHROPIC_PROFILE)를 설정');
   }
@@ -137,7 +155,7 @@ export function createClaudeExecutor(options: ClaudeExecutorOptions = {}): StepE
       const usage = toUsage(res.usage);
       // 거절을 내용보다 먼저 본다(fallback 모델까지 거절한 경우)
       if (res.stop_reason === 'refusal') {
-        const category = (res as { stop_details?: { category?: string | null } }).stop_details?.category ?? '범주 없음';
+        const category = res.stop_details?.category ?? '범주 없음';
         throw new ModelCallError(`모델이 거절함(${category})`, usage);
       }
       const tool = res.content.find((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === 'tool_use');
@@ -154,7 +172,8 @@ const ENV = {
   maxRetries: 'SINCLAIR_AGENT_MODEL_RETRIES', maxTokens: 'SINCLAIR_AGENT_MODEL_MAX_TOKENS', pixels: 'SINCLAIR_AGENT_MODEL_PIXELS',
 } as const;
 
-function intFrom(env: Record<string, string | undefined>, name: string, min: number, max: number): number | undefined {
+/** 정수 환경변수(비면 미설정). 범위 밖·정수 아님은 변수 이름을 밝힌 설정 오류 */
+export function envInt(env: Record<string, string | undefined>, name: string, min: number, max: number): number | undefined {
   const raw = env[name];
   if (raw === undefined || raw === '') return undefined;
   const n = Number(raw);
@@ -171,11 +190,11 @@ export function claudeOptionsFromEnv(env: Record<string, string | undefined> = p
     if (!(AGENT_EFFORTS as readonly string[]).includes(effort)) throw new ModelConfigError(`${ENV.effort}=${JSON.stringify(effort)}: ${AGENT_EFFORTS.join('|')} 중 하나여야 함`);
     out.effort = effort as AgentEffort;
   }
-  const timeout = intFrom(env, ENV.requestTimeoutMs, 1000, 600_000);
+  const timeout = envInt(env, ENV.requestTimeoutMs, 1000, 600_000);
   if (timeout !== undefined) out.requestTimeoutMs = timeout;
-  const retries = intFrom(env, ENV.maxRetries, 0, 10);
+  const retries = envInt(env, ENV.maxRetries, 0, 10);
   if (retries !== undefined) out.maxRetries = retries;
-  const tokens = intFrom(env, ENV.maxTokens, 256, 64_000);
+  const tokens = envInt(env, ENV.maxTokens, 256, 64_000);
   if (tokens !== undefined) out.maxTokens = tokens;
   const pixels = env[ENV.pixels];
   if (pixels) {
