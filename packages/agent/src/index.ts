@@ -7,3 +7,5 @@ export { createClaudeExecutor, claudeOptionsFromEnv, envInt, DEFAULT_AGENT_MODEL
 export { agentFromEnv, type AgentSetup } from './config.ts';
 export { judgeAssert, judgeWaitFor, judgeExtract, DEFAULT_JUDGE_TIMEOUT_MS, DEFAULT_WAIT_TIMEOUT_MS, DEFAULT_WAIT_INTERVAL_MS, type ExtractType, type ExtractScalar, type ExtractValue, type JudgeResult, type JudgeFailure, type JudgeOptions, type WaitOptions } from './judge.ts';
 export { SecretBox, secretPlaceholder, SECRET_NAME, MIN_SECRET_LENGTH } from './secrets.ts';
+export { describeTarget, relocate, RELOCATE_THRESHOLD, RELOCATE_MARGIN, type TargetDescriptor, type Relocation } from './relocate.ts';
+export { decodePng, regionDiff, COVER_DIFF_THRESHOLD, type Bitmap } from './pixels.ts';

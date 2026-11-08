@@ -4,7 +4,13 @@ import type { StepUsage } from '@sinclair/protocol';
 import type { ToolCall, ToolSchema } from './action-spec.ts';
 
 /** 지난 턴 하나: 모델이 낸 호출과 그 결과. 거부(rejected)·엔진 오류(error)도 모델이 고칠 수 있게 그대로 돌려준다. 툴을 부르지 않은 턴은 call 이 없다 */
-export interface AgentTurn { call?: ToolCall; result: 'ok' | 'rejected' | 'error'; detail?: string }
+export interface AgentTurn {
+  call?: ToolCall; result: 'ok' | 'rejected' | 'error'; detail?: string;
+  /** 안전망이 실행 직전에 다시 찾아 실제로 실행한 ref(모델이 고른 ref 와 다를 때) */
+  retargeted?: string;
+  /** 안전망이 실행을 막은 이유: 대상이 사라짐·애매함·영역이 덮임 */
+  guard?: 'gone' | 'ambiguous' | 'covered';
+}
 
 export interface StepRequest {
   goal: string;

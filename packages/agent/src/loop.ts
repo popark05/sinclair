@@ -7,6 +7,8 @@ import { ModelConfigError, ModelCallError, type AgentTurn, type StepExecutor, ty
 import { renderObservation } from './observe.ts';
 import { addUsage } from './usage.ts';
 import { SecretBox } from './secrets.ts';
+import { describeTarget, relocate } from './relocate.ts';
+import { regionDiff, COVER_DIFF_THRESHOLD } from './pixels.ts';
 
 /** 기본 턴 한도: 로그인·화면 이동 같은 목표는 대개 10턴 안에 끝난다. 20 이면 헤매는 모델을 멈추면서 정상 목표는 넉넉하다 */
 export const DEFAULT_MAX_TURNS = 20;
@@ -42,6 +44,8 @@ export function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<
 
 export interface ActOptions {
   executor: StepExecutor; maxTurns?: number; timeoutMs?: number;
+  /** 액션 전 안전망 설정. 대상 재탐색은 늘 켜져 있고, pixels 를 켜면 엔진이 픽셀을 줄 때 대상 영역의 변화(트리에 없는 덮개)도 본다(기본 꺼짐) */
+  safetyNet?: { pixels?: boolean };
   /** 이 테스트가 등록한 비밀값. type 의 text 에 온 자리표시만 실제 값으로 바뀌고, 모델에 가는 관찰·오류 문구에서 값은 가려진다. 있으면 픽셀은 보내지 않는다 */
   secrets?: SecretBox;
 }
@@ -87,10 +91,12 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
   const fail = (reason: string): ActResult => result({ ok: false, reason: hide(reason) });
   // 픽셀은 가릴 수 없다: 비밀값이 있는 테스트에서는 이미지를 보내지 않는다
   const pixels = opts.executor.pixels === true && !(secrets && secrets.size > 0);
+  // 안전망의 픽셀 비교는 모델에 보내지 않고 로컬에서만 쓰므로 비밀값과 무관하다
+  const guardPixels = opts.safetyNet?.pixels === true;
   try {
     for (let turn = 0; turn < maxTurns; turn++) {
       if (Date.now() >= deadline) return fail(`시간 한도 ${timeoutMs}ms 에 닿음`);
-      const observed = await engine.observe(pixels ? { pixels: true } : undefined);
+      const observed = await engine.observe(pixels || guardPixels ? { pixels: true } : undefined);
       // 트리의 문자열 잎을 가린 뒤 그린다(그린 글에 가리면 JSON 이스케이프된 값을 놓친다)
       const observation = renderObservation(secrets ? secrets.redactTree(observed.root) : observed.root);
       // 관찰하는 사이 한도가 지났으면 묻지 않는다(abort 가 리스너보다 먼저 와서 영영 기다리는 일이 없게 raceAbort 도 같은 검사를 한다)
@@ -130,6 +136,29 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
         if (target && !(target.role === 'textbox' || target.states?.secure)) { history.push({ call, result: 'rejected', detail: `비밀값은 입력 칸(textbox)에만 넣을 수 있음: ${input.ref} 는 ${target.role}` }); continue; }
         input.text = revealed.text;
       }
+      // 액션 전 안전망: 모델이 본 화면에서 대상의 설명을 만들고, 실행 직전 화면에서 같은 대상을 다시 찾는다
+      let retargeted: string | undefined;
+      const target = input.ref !== undefined ? describeTarget(observed.root, input.ref) : undefined;
+      if (target) {
+        const fresh = await engine.observe(guardPixels ? { pixels: true } : undefined);
+        if (aborter.signal.aborted) return fail(`시간 한도 ${timeoutMs}ms 에 닿음`);
+        const where = relocate(target, fresh.root);
+        const what = hide(`${target.ref} (${target.role}${target.label ? ` "${target.label}"` : ''})`);
+        if (where.kind === 'gone' || where.kind === 'ambiguous') {
+          const why = where.kind === 'gone' ? '사라짐' : `애매함 — 후보 ${where.candidates.slice(0, 5).join(', ')}`;
+          history.push({ call, result: 'rejected', guard: where.kind, detail: `안전망: 실행 직전 화면에서 대상 ${what} 이 ${why}. 실행하지 않았다 — 지금 화면에서 다시 골라라` });
+          continue;
+        }
+        if (guardPixels && observed.pixels && fresh.pixels) {
+          const area = findRef(fresh.root, where.ref)?.rect ?? target.rect;
+          const diff = area ? regionDiff(observed.pixels, fresh.pixels, area) : undefined;
+          if (diff !== undefined && diff > COVER_DIFF_THRESHOLD) {
+            history.push({ call, result: 'rejected', guard: 'covered', detail: `안전망: 대상 ${what} 영역의 화면이 바뀜(트리에 없는 덮개·팝업일 수 있음). 실행하지 않았다 — 지금 화면에서 다시 골라라` });
+            continue;
+          }
+        }
+        if (where.kind === 'moved') { input.ref = where.ref; retargeted = where.ref; }
+      }
       try {
         await spec.run(engine, input);
       } catch (err) {
@@ -139,7 +168,7 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
         history.push({ call, result: 'error', detail: scrubDetail(raw, input, hide) });
         continue;
       }
-      history.push({ call, result: 'ok' });
+      history.push({ call, result: 'ok', ...(retargeted ? { retargeted } : {}) });
       if (spec.terminal) return result({ ok: true, ...(checked.call.input.summary ? { summary: checked.call.input.summary } : {}) });
     }
     return fail(`턴 한도 ${maxTurns} 안에 목표를 이루지 못함`);

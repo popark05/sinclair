@@ -494,3 +494,21 @@ describe('비밀값 · 리뷰 반영(직렬화·범위)', () => {
     vexpect(engine.performed.filter((p) => p.ref === '@e2')).toEqual([]);
   });
 });
+
+describe('액션 전 안전망이 스텝에 남는다', () => {
+  it('다시 찾음은 tap @e4→@x9(다시 찾음), 사라짐은 tap @e4(안전망: 사라짐) 으로 instruction 에 남는다', async () => {
+    const engine = engineWithApps();
+    const reordered: SemanticNode = { ...LOGIN_SCREEN, children: [{ ...LOGIN_SCREEN.children![3]!, ref: '@x9' }, ...LOGIN_SCREEN.children!.filter((c) => c.ref !== '@e4')] };
+    const withoutButton: SemanticNode = { ...LOGIN_SCREEN, children: LOGIN_SCREEN.children!.filter((c) => c.ref !== '@e4') };
+    const exec = scriptedExecutor((_req, i) => {
+      if (i === 0) { engine.setRoot(withoutButton); return { name: 'tap', input: { ref: '@e4' } }; }
+      if (i === 1) { engine.setRoot(LOGIN_SCREEN); return { name: 'type', input: { ref: '@e2', text: 'qa' } }; }
+      if (i === 2) { engine.setRoot(reordered); return { name: 'tap', input: { ref: '@e4' } }; }
+      return { name: 'done', input: { summary: '환영합니다' } };
+    });
+    const report = await runTests([fixture('agent-login.sinclair.ts')], { engine, timeoutMs: 500, agent: { executor: exec } });
+    vexpect(report.tests[0]).toMatchObject({ result: 'passed' });
+    const act = report.events.find((e): e is Extract<RunEvent, { type: 'step.recorded' }> => e.type === 'step.recorded' && e.kind === 'act');
+    vexpect(act!.instruction).toMatch(/tap @e4\(안전망: 사라짐\), type @e2, tap @e4→@x9\(다시 찾음\), done/);
+  });
+});

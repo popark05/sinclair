@@ -117,6 +117,7 @@ const AGENT_ENV_HELP = `agent.act(모델) 환경변수:
   SINCLAIR_AGENT_MODEL_PIXELS       1 이면 화면 이미지도 보낸다 (기본 0: 접근성 트리만)
   SINCLAIR_AGENT_ACT_MAX_TURNS      act 하나의 턴 한도 (기본 20)
   SINCLAIR_AGENT_ACT_TIMEOUT_MS     act 하나의 시간 한도 (기본 120000)
+  SINCLAIR_AGENT_ACT_SAFETY_PIXELS  1 이면 액션 전 안전망이 대상 영역의 픽셀 변화(트리에 없는 덮개)도 본다 (기본 0)
   SINCLAIR_SECRET_<이름>            테스트의 secret('<이름>') 값. 모델·이벤트·로그·screen-tree 에는 자리표시 {{secret:<이름>}} 만 남는다. 없으면 그 테스트는 blocked(secret-missing)
   NODE_EXTRA_CA_CERTS               사내망(SSL 인터셉션)이면 CA 묶음 PEM (예: $HOME/.certs/all-system-certs.pem)
 `;

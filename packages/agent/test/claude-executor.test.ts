@@ -233,5 +233,7 @@ describe('agentFromEnv', () => {
     expect(agentFromEnv({ SINCLAIR_AGENT_ACT_MAX_TURNS: '8', SINCLAIR_AGENT_ACT_TIMEOUT_MS: '60000' })).toMatchObject({ maxTurns: 8, timeoutMs: 60000 });
     expect(() => agentFromEnv({ SINCLAIR_AGENT_ACT_MAX_TURNS: '0' })).toThrow(/SINCLAIR_AGENT_ACT_MAX_TURNS/);
     expect(agentFromEnv({ SINCLAIR_AGENT_MODEL_PIXELS: '1' }).executor.pixels).toBe(true);
+    expect(agentFromEnv({ SINCLAIR_AGENT_ACT_SAFETY_PIXELS: '1' })).toMatchObject({ safetyNet: { pixels: true } });
+    expect(() => agentFromEnv({ SINCLAIR_AGENT_ACT_SAFETY_PIXELS: 'on' })).toThrow(/SAFETY_PIXELS/);
   });
 });
