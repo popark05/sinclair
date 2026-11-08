@@ -7,7 +7,8 @@ import { AgentConfigError } from './args.ts';
 import { ControlPlaneError, type RegisteredRun } from './control-plane-client.ts';
 import { collectTestFiles, executeRun, EXIT, type ExitCode, type RunOnceDeps } from './run-once.ts';
 import { resumeSpool } from './spool.ts';
-import { nodeDeviceProblem, type NodeDevice } from '@sinclair/protocol';
+import { nodeDeviceProblem, parseNodeReport, type NodeDevice } from '@sinclair/protocol';
+import * as fs from 'node:fs/promises';
 import { fakeDevice, openAndroidNode, type AndroidNode } from './engines.ts';
 import { runInWorker, type WorkerDevice } from './worker.ts';
 
@@ -18,6 +19,8 @@ export interface DaemonArgs extends Omit<RunArgs, 'cycle' | 'target' | 'run'> {
   pollMs?: number;
   /** 동시에 돌리는 run 수 상한(워커 모드). 기본은 쓸 수 있는 기기 수(기기마다 하나) */
   concurrency?: number;
+  /** --engine fake 전용: 보고할 가짜 기기 목록 JSON 파일(Fleet 종단 증명용, device-fleet 06). 없으면 fake-<agent> 한 대 */
+  fakeDevices?: string;
 }
 
 export interface ClaimedRun { run: RegisteredRun & { lease: { agentId: string; expiresAt: string; deviceId?: string } }; leaseTtlMs: number; suite?: { tests: string; tags?: string[]; retries?: number }; warning?: string }
@@ -121,10 +124,19 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
   };
   await ensureNode();
   // 기기 목록 읽기는 한 길로: 주기 보고(풀기 시도 없음)와 클레임 직전 새로 읽기(잠긴 기기 풀기 시도)가 같은 함수를 쓴다
+  // fake 엔진은 기본으로 가짜 기기 한 대, --fake-devices 를 주면 그 목록(protocol 보고 검증기로 검사 — 실제 노드 보고와 같은 모양만 받는다)
+  let fakeList: NodeDevice[] = [fakeDevice(agentId)];
+  if (args.engine === 'fake' && args.fakeDevices) {
+    let raw: unknown;
+    try { raw = JSON.parse(await fs.readFile(args.fakeDevices, 'utf8')); } catch (err) { throw new AgentConfigError(`--fake-devices 파일을 읽지 못함: ${err instanceof Error ? err.message : String(err)}`); }
+    const parsed = parseNodeReport({ devices: raw });
+    if (!parsed.ok) throw new AgentConfigError(`--fake-devices 가 올바르지 않음: ${parsed.errors.join('; ')}`);
+    fakeList = parsed.value.devices;
+  }
   const readInventory = async (opts: { tryUnlock?: boolean }): Promise<NodeDevice[]> => {
     if (deps.inventory) return deps.inventory();
     if (ownsBackend) return (await ensureNode())?.inventory(opts) ?? [];
-    return args.engine === 'fake' ? [fakeDevice(agentId)] : [];
+    return args.engine === 'fake' ? fakeList.map((d) => ({ ...d })) : [];
   };
   // 마지막으로 읽은 기기 목록이 클레임 후보의 바탕이다. 두 길이 겹쳐 읽을 수 있으므로 시작 순서로 번호를 매겨, 나중에 시작한 읽기의 결과만 남긴다
   // (풀기 시도 뒤의 새 결과를 그보다 먼저 시작한 보고의 묵은 결과가 덮지 않게)
@@ -240,7 +252,7 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
       let code: ExitCode;
       try {
         const files = await collectTestFiles(testsDir);
-        const { targets: _targets, pollMs: _poll, concurrency: _c, ...runArgs } = args; // RunArgs 에 데몬 전용 필드가 섞이지 않게
+        const { targets: _targets, pollMs: _poll, concurrency: _c, fakeDevices: _f, ...runArgs } = args; // RunArgs 에 데몬 전용 필드가 섞이지 않게
         const fullArgs: RunArgs = { ...runArgs, cycle: run.cycleId, target: targetId, run: run.runId, tests: testsDir, ...(retries !== undefined ? { retries } : {}), ...(leasedDevice ? { device: leasedDevice } : {}) };
         if (!workerMode) code = await executeRun(fullArgs, run, files, { ...runDeps, signal: canceller.signal, log: runLog });
         else {

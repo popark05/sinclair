@@ -38,6 +38,7 @@ $S/run-fake.sh $RUN [cycleId] [tests-dir]
 $S/spool-resume.sh $RUN      # RUN exit=0 spool=[…jsonl …meta.json] → RESUME exit=0 spool=[] run.state=finished (약 1분)
 $S/daemon.sh $RUN            # DAEMON … state=finished verdict=verified leases=node-a,node-b exits=0,0
 $S/fleet.sh $RUN             # Fleet(자체 control-plane, TTL 2초): fake 데몬 2개 → idle → 느린 Run 중 leased → 끝나면 idle → 하나 SIGKILL → offline
+$S/fleet-e2e.sh $RUN         # Fleet 종단(자체 control-plane, TTL 2초): 데몬 2개·기기 4대·조건 타깃 → FLEET-E2E OK checks=11/11 (약 40초)
 $S/retry-e2e.sh $RUN         # 재시도 정책 종단(자체 control-plane, TTL 2초): kill·limit·lease 세 경로 → RETRY-E2E OK checks=10/10 (약 45초)
 ```
 
@@ -70,5 +71,6 @@ $I/stop.sh $RUN
 | `scripts/daemon.sh <RUN>` | Cycle(타깃 2) + 데몬 2개(bin) → finished/verified → SIGTERM 종료 → 증거 |
 | `scripts/retry-e2e.sh <RUN> [ttl]` | 재시도 정책 세 경로(강제 종료·한도 초과·lease 상실) → `04-e2e-latest.json` |
 | `scripts/fleet.sh <RUN> [ttl]` | Fleet 인벤토리: 노드 2개 보고 → idle, 하나 죽이면 offline |
+| `scripts/fleet-e2e.sh <RUN> [ttl]` | Fleet 종단 두 단계(동시 채우기·잠긴 기기, 노드 사망 → 다른 노드 대체) → `06-e2e-latest.json` |
 | `scripts/hb-proxy.mjs` | heartbeat 만 끊는 프록시(retry-e2e 가 씀) |
 | `verify-ingest/scripts/{start,doctor,stop}.sh` | control-plane 수명 |
