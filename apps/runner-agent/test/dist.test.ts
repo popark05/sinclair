@@ -72,7 +72,7 @@ describe.skipIf(!canRun)('호스트 배포본 (동봉 Node 대신 현재 Node �
     fs.mkdirSync(install);
     execFileSync('unzip', ['-q', r.zipPath!, '-d', install]);
     install = path.join(install, `sinclair-0.0.0-test-${hostTarget}`);
-  });
+  }, 120_000); // 번들 빌드 + usb 패키지 복사 + zip/unzip: 전체 스위트 병렬 실행에서 10초 기본 훅 타임아웃을 넘긴다
   afterAll(() => fs.rmSync(out, { recursive: true, force: true }));
 
   function launch(bin: string, args: string[], env: Record<string, string> = {}) {
