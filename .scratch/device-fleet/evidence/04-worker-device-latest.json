@@ -1,0 +1,29 @@
+{
+  "at": "2026-11-08T08:43:11.324Z",
+  "workerPids": 1,
+  "workerIsSeparateProcess": true,
+  "run": {
+    "exitCodes": [
+      0
+    ],
+    "cycle": {
+      "state": "finished",
+      "verdict": "verified"
+    },
+    "leasedDevice": "…XLZW",
+    "startedOnLeasedDevice": true
+  },
+  "log": [
+    "데몬 시작: agent worker-node, 이름 타깃 android, control-plane http://127.0.0.1:59762",
+    "헬퍼 APK: <repo>/packages/device-layer/android-helper/app/build/outputs/apk/debug/app-debug.apk (repo-build)",
+    "헬퍼 온보딩(…XLZW): 헬퍼 이미 설치됨",
+    "헬퍼 온보딩(…XLZW): 접근성 서비스 활성화됨",
+    "헬퍼 온보딩(…XLZW): 헬퍼 준비됨 v0.1.0",
+    "fleet 보고: 기기 1대",
+    "run wk-run 클레임 (cycle wk, target android, 기기 …XLZW, tests <repo>/apps/runner-agent/test/fixtures/device)",
+    "[run …wk-run] 기기 SM-N981N (…XLZW) Android 13, 헬퍼 ready",
+    "[run …wk-run] 화면: 켜짐, 잠금 없음",
+    "[run …wk-run] 헬퍼를 방금 켰으므로 대상 앱을 한 번 열어 트리를 예열함",
+    "[run …wk-run] 결과: passed 1, failed 0, blocked 0, skipped 0 / 전송 5건(accepted 5, duplicate 0, rejected 0, retries 0)"
+  ]
+}

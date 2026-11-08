@@ -17,6 +17,7 @@ RUN=$PWD/.e2e/verify-install/$(date +%Y%m%d-%H%M%S)-<목적>     # 절대 경로
 ```bash
 $S/build.sh $RUN      # pnpm dist → $RUN/release/*.zip → $RUN/install/<name>/ ; INSTALLED dir=… node=v24.x.y
 $S/start.sh $RUN      # 설치본 런처로 control-plane(sqlite, DB=$RUN/data/control-plane.db); READY 줄 → $RUN/server.json
+$S/daemon-fake.sh $RUN   # 설치본 데몬 → 워커 프로세스로 run → DAEMON exit=0 finished/verified workerLines≥1 workersLeft=0
 ```
 
 - 첫 조립은 nodejs.org 에서 Node 를 받는다(SHASUMS256 검증, `~/Library/Caches/sinclair/node` 캐시). 사내망이면 `NODE_EXTRA_CA_CERTS` 를 먼저 export. 두 번째부터는 네트워크 없음.
@@ -61,6 +62,7 @@ $S/stop.sh $RUN       # 우리가 띄운 서버만 SIGTERM. $RUN 은 남긴다(.
 | 스크립트 | 역할 |
 | --- | --- |
 | `build.sh <RUN>` | `pnpm dist` 호스트 타깃 조립 + 풀기 + `install.json` |
+| `daemon-fake.sh <RUN>` | 설치본 데몬이 run 을 워커 프로세스(`__worker`)로 돌림: verified, 로그에 워커 표시, 끝난 뒤 워커 0 (device-fleet 04) |
 | `start.sh` / `doctor.sh` / `stop.sh` | 설치본 서버 수명 |
 | `run-fake.sh` | FakeEngine run → verified |
 | `ca-check.sh` | openssl 자체 CA + `release-server.mjs`(동봉 Node 로 HTTPS) → `NODE_EXTRA_CA_CERTS` 유무 비교 |

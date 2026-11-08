@@ -5,9 +5,10 @@
 ## Sub-features
 
 - `daemon-claim` 데몬 2개(각 타깃)가 Run 을 하나씩 잡아 Cycle 이 `finished/verified`, run 행의 `lease.agentId` 가 서로 다르다.
+- `daemon-workers` bin 으로 띄운 데몬은 run 마다 워커 프로세스(`__worker`)를 띄우고 기기마다 동시에 돌린다(`--concurrency`, 기본 기기 수). 워커 로그는 `[run …<id>]` 를 붙여 데몬 로그로 온다. 가짜 기기 3대 동시성·워커 SIGKILL·종료 신호 전파·데몬 사망 시 워커 종료는 `daemon-workers.test.ts`, 실기기 워커 경로는 `worker.device.test.ts`, 설치본은 verify-install `daemon-fake.sh`.
 - `daemon-claim-order` 폴링마다 클레임 한 번, 서버가 등록 순서(FIFO)로 고른다. 이름 타깃 여럿을 선언해도 타깃별로 번갈아 받지 않는다.
 - `daemon-suite` Cycle 의 `suite.tests` 디렉터리를 쓴다(데몬의 `--tests` 는 suite 가 없을 때의 기본값).
-- `daemon-stop` SIGTERM 에 "진행 중 테스트를 마치고 멈춤": 진행 중 run 이 있으면 남은 테스트는 skipped, run 은 cancelled(코드 5), 데몬은 exit 0.
+- `daemon-stop` SIGTERM 에 "진행 중 테스트를 마치고 멈춤": 진행 중 run 들(워커마다)의 남은 테스트는 skipped, run 은 cancelled(코드 5), 데몬은 exit 0.
 - `daemon-lease-expiry` 만료된 lease 재클레임(단위 테스트 `daemon.test.ts`). 실행 중 죽은 데몬의 대체는 `retry-policy.md`.
 
 ## How to get to it (user POV)
