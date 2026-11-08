@@ -38,4 +38,22 @@ describe('action spec', () => {
       expect(checkToolCall({ name: s.name, input }).ok, `${s.name} 에서 ${req} 가 빠짐`).toBe(false);
     }
   });
+
+  it('모든 툴에 대해: 모르는 인자는 거부, enum 밖 값은 거부, 올바른 인자는 통과(스키마에서 만든 입력으로)', () => {
+    for (const s of toolSchemas()) {
+      const good = Object.fromEntries(Object.entries(s.input_schema.properties).map(([k, p]) => [k, p.enum?.[0] ?? 'x']));
+      expect(checkToolCall({ name: s.name, input: good }).ok, `${s.name} 올바른 입력`).toBe(true);
+      expect(checkToolCall({ name: s.name, input: { ...good, extra: 'x' } }).ok, `${s.name} 추가 인자`).toBe(false);
+      for (const [k, p] of Object.entries(s.input_schema.properties)) if (p.enum) expect(checkToolCall({ name: s.name, input: { ...good, [k]: 'not-in-enum' } }).ok, `${s.name}.${k} enum`).toBe(false);
+    }
+  });
+
+  it('스키마는 매번 새 객체라 고쳐도 spec 이 바뀌지 않고, __proto__ 같은 키도 거부한다', () => {
+    const a = toolSchemas();
+    a[0]!.input_schema.required.push('hacked');
+    expect(toolSchemas()[0]!.input_schema.required).not.toContain('hacked');
+    expect(checkToolCall({ name: '__proto__', input: {} }).ok).toBe(false);
+    expect(checkToolCall({ name: 'tap', input: JSON.parse('{"ref":"@e1","__proto__":{"x":1}}') }).ok).toBe(false);
+  });
 });
+

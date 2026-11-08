@@ -23,7 +23,7 @@ export const ACTIONS = {
     run: (engine, { ref: r }) => engine.perform(r!, 'tap'),
   },
   type: {
-    description: '입력란 노드에 글자를 입력한다. 기존 내용은 바뀐다.',
+    description: '입력란 노드에 글자를 입력한다. 기존 내용 뒤에 덧붙는다(비우지 않는다) — 새로 쓰려면 비어 있는 칸에 쓴다.',
     params: { ref, text: { type: 'string', description: '입력할 글자' } },
     run: (engine, { ref: r, text }) => engine.perform(r!, 'type', text),
   },
@@ -59,10 +59,17 @@ export interface ToolSchema {
   input_schema: { type: 'object'; additionalProperties: false; required: string[]; properties: Record<string, ParamSpec> };
 }
 
+/** 모든 인자가 필수다: 스키마의 required 와 검사기가 이 한 함수로 같은 목록을 본다 */
+const requiredOf = (spec: ActionSpec): string[] => Object.keys(spec.params);
+
+/** ParamSpec → JSON 스키마 속성. 옮길 필드를 명시해 ParamSpec 에 새 필드가 생겨도 스키마 키워드로 새지 않게 한다 */
+const toSchemaProperty = (p: ParamSpec): ParamSpec => ({ type: p.type, description: p.description, ...(p.enum ? { enum: [...p.enum] } : {}) });
+
+/** 매번 새 객체를 만든다: 실행기가 스키마를 고쳐도 ACTIONS 는 바뀌지 않는다 */
 export function toolSchemas(): ToolSchema[] {
   return (Object.entries(ACTIONS) as Array<[ActionName, ActionSpec]>).map(([name, a]) => ({
     name, description: a.description,
-    input_schema: { type: 'object', additionalProperties: false, required: Object.keys(a.params), properties: { ...a.params } },
+    input_schema: { type: 'object', additionalProperties: false, required: requiredOf(a), properties: Object.fromEntries(Object.entries(a.params).map(([k, p]) => [k, toSchemaProperty(p)])) },
   }));
 }
 
@@ -76,7 +83,8 @@ export function checkToolCall(call: ToolCall): { ok: true; call: CheckedCall } |
   if (!isRecord(call.input)) return { ok: false, error: `${name}: 인자는 객체여야 함` };
   const errors: string[] = [];
   for (const k of Object.keys(call.input)) if (!Object.hasOwn(spec.params, k)) errors.push(`${k}: ${name} 에 없는 인자`);
-  for (const [k, p] of Object.entries(spec.params)) {
+  for (const k of requiredOf(spec)) {
+    const p = spec.params[k]!;
     const v = call.input[k];
     if (v === undefined) errors.push(`${k}: 필요한 인자`);
     else if (typeof v !== p.type) errors.push(`${k}: ${p.type} 이어야 함`);

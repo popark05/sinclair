@@ -342,6 +342,14 @@ describe('agent.act (대본 실행기)', () => {
     vexpect(act).toMatchObject({ modelCalls: 3, instruction: vexpect.stringMatching(/실패: 턴 한도 3/) });
   });
 
+  it('기기가 사라져 act 가 던져도 act 스텝은 남고, 엔진 오류 코드가 errorCode 가 된다(agent 가 아니라)', async () => {
+    const engine = engineWithApps();
+    engine.perform = async () => { throw new EngineError('device-unavailable', '기기 빠짐'); };
+    const report = await runTests([fixture('agent-login.sinclair.ts')], { engine, timeoutMs: 500, agent: { executor: scriptedExecutor(loginScript) } });
+    vexpect(report.tests[0]).toMatchObject({ result: 'blocked', errorCode: 'device-unavailable' });
+    vexpect(report.events.filter((e) => e.type === 'step.recorded' && e.kind === 'act')).toHaveLength(1);
+  });
+
   it('실행기 없이 agent.act 를 부르면 분명한 설정 오류로 실패한다', async () => {
     const report = await runTests([fixture('agent-login.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 500 });
     vexpect(report.tests[0]).toMatchObject({ result: 'failed', error: vexpect.stringMatching(/agent\.executor/) });

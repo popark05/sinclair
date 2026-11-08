@@ -224,9 +224,17 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
         async act(goal) {
           if (!options.agent) throw new Error('agent.act 를 쓰려면 runTests 에 agent.executor(모델 실행기)가 필요함');
           const started = Date.now();
-          const r = await runAct(engine, goal, { executor: options.agent.executor, ...(options.agent.maxTurns !== undefined ? { maxTurns: options.agent.maxTurns } : {}), ...(options.agent.timeoutMs !== undefined ? { timeoutMs: options.agent.timeoutMs } : {}) });
-          // 툴 요약: 이름과 대상 ref 만(입력한 글자는 남기지 않는다 — 비밀값일 수 있다)
-          const tools = r.history.map((h) => `${h.call.name}${typeof (h.call.input as { ref?: unknown })?.ref === 'string' ? ` ${(h.call.input as { ref: string }).ref}` : ''}${h.result === 'ok' ? '' : `(${h.result})`}`).join(', ');
+          let r;
+          try {
+            r = await runAct(engine, goal, { executor: options.agent.executor, ...(options.agent.maxTurns !== undefined ? { maxTurns: options.agent.maxTurns } : {}), ...(options.agent.timeoutMs !== undefined ? { timeoutMs: options.agent.timeoutMs } : {}) });
+          } catch (err) {
+            // 관찰 실패·인프라 오류(기기 없음 등)로 루프가 던져도 act 스텝은 남긴다(act 하나 = 스텝 하나). 오류는 그대로 올려 엔진 코드가 errorCode 가 된다
+            onStep({ kind: 'act', instruction: `act ${JSON.stringify(goal)}`, durationMs: Date.now() - started, error: err instanceof Error ? err.message : String(err) });
+            throw err;
+          }
+          // 툴 요약: 이름과 대상 ref 만(입력한 글자는 남기지 않는다 — 비밀값일 수 있다). ref 는 모델이 쓴 값이라 ref 모양일 때만 싣는다
+          const refOf = (input: unknown): string => { const v = (input as { ref?: unknown } | null)?.ref; return typeof v === 'string' && /^@[\w:.-]{1,40}$/.test(v) ? ` ${v}` : ''; };
+          const tools = r.history.map((h) => `${h.call.name}${refOf(h.call.input)}${h.result === 'ok' ? '' : `(${h.result})`}`).join(', ');
           const instruction = `act ${JSON.stringify(goal)} → ${tools || '(툴 없음)'} (${r.turns}턴)`;
           onStep({ kind: 'act', instruction, durationMs: Date.now() - started, modelCalls: r.modelCalls, ...(r.ok ? {} : { error: r.reason ?? '실패' }) });
           if (!r.ok) throw new AgentActError(`agent.act ${JSON.stringify(goal)} 실패: ${r.reason}`);
