@@ -1,6 +1,6 @@
 // 최소 실행기: 파일을 불러 등록된 테스트를 엔진 하나로 순서대로 돌리고, 스텝·이벤트·아티팩트가 있는 리포트를 낸다.
 // 워커당 엔진 1개. 테스트마다 session.open, 실패한 테스트 직후 restart. CLI 는 범위 밖(프로그램 방식 호출).
-// test() 레지스트리가 모듈 전역이라 한 프로세스에서 runTests 를 동시에 두 번 돌리면 등록이 섞인다: 반드시 순차로 호출한다.
+// test() 레지스트리가 모듈 전역이라 한 프로세스에서 runTests 를 동시에 두 번 돌리면 등록이 섞인다. 그래서 runTests 는 프로세스 안에서 직렬화된다(아래 chain).
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -68,7 +68,16 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 /** Reporter 가 원격 전송일 때 마지막 이벤트들의 왕복을 기다릴 여유. 로컬 Reporter 는 즉시 끝난다 */
 const DEFAULT_FLUSH_TIMEOUT_MS = 10_000;
 
-export async function runTests(files: string[], options: RunOptions): Promise<RunReport> {
+/** 한 프로세스 안의 runTests 호출을 순서대로 세운다(레지스트리 공유). 앞 호출이 실패해도 다음은 돈다 */
+let chain: Promise<unknown> = Promise.resolve();
+
+export function runTests(files: string[], options: RunOptions): Promise<RunReport> {
+  const next = chain.then(() => runTestsExclusive(files, options));
+  chain = next.catch(() => undefined);
+  return next;
+}
+
+async function runTestsExclusive(files: string[], options: RunOptions): Promise<RunReport> {
   const { engine } = options;
   const runId = options.runId ?? randomUUID();
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;

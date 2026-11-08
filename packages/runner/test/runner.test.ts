@@ -98,6 +98,15 @@ describe('runTests', () => {
     vexpect(report.events.at(-1)).toMatchObject({ type: 'run.finished', state: 'infra-failed' });
   });
 
+  it('한 프로세스에서 runTests 를 동시에 불러도 등록이 섞이지 않는다(직렬화)', async () => {
+    const [a, b] = await Promise.all([
+      runTests([fixture('sample.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 200 }),
+      runTests([fixture('mixed.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 200 }),
+    ]);
+    vexpect(a.tests.map((t) => t.name)).toEqual(['설정 앱 > 열면 "설정" 제목이 보인다']);
+    vexpect(b.tests).toHaveLength(4);
+  });
+
   it('run.started 는 모르는 cycleId/deviceId 를 빈 문자열로 채우지 않는다', async () => {
     const report = await runTests([fixture('sample.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 200 });
     const started = report.events[0] as Extract<RunEvent, { type: 'run.started' }>;
