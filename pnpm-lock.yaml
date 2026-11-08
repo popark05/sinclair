@@ -229,6 +229,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/ui
 
+  packages/agent:
+    dependencies:
+      '@sinclair/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+
   packages/device-layer:
     dependencies:
       '@sinclair/protocol':
@@ -255,6 +261,9 @@ importers:
 
   packages/runner:
     dependencies:
+      '@sinclair/agent':
+        specifier: workspace:*
+        version: link:../agent
       '@sinclair/protocol':
         specifier: workspace:*
         version: link:../protocol

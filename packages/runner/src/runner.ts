@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { runAct, type StepExecutor } from '@sinclair/agent';
 import { EngineError, parseRunEvent, type AttemptFinished, type AttemptResult, type Engine, type RunEvent, type StepRecorded } from '@sinclair/protocol';
 import { createScreen, type StepEvent } from './screen.ts';
 import { expect as makeExpect, AssertionError } from './expect.ts';
@@ -31,6 +32,8 @@ export interface RunOptions {
   artifactsDir?: string;
   /** 취소 신호. abort 되면 진행 중 테스트는 끝까지 가고(러너는 테스트 중간 중단을 지원하지 않는다), 그 테스트의 남은 재시도와 다음 테스트들은 skipped 로 기록되며 run 은 cancelled 로 끝난다 */
   signal?: AbortSignal;
+  /** agent.act 의 실행기(모델)와 한도. 없으면 agent.act 는 설정 오류로 실패한다 */
+  agent?: { executor: StepExecutor; maxTurns?: number; timeoutMs?: number };
   /** failed 테스트를 다시 돌리는 횟수(기본 0, 최대 5). 시도마다 새 Attempt(attemptNo 2, 3…)로 보고하고 재시도 전에 앱을 다시 띄운다. blocked·skipped 는 재시도하지 않는다 */
   retries?: number;
   /** locator 액션 기한(ms, 기본 10초). 판정(expect) 기한은 그 절반: 판정은 화면이 이미 그 상태여야 하므로 액션보다 짧게 잡아 실패를 빨리 드러낸다 */
@@ -76,6 +79,9 @@ export interface RunReport {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 export const MAX_RETRIES = 5;
+
+/** agent.act 가 목표를 이루지 못함(턴·시간 한도, 모델 오류). errorCode 'agent' 로 판정 실패와 구분된다 */
+export class AgentActError extends Error {}
 /** 취소로 시작하지 못한 테스트의 skipped attempt 에 붙는 errorCode. control-plane Verdict 가 이것만 blocked 로 본다(같은 문자열을 따로 둔다) */
 export const CANCELLED_CODE = 'cancelled';
 /** Reporter 가 원격 전송일 때 마지막 이벤트들의 왕복을 기다릴 여유. 로컬 Reporter 는 즉시 끝난다 */
@@ -187,7 +193,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
     emit({ ...base(), type: 'attempt.started', attemptId, testId: tc.name, attemptNo });
 
     const finish = (result: AttemptResult, error?: Error): TestResult => {
-      const errorCode = cancelledSkip ? CANCELLED_CODE : error instanceof EngineError ? error.code : error instanceof AssertionError ? 'assertion' : error ? 'error' : undefined;
+      const errorCode = cancelledSkip ? CANCELLED_CODE : error instanceof EngineError ? error.code : error instanceof AssertionError ? 'assertion' : error instanceof AgentActError ? 'agent' : error ? 'error' : undefined;
       emit({ ...base(), type: 'attempt.finished', attemptId, result, ...(errorCode ? { errorCode } : {}), artifacts });
       return {
         name: tc.name, file, result, attempts: attemptNo, durationMs: Date.now() - started, steps, artifacts,
@@ -200,7 +206,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
     const onStep = (step: StepEvent): void => {
       const ev: StepRecorded = {
         ...base(), type: 'step.recorded', attemptId, stepIndex: steps.length, kind: step.kind,
-        instruction: step.error ? `${step.instruction} → 실패: ${step.error}` : step.instruction, modelCalls: 0, durationMs: step.durationMs,
+        instruction: step.error ? `${step.instruction} → 실패: ${step.error}` : step.instruction, modelCalls: step.modelCalls ?? 0, durationMs: step.durationMs,
       };
       steps.push(ev);
       emit(ev);
@@ -214,6 +220,18 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
       },
       screen,
       expect: (locator, o) => makeExpect(locator, { timeoutMs: timeoutMs / 2, ...o, onStep }),
+      agent: {
+        async act(goal) {
+          if (!options.agent) throw new Error('agent.act 를 쓰려면 runTests 에 agent.executor(모델 실행기)가 필요함');
+          const started = Date.now();
+          const r = await runAct(engine, goal, { executor: options.agent.executor, ...(options.agent.maxTurns !== undefined ? { maxTurns: options.agent.maxTurns } : {}), ...(options.agent.timeoutMs !== undefined ? { timeoutMs: options.agent.timeoutMs } : {}) });
+          // 툴 요약: 이름과 대상 ref 만(입력한 글자는 남기지 않는다 — 비밀값일 수 있다)
+          const tools = r.history.map((h) => `${h.call.name}${typeof (h.call.input as { ref?: unknown })?.ref === 'string' ? ` ${(h.call.input as { ref: string }).ref}` : ''}${h.result === 'ok' ? '' : `(${h.result})`}`).join(', ');
+          const instruction = `act ${JSON.stringify(goal)} → ${tools || '(툴 없음)'} (${r.turns}턴)`;
+          onStep({ kind: 'act', instruction, durationMs: Date.now() - started, modelCalls: r.modelCalls, ...(r.ok ? {} : { error: r.reason ?? '실패' }) });
+          if (!r.ok) throw new AgentActError(`agent.act ${JSON.stringify(goal)} 실패: ${r.reason}`);
+        },
+      },
       attemptNo,
     };
 

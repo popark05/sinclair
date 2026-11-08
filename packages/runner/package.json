@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@sinclair/agent": "workspace:*",
     "@sinclair/protocol": "workspace:*"
   },
   "devDependencies": {

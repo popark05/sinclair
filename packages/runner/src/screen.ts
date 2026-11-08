@@ -13,7 +13,8 @@ export interface ScreenOptions {
 }
 
 /** 스텝 기록용 이벤트. instruction 은 사람이 읽는 한 줄, error 는 실패 시 메시지 */
-export interface StepEvent { kind: 'locator' | 'assert'; instruction: string; durationMs: number; error?: string }
+/** modelCalls: 에이전트 스텝(act)이 모델을 부른 횟수. 결정적 스텝은 0 */
+export interface StepEvent { kind: 'locator' | 'assert' | 'act'; instruction: string; durationMs: number; error?: string; modelCalls?: number }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_POLL_MS = 100;

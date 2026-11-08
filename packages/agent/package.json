@@ -1,0 +1,13 @@
+{
+  "name": "@sinclair/agent",
+  "version": "0.0.0",
+  "private": true,
+  "description": "에이전트 레이어: agent.act 툴 루프, 닫힌 툴 스키마, StepExecutor(모델) 경계. protocol 의 Engine 계약에만 기댄다(protocol ← agent ← runner)",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": { "@sinclair/protocol": "workspace:*" }
+}

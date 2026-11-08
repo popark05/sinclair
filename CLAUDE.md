@@ -40,6 +40,7 @@ packages/
   protocol/     이벤트 스키마, Run/Attempt 상태, 디바이스 JSON-RPC 타입, 엔진 계약 타입. 다른 패키지가 모두 의존
   device-layer/ 디바이스 JSON-RPC 서버 (adb/usbmux + 온디바이스 에이전트)
   engine-mobile/ 러너 엔진 계약의 모바일 구현 (device-layer 위)
+  agent/        에이전트 레이어: agent.act 툴 루프, 닫힌 툴 스키마(단일 action spec), StepExecutor(모델) 경계. protocol 에만 기댄다
   runner/       테스트 러너: locator/expect, agent.act/assert, 녹화·재생 캐시, 리포터
   ui/           공유 React 컴포넌트: device-view, trace-viewer, tree-inspector
 apps/
@@ -49,7 +50,7 @@ apps/
   runner-agent/ 워커 데몬 (기기 연결 노드에서 러너 실행, 이벤트 스트리밍)
 ```
 
-의존 방향은 `protocol ← device-layer ← engine-mobile ← runner ← apps`. 역방향 import 금지. apps 끼리는 런타임 import 를 하지 않는다(서로 HTTP 로만 대화). 테스트 전용 `devDependencies`(예: runner-agent 테스트가 control-plane 을 인프로세스로 띄움)만 허용.
+의존 방향은 `protocol ← device-layer ← engine-mobile ← runner ← apps`, 에이전트는 `protocol ← agent ← runner`(엔진 계약에만 기대 디바이스 레이어를 모른다). 역방향 import 금지. apps 끼리는 런타임 import 를 하지 않는다(서로 HTTP 로만 대화). 테스트 전용 `devDependencies`(예: runner-agent 테스트가 control-plane 을 인프로세스로 띄움)만 허용.
 
 ## 핵심 설계 결정 (상세는 specs/)
 

@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import { EngineError, RUN_EVENT_TYPES, parseRunEvent, type Engine, type RunEvent, type SemanticNode } from '@sinclair/protocol';
 import { FakeEngine, HOME_SCREEN, LOGIN_SCREEN, withDeviceUnavailable } from '@sinclair/protocol/testing';
 import { runTests, MAX_RETRIES, type Reporter } from '../src/index.ts';
+import { scriptedExecutor } from '@sinclair/agent';
 
 const SETTINGS_SCREEN: SemanticNode = {
   ref: '@s0', role: 'root', rect: { x: 0, y: 0, width: 1080, height: 2400 }, children: [
@@ -313,5 +314,36 @@ describe('취소 (signal)', () => {
     const report = await runTests([fixture('three.sinclair.ts')], { engine: engineWithApps(), signal: new AbortController().signal });
     vexpect(report.cancelled).toBeUndefined();
     vexpect(report.events.at(-1)).toMatchObject({ state: 'finished' });
+  });
+});
+
+describe('agent.act (대본 실행기)', () => {
+  const loginScript = [
+    { name: 'type', input: { ref: '@e2', text: 'qa' } },
+    { name: 'tap', input: { ref: '@e4' } },
+    { name: 'done', input: { summary: '"환영합니다" 가 보인다' } },
+  ];
+
+  it('테스트 파일의 agent.act 가 대본대로 화면을 조작하고 step.recorded(act, modelCalls) 로 남는다', async () => {
+    const report = await runTests([fixture('agent-login.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 500, agent: { executor: scriptedExecutor(loginScript) } });
+    vexpect(report.tests[0]).toMatchObject({ result: 'passed' });
+    const act = report.events.find((e): e is Extract<RunEvent, { type: 'step.recorded' }> => e.type === 'step.recorded' && e.kind === 'act');
+    vexpect(act).toMatchObject({ kind: 'act', modelCalls: 3, instruction: vexpect.stringMatching(/^act "아이디 qa 로 로그인해줘" → type @e2, tap @e4, done/) });
+    vexpect(act!.instruction).not.toMatch(/"qa"/); // 입력한 글자는 스텝에 남기지 않는다(비밀값일 수 있다 — agent-layer 04)
+    for (const e of report.events) vexpect(parseRunEvent(e).ok).toBe(true);
+  });
+
+  it('act 가 목표를 이루지 못하면 실패한 Attempt 와 아티팩트가 남고 사유가 오류에 실린다', async () => {
+    const stuck = scriptedExecutor(() => ({ name: 'scroll', input: { ref: '@e0', direction: 'down' } }));
+    const report = await runTests([fixture('agent-login.sinclair.ts')], { engine: engineWithApps(), artifactsDir, timeoutMs: 500, agent: { executor: stuck, maxTurns: 3 } });
+    vexpect(report.tests[0]).toMatchObject({ result: 'failed', errorCode: 'agent', error: vexpect.stringMatching(/턴 한도 3/) });
+    vexpect(report.tests[0]!.artifacts.map((a) => a.kind).sort()).toEqual(['screen-tree', 'screenshot']);
+    const act = report.events.find((e): e is Extract<RunEvent, { type: 'step.recorded' }> => e.type === 'step.recorded' && e.kind === 'act');
+    vexpect(act).toMatchObject({ modelCalls: 3, instruction: vexpect.stringMatching(/실패: 턴 한도 3/) });
+  });
+
+  it('실행기 없이 agent.act 를 부르면 분명한 설정 오류로 실패한다', async () => {
+    const report = await runTests([fixture('agent-login.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 500 });
+    vexpect(report.tests[0]).toMatchObject({ result: 'failed', error: vexpect.stringMatching(/agent\.executor/) });
   });
 });
