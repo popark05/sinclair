@@ -14,8 +14,9 @@ import { runDaemon, EXIT } from '../src/index.ts';
 
 const target = process.env.SINCLAIR_TEST_USB;
 const REPO = path.resolve(import.meta.dirname, '../../..');
-/** 리포·홈 경로와 시리얼을 지운다. 시리얼은 Fleet 이 알려 준 실제 값으로 지우고(대소문자·길이 무관), 정규식은 혹시 모를 나머지를 위한 보조다 */
-const mask = (line: string, serials: string[] = []): string => serials.reduce((l, id) => l.split(id).join(`…${id.slice(-4)}`), line.split(REPO).join('<repo>').split(os.homedir()).join('<home>')).replace(/\b[A-Za-z0-9]{8,}\b/g, (s) => (/\d/.test(s) && /[A-Za-z]/.test(s) && !/^[a-f0-9]{8}-/.test(s) ? `…${s.slice(-4)}` : s));
+/** 리포·홈 경로와 시리얼을 지운다. 시리얼은 Fleet 이 알려 준 실제 값으로 지우고(대소문자·길이 무관), 정규식은 혹시 모를 나머지를 위한 보조다.
+ *  보조 정규식은 대문자+숫자 토큰만 본다: run id(UUID, 소문자 16진)를 망가뜨리지 않게 */
+const mask = (line: string, serials: string[] = []): string => serials.reduce((l, id) => l.split(id).join(`…${id.slice(-4)}`), line.split(REPO).join('<repo>').split(os.homedir()).join('<home>')).replace(/\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{8,}\b/g, (t) => `…${t.slice(-4)}`);
 
 describe.skipIf(!target)('실기기 Fleet 인벤토리', () => {
   it('mobile 데몬이 꽂힌 기기를 idle 로 보고하고, 그 기기를 lease 받아 같은 백엔드로 Run 을 끝낸 뒤 idle 로 돌아온다', async () => {
