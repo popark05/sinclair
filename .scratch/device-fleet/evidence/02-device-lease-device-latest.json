@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-08T07:08:34.183Z",
+  "at": "2026-11-08T07:22:32.096Z",
   "nodeTtlMs": 6000,
   "node": {
     "agentId": "device-node",
@@ -27,13 +27,13 @@
     "startedOnLeasedDevice": true
   },
   "log": [
-    "데몬 시작: agent device-node, targets android, control-plane http://127.0.0.1:49236",
+    "데몬 시작: agent device-node, targets android, control-plane http://127.0.0.1:51840",
     "헬퍼 APK: <repo>/packages/device-layer/android-helper/app/build/outputs/apk/debug/app-debug.apk (repo-build)",
     "헬퍼 온보딩(…XLZW): 헬퍼 이미 설치됨",
     "헬퍼 온보딩(…XLZW): 접근성 서비스 활성화됨",
     "헬퍼 온보딩(…XLZW): 헬퍼 준비됨 v0.1.0",
     "fleet 보고: 기기 1대",
-    "run fb99e1fc-0f5d-499b-ba82-9eb97d1943ce 클레임 (cycle fleet-device, target android, 기기 …XLZW, tests <repo>/apps/runner-agent/test/fixtures/device)",
+    "run d33f0b63-2575-4b52-9d29-933c0b789f6c 클레임 (cycle fleet-device, target android, 기기 …XLZW, tests <repo>/apps/runner-agent/test/fixtures/device)",
     "기기 SM-N981N (…XLZW) Android 13, 헬퍼 ready",
     "화면: 켜짐, 잠금 없음",
     "헬퍼를 방금 켰으므로 대상 앱을 한 번 열어 트리를 예열함",
