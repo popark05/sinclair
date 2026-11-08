@@ -45,3 +45,13 @@ export function parseNodeReport(input: unknown): NodeReportParse {
   });
   return errors.length ? { ok: false, errors } : { ok: true, value: input as unknown as NodeReport };
 }
+
+/** 이 기기를 지금 Run 에 쓸 수 없는 사유. 없으면 쓸 수 있다. 노드(클레임 후보 거르기)와 control-plane(Fleet 의 untrusted)이 같은 규칙을 쓴다.
+ *  helper·locked 가 없으면(그 플랫폼에 개념이 없거나 확인 못 함) 막지 않는다 */
+export function nodeDeviceProblem(d: NodeDevice): string | undefined {
+  if (d.connection === 'unauthorized') return 'USB 디버깅 미승인';
+  if (d.connection === 'offline') return '기기 연결 응답 없음(adb offline)';
+  if (d.helper !== undefined && d.helper !== 'ready') return `헬퍼 준비 안 됨(${d.helper})`;
+  if (d.locked) return '화면 잠김';
+  return undefined;
+}

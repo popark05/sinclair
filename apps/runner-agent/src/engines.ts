@@ -34,6 +34,8 @@ const TREE_READY_POLLS = 10;
 const WARMUP_POLL_MS = 500;
 const WARMUP_POLLS = 20;
 const WARMUP_MIN_NODES = 5;
+/** 잠긴 기기 풀기 시도 간격: 클레임 폴링(기본 5초)마다 화면을 켜지 않도록. 보안 잠금 기기는 이 간격으로 한 번씩만 깨운다 */
+const UNLOCK_RETRY_MS = 30_000;
 const countNodes = (n: { children?: unknown[] }): number => 1 + ((n.children ?? []) as Array<{ children?: unknown[] }>).reduce((a, c) => a + countNodes(c), 0);
 
 /** 테스트용: APK 해석 단계의 번들·리포 빌드 위치를 바꿔 끼운다 */
@@ -46,8 +48,9 @@ export const fakeDevice = (agentId: string): NodeDevice => ({ id: `fake-${agentI
 /** 디바이스 백엔드 하나를 소유하는 Android 노드. 데몬은 하나를 열어 두고 인벤토리와 run 들이 같이 쓴다(직접 USB 는 한 프로세스만 잡을 수 있다).
  *  `run` 명령은 run 하나 동안만 연다(createEngine) */
 export interface AndroidNode {
-  /** 꽂힌 기기와 연결·헬퍼·화면 잠금 상태(Fleet 보고용). 잠금 확인이 실패하면 locked 를 비운다(모름) */
-  inventory(): Promise<NodeDevice[]>;
+  /** 꽂힌 기기와 연결·헬퍼·화면 잠금 상태(Fleet 보고·클레임 후보용). 잠금 확인이 실패하면 locked 를 비운다(모름).
+   *  tryUnlock: 잠긴 기기(쓰는 중이 아닌)를 한 번 깨우고 위로 스와이프해 본다 — 비보안 잠금은 이것으로 풀린다. 같은 기기는 UNLOCK_RETRY_MS 에 한 번까지만 */
+  inventory(opts?: { tryUnlock?: boolean }): Promise<NodeDevice[]>;
   /** 이 노드의 백엔드 위에 run 하나용 엔진을 만든다. dispose 는 앱을 정리할 뿐 백엔드를 닫지 않는다 */
   engineFor(args: RunArgs, log: (line: string) => void): Promise<EngineHandle>;
   close(): Promise<void>;
@@ -62,17 +65,30 @@ export async function openAndroidNode(args: Pick<RunArgs, 'helperApk' | 'helperC
   // run 이 쓰는 중인 기기와 그 기기의 마지막 잠금 상태: 인벤토리가 run 도중 그 기기에 dumpsys 를 보내지 않게 한다(쓰는 중이면 잠금 해제 상태다)
   const inUse = new Set<string>();
   const lastLocked = new Map<string, boolean>();
+  const lastUnlockTry = new Map<string, number>();
+  /** 깨우고(WAKEUP·MENU) 위로 스와이프한 뒤 잠금을 다시 본다. engineFor 의 잠금 처리와 같은 동작 */
+  const tryUnlock = async (id: string): Promise<boolean | undefined> => {
+    await backend.keys(id, ['KEYCODE_WAKEUP', 'KEYCODE_MENU']).catch(() => undefined);
+    await backend.swipe(id, { x: 540, y: 1900 }, { x: 540, y: 700 }, 300).catch(() => undefined);
+    await new Promise((r) => setTimeout(r, 500));
+    return (await backend.screenState?.(id).catch(() => undefined))?.locked;
+  };
   const backend = createAndroidBackend({
     dadb: { includeEmulators: false, authTimeoutMs: APPROVAL_WAIT_MS }, probeWaitMs: APPROVAL_WAIT_MS, helperApkPath: helperApk.path,
     onHelperStep: (serial, text) => { if (/(?<!이미 )설치됨|활성화됨/.test(text)) needsWarmup.add(serial); log(`헬퍼 온보딩(…${serial.slice(-4)}): ${text}`); },
   });
   return {
-    async inventory() {
+    async inventory(opts = {}) {
       const devices = await backend.listDevices();
       return Promise.all(devices.map(async (d): Promise<NodeDevice> => {
-        const screen = d.state !== 'device' ? undefined
+        let screen = d.state !== 'device' ? undefined
           : inUse.has(d.id) ? (lastLocked.has(d.id) ? { locked: lastLocked.get(d.id)! } : undefined)
           : await backend.screenState?.(d.id).catch(() => undefined);
+        if (opts.tryUnlock && screen?.locked && !inUse.has(d.id) && Date.now() - (lastUnlockTry.get(d.id) ?? 0) >= UNLOCK_RETRY_MS) {
+          lastUnlockTry.set(d.id, Date.now());
+          const after = await tryUnlock(d.id);
+          if (after !== undefined) screen = { ...screen, locked: after };
+        }
         if (screen?.locked !== undefined) lastLocked.set(d.id, screen.locked);
         return { id: d.id, platform: d.platform, model: d.model, osVersion: d.osVersion, connection: d.state, ...(d.helper ? { helper: d.helper.state } : {}), ...(screen?.locked !== undefined ? { locked: screen.locked } : {}) };
       }));

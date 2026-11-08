@@ -7,7 +7,7 @@ import { AgentConfigError } from './args.ts';
 import { ControlPlaneError, type RegisteredRun } from './control-plane-client.ts';
 import { collectTestFiles, executeRun, EXIT, type ExitCode, type RunOnceDeps } from './run-once.ts';
 import { resumeSpool } from './spool.ts';
-import type { NodeDevice } from '@sinclair/protocol';
+import { nodeDeviceProblem, type NodeDevice } from '@sinclair/protocol';
 import { fakeDevice, openAndroidNode, type AndroidNode } from './engines.ts';
 
 export interface DaemonArgs extends Omit<RunArgs, 'cycle' | 'target' | 'run'> {
@@ -116,8 +116,27 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
   // 마지막으로 읽은 기기 목록이 클레임 후보다(클레임마다 USB 를 다시 훑지 않는다, 최대 TTL/3 묵음). 보고가 실패해도 읽기는 됐으면 갱신한다
   let lastDevices: NodeDevice[] = [];
   const inventory = async (): Promise<NodeDevice[]> => (lastDevices = await readInventory());
-  // 운영자가 --device 로 기기를 고정했으면 그 기기만 후보로 낸다(다른 기기를 lease 받아 돌지 않게)
-  const candidates = (): string[] => lastDevices.map((d) => d.id).filter((id) => !args.device || id === args.device);
+  const refreshCandidates = async (): Promise<void> => {
+    if (ownsBackend) { const n = await ensureNode(); lastDevices = n ? await n.inventory({ tryUnlock: true }) : []; } else await inventory();
+  };
+  // 후보: 운영자가 --device 로 고정했으면 그 기기만, 그리고 지금 쓸 수 있는 기기만(잠김·헬퍼 미준비·미승인은 Run 을 받아도 blocked 로 끝난다 — 받지 않고 기다린다).
+  // 뺀 기기는 사유가 바뀔 때만 한 줄 남긴다(폴링마다 찍지 않게)
+  const excludedReason = new Map<string, string>();
+  const candidates = (): string[] => {
+    const out: string[] = [];
+    for (const d of lastDevices) {
+      if (args.device && d.id !== args.device) continue;
+      const problem = nodeDeviceProblem(d);
+      if (problem) {
+        if (excludedReason.get(d.id) !== problem) log(`기기 …${d.id.slice(-4)} 를 후보에서 뺌: ${problem}`);
+        excludedReason.set(d.id, problem);
+        continue;
+      }
+      if (excludedReason.delete(d.id)) log(`기기 …${d.id.slice(-4)} 를 다시 후보로: 쓸 수 있음`);
+      out.push(d.id);
+    }
+    return out;
+  };
   let announcedNoCandidates = false;
   const runDeps: RunOnceDeps = ownsBackend ? { ...deps, createEngine: async (a, l) => { const n = await ensureNode(); if (!n) throw new Error('디바이스 백엔드를 열지 못함'); return n.engineFor(a, l); } } : deps;
 
@@ -149,6 +168,8 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
   try {
     while (!deps.signal?.aborted) {
       let worked = false;
+      // 클레임 직전에 기기 상태를 다시 읽는다(주기 보고는 TTL/3 만큼 묵을 수 있다). 잠긴 mobile 기기는 여기서 한 번 풀어 본다(비보안 잠금)
+      await refreshCandidates().catch((err: unknown) => log(`인벤토리 읽기 실패: ${err instanceof Error ? err.message : String(err)}`));
       for (const targetId of args.targets) {
         if (deps.signal?.aborted) break;
         let claimed: ClaimedRun | undefined;
@@ -204,6 +225,8 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
         // 신호가 왔다는 것이 아니라 run 이 실제로 중단됐을 때만 사유를 남긴다(마지막 테스트 도중 신호면 run 은 finished)
         const cancelled = code === EXIT.cancelled ? (canceller.signal.reason instanceof Error ? canceller.signal.reason.message : String(canceller.signal.reason)) : undefined;
         if (leaseLost) log(cancelled ? `run ${run.runId}: lease 를 잃어 중단 — 진행 중이던 테스트까지만 보고됐고 나머지는 skipped(cancelled)` : `경고: run ${run.runId} 의 lease 를 잃었지만 남은 테스트 없이 끝남`);
+        // 기기 문제로 끝났으면(기기 빠짐·잠김) 주기 보고를 기다리지 않고 바로 다시 보고해 Fleet 에 지금 상태가 보이게 한다. lease 는 run.finished 로 이미 풀렸다
+        if (code === EXIT.blocked && !reportsStopped) { clearTimeout(reportTimer); await report(); }
         summary.runs.push({ runId: run.runId, targetId, exitCode: code, ...(leaseLost ? { leaseLost: true } : {}), ...(cancelled ? { cancelled } : {}) });
         if (deps.maxRuns !== undefined && summary.runs.length >= deps.maxRuns) { summary.stoppedBy = 'maxRuns'; return summary; }
       }

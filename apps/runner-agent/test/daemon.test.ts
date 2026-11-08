@@ -5,6 +5,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { startControlPlane, serveControlPlane, createMemoryEventStore, type RunningControlPlane, type CycleView, type FleetView } from '@sinclair/control-plane';
+import { EngineError } from '@sinclair/protocol';
 import { FakeEngine, HOME_SCREEN, LOGIN_SCREEN } from '@sinclair/protocol/testing';
 import { runDaemon, parseDaemonArgs, reportNode, AgentConfigError, EXIT, type DaemonDeps } from '../src/index.ts';
 
@@ -285,5 +286,39 @@ describe('runDaemon · 기기 lease', () => {
     expect(r.runs).toEqual([]);
     expect(logs.filter((l) => /후보 기기 없음/.test(l))).toHaveLength(1); // 조용히 기다리지 않되, 폴링마다 찍지는 않는다
     expect((await view('ce')).runs[0]!.lease).toBeUndefined();
+  });
+});
+
+describe('runDaemon · 기기 상태로 클레임 거르기', () => {
+  const dev = (id: string, over: Record<string, unknown> = {}) => ({ id, platform: 'android' as const, model: 'SM-N981N', osVersion: '13', connection: 'device' as const, helper: 'ready' as const, locked: false, ...over });
+
+  it('잠긴 기기는 후보로 내지 않아 Run 은 쓸 수 있는 기기로 가고, 풀리면 다음 Run 을 받는다; 제외 사유는 바뀔 때만 한 줄', async () => {
+    await post('/cycles', { cycleId: 'ch', build: 'b', targets: ['android'], suite: { tests: path.join(fixtures, 'only-login') } });
+    await post('/cycles/ch/runs', { targetId: 'android', runId: 'r-h1' });
+    await post('/cycles/ch/runs', { targetId: 'android', runId: 'r-h2' });
+    let phase = 1;
+    const inventory = async () => (phase === 1 ? [dev('LOCK-1', { locked: true }), dev('GOOD-1')] : [dev('LOCK-1'), dev('GOOD-1', { helper: 'disabled' })]);
+    const used: Array<string | undefined> = [];
+    const engine = async (a: { device?: string }) => { used.push(a.device); phase = 2; return fakeEngine(a); }; // 첫 run 이 도는 사이 상태가 바뀐다
+    const r = await runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'node-h', pollMs: 10 }, deps({ maxRuns: 2, inventory, createEngine: engine }));
+    expect(r.runs.map((x) => x.exitCode)).toEqual([EXIT.ok, EXIT.ok]);
+    expect(used).toEqual(['GOOD-1', 'LOCK-1']);
+    const excluded = logs.filter((l) => /후보에서 뺌/.test(l));
+    expect(excluded).toEqual([expect.stringMatching(/…CK-1.*화면 잠김/), expect.stringMatching(/…OD-1.*헬퍼 준비 안 됨\(disabled\)/)]);
+    expect(logs.join('\n')).not.toMatch(/LOCK-1|GOOD-1/);
+  });
+
+  it('실행 중 기기가 빠져 run 이 blocked 로 끝나면 곧바로 다시 보고해 Fleet 에 offline(보고에서 빠짐)으로 보인다', async () => {
+    await post('/cycles', { cycleId: 'cl2', build: 'b', targets: ['android'], suite: { tests: path.join(fixtures, 'only-login') } });
+    await post('/cycles/cl2/runs', { targetId: 'android', runId: 'r-lost-dev' });
+    let plugged = true;
+    const inventory = async () => (plugged ? [dev('GONE-1')] : []);
+    const engine = async (a: { device?: string }) => { plugged = false; const h = await fakeEngine(a); h.engine.session!.open = async () => { throw new EngineError('device-unavailable', '기기가 빠짐'); }; return h; };
+    const r = await runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'node-l', pollMs: 10 }, deps({ maxRuns: 1, inventory, createEngine: engine }));
+    expect(r.runs[0]!.exitCode).toBe(EXIT.blocked);
+    // 서버 TTL 60초라 주기 보고(20초)를 기다리지 않았다: 끝나자마자 보고가 들어가 있어야 한다
+    const node = (await (await fetch(`${url}/fleet`)).json() as FleetView).nodes.find((n) => n.agentId === 'node-l')!;
+    expect(node.devices).toMatchObject([{ id: 'GONE-1', state: 'offline', reason: '보고에서 빠짐' }]);
+    expect((await view('cl2')).runs[0]).toMatchObject({ state: 'infra-failed' });
   });
 });
