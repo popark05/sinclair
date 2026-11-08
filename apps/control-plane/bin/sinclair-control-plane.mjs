@@ -7,8 +7,16 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as path from 'node:path';
 
+import { existsSync } from 'node:fs';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+// 설치 배치(소스 트리 없음)면 번들을 바로 실행한다. 리포 체크아웃에서는 항상 .ts 라 오래된 dist 가 개발 변경을 가리지 않는다
+const bundle = path.join(here, '..', 'dist', 'control-plane.mjs');
+const hasSource = existsSync(path.join(here, '..', 'src', 'main.ts'));
 const FLAG = '--experimental-transform-types';
-if (!process.execArgv.includes(FLAG)) {
+if (!hasSource && existsSync(bundle)) {
+  await import(bundle);
+} else if (!process.execArgv.includes(FLAG)) {
   // IPC 채널을 하나 열어 둔다: 이 셸이 SIGKILL 등으로 죽으면 채널이 닫혀 자식이 'disconnect' 로 알고 종료한다(고아 서버 방지)
   const child = spawn(process.execPath, [FLAG, '--no-warnings=ExperimentalWarning', fileURLToPath(import.meta.url), ...process.argv.slice(2)], { stdio: ['inherit', 'inherit', 'inherit', 'ipc'] });
   for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => child.kill(sig));

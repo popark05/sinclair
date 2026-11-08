@@ -27,8 +27,11 @@ const HELPER_RETRY_BACKOFF_MS = 10_000;
  *  1초 간격으로 몇 번 다시 쓴다. */
 const ACTIVATE_RETRY_MS = 1_000;
 const ACTIVATE_RETRIES = 5;
-/** 리포 안에서 빌드한 헬퍼 APK(android-helper README 의 빌드 절차). 배포 시에는 helperApkPath 로 넘긴다. */
-const DEFAULT_HELPER_APK = fileURLToPath(new URL('../../android-helper/app/build/outputs/apk/debug/app-debug.apk', import.meta.url));
+/** 리포 안에서 빌드한 헬퍼 APK(android-helper README 의 빌드 절차). 개발 전용 — 설치본(번들)은 helperApkPath 를 넘긴다. 번들에서는 소스 트리가 없어 undefined */
+function devHelperApk(): string | undefined {
+  if (process.env.SINCLAIR_BUNDLED === '1') return undefined;
+  try { return fileURLToPath(new URL('../../android-helper/app/build/outputs/apk/debug/app-debug.apk', import.meta.url)); } catch { return undefined; }
+}
 
 /** `device.io.button` 이름 → Android 키코드 */
 const BUTTON_KEYCODES: Record<DeviceButton, string> = {
@@ -252,8 +255,8 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
     const intervalMs = options.helperActivate?.intervalMs ?? ACTIVATE_RETRY_MS;
     try {
       if (!(await sh(`pm path ${shellQuote(HELPER_PACKAGE)}`)).includes('package:')) {
-        const apk = options.helperApkPath ?? DEFAULT_HELPER_APK;
-        if (!existsSync(apk)) return fail('not-installed', `헬퍼 APK 가 없음: ${apk} (android-helper 를 빌드하거나 helperApkPath 를 지정)`);
+        const apk = options.helperApkPath ?? devHelperApk();
+        if (!apk || !existsSync(apk)) return fail('not-installed', `헬퍼 APK 가 없음: ${apk ?? '(경로 없음)'} (android-helper 를 빌드하거나 helperApkPath 를 지정)`);
         step(`헬퍼 설치 중: ${apk}`);
         const installed = await entry.dadb.install(apk, '-r');
         if (!installed.success) return fail('not-installed', `헬퍼 설치 실패: ${installed.reason}`);

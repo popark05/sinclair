@@ -34,7 +34,7 @@ describe.skipIf(!target || !reinstall)('실기기 헬퍼 재설치', () => {
     } finally { await dadb.close(); }
 
     // 2) 리포 디버그 빌드를 "릴리스 서버" 로 흉내 내어 다운로드 경로를 실제로 탄다(sha256 사이드카 포함)
-    const apk = fsSync.readFileSync(DEFAULT_REPO_BUILD);
+    const apk = fsSync.readFileSync(DEFAULT_REPO_BUILD!); // 리포 안이므로 정의돼 있다
     const sha = createHash('sha256').update(apk).digest('hex');
     const release = http.createServer((req, res) => {
       if (req.url === `/release/${helperApkFileName()}.sha256`) { res.writeHead(200).end(`${sha}  ${helperApkFileName()}\n`); return; }

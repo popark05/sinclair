@@ -5,6 +5,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { isBundled, resourcesDir } from './resources.ts';
 
 /** 에이전트가 기대하는 헬퍼 버전. android-helper 의 versionName 과 같이 올린다(README "릴리스"). 같은 버전 문자열로 재릴리스하면 캐시가 갱신되지 않는다 */
 export const HELPER_APK_VERSION = '0.1.0';
@@ -30,9 +31,10 @@ export interface ResolveHelperApkOptions {
   log?: (line: string) => void;
 }
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-export const DEFAULT_BUNDLED_DIR = path.resolve(here, '..', 'resources', 'helper');
-export const DEFAULT_REPO_BUILD = path.resolve(here, '..', '..', '..', 'packages', 'device-layer', 'android-helper', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk');
+/** 설치본: <dist>/../resources/helper, 개발: apps/runner-agent/resources/helper */
+export const DEFAULT_BUNDLED_DIR = path.join(resourcesDir(), 'helper');
+/** 리포 체크아웃의 디버그 빌드. 번들(설치본)에서는 쓰지 않는다(소스 트리가 없다) */
+export const DEFAULT_REPO_BUILD: string | undefined = isBundled() ? undefined : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'packages', 'device-layer', 'android-helper', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk');
 /** 사내 호스트가 죽어 있을 때 데몬이 USB 전 단계에서 영영 멈추지 않도록. 1 MB 남짓한 APK 라 넉넉하다 */
 const FETCH_TIMEOUT_MS = 30_000;
 
@@ -100,7 +102,7 @@ function findLocal(opts: ResolveHelperApkOptions, reasons: string[]): ResolvedHe
     ['flag', opts.flag, '--helper-apk 미지정'],
     ['env', opts.env.SINCLAIR_AGENT_HELPER_APK, 'SINCLAIR_AGENT_HELPER_APK 미설정'],
     ['bundled', path.join(opts.bundledDir ?? DEFAULT_BUNDLED_DIR, helperApkFileName()), '번들'],
-    ['repo-build', opts.repoBuild ?? DEFAULT_REPO_BUILD, '리포 빌드'],
+    ['repo-build', opts.repoBuild ?? DEFAULT_REPO_BUILD, '리포 빌드(설치본에는 없음)'],
   ];
   for (const [source, p, missingLabel] of candidates) {
     if (!p) { reasons.push(`${source}: ${missingLabel} 없음`); continue; }

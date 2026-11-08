@@ -15,10 +15,12 @@
     "fetch-usb": "node scripts/fetch-usb-binaries.mjs",
     "check": "pnpm run lint && pnpm run typecheck && pnpm run test",
     "control-plane": "node apps/control-plane/bin/sinclair-control-plane.mjs",
-    "agent": "node apps/runner-agent/bin/sinclair-agent.mjs"
+    "agent": "node apps/runner-agent/bin/sinclair-agent.mjs",
+    "bundle": "node scripts/build-bundles.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
+    "esbuild": "0.28.2",
     "oxlint": "^1.0.0",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"

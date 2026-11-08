@@ -7,3 +7,4 @@ export { createEngine, type EngineHandle, type EngineOverrides } from './engines
 export { runOnce, executeRun, collectTestFiles, EXIT, type ExitCode, type RunOnceDeps } from './run-once.ts';
 export { createSpoolReporter, resumeSpool, drainSpool, spoolFiles, spoolOwnerAlive, readAck, writeAck, DEFAULT_MAX_RETRY_MS, type SpoolOptions, type SpoolReporter, type SpoolMeta, type IngestRetryOptions } from './spool.ts';
 export { resolveHelperApk, helperApkFileName, HelperApkError, HELPER_APK_VERSION, DEFAULT_BUNDLED_DIR, DEFAULT_REPO_BUILD, type HelperApkSource, type ResolveHelperApkOptions, type ResolvedHelperApk } from './helper-apk.ts';
+export { resourcesDir, isBundled } from './resources.ts';
