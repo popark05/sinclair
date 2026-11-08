@@ -1,0 +1,36 @@
+{
+  "at": "2026-11-08",
+  "host": "macOS (교차 빌드)",
+  "nodeVersion": "24.13.0",
+  "targets": {
+    "win-x64": {
+      "zipMb": 33.6,
+      "has": {
+        "node/node.exe": true,
+        "node/LICENSE": true,
+        "bin/sinclair-agent.cmd": true,
+        "bin/sinclair-control-plane.cmd": true,
+        "usb-win32-x64-msvc/usb.win32": true,
+        "resources/helper/sinclair-helper-0.1.0.apk.sha256": true,
+        "dist/runner-agent.mjs": true,
+        "dist/hooks.mjs": true
+      },
+      "readmeWindowsSection": true
+    },
+    "win-arm64": {
+      "zipMb": 30.0,
+      "has": {
+        "node/node.exe": true,
+        "node/LICENSE": true,
+        "bin/sinclair-agent.cmd": true,
+        "bin/sinclair-control-plane.cmd": true,
+        "usb-win32-arm64-msvc/usb.win32": true,
+        "resources/helper/sinclair-helper-0.1.0.apk.sha256": true,
+        "dist/runner-agent.mjs": true,
+        "dist/hooks.mjs": true
+      },
+      "readmeWindowsSection": true
+    }
+  },
+  "executionOnWindows": "미수행 — windows-checklist.md 를 Windows 머신에서 수행하고 결과를 04-windows-run-latest.json 으로 남긴다"
+}

@@ -95,6 +95,19 @@ function launcherCmd(app) {
   return `@echo off\r\nrem Sinclair ${app} 런처. 이 디렉터리 구조(bin\\, node\\, dist\\)를 전제한다.\r\nset "DIR=%~dp0.."\r\n"%DIR%\\node\\node.exe" --no-warnings=ExperimentalWarning "%DIR%\\dist\\${app}.mjs" %*\r\nexit /b %ERRORLEVEL%\r\n`;
 }
 
+function windowsNotes() {
+  return `
+## Windows
+- 실행: \`bin\\sinclair-control-plane.cmd\`, \`bin\\sinclair-agent.cmd\` (PowerShell·cmd 어디서나; 인자와 환경변수는 그대로 전달되고 종료 코드가 보존된다).
+- 데이터 디렉터리: \`%APPDATA%\\sinclair\` (DB·스풀·헬퍼 캐시). 설치 디렉터리에는 쓰지 않는다.
+- USB: 직접 USB 연결(기본)은 기기에 **WinUSB 드라이버**가 필요하다(Zadig 등으로 "Android ADB Interface" 를 WinUSB 로 바꾼다). 제조사 ADB 드라이버가 잡혀 있거나 adb 서버가 떠 있으면 인터페이스를 못 잡아 "기기 없음" 으로 보인다 — \`adb kill-server\` 를 먼저 한다. adb 서버 경유 모드는 아직 에이전트 옵션으로 노출돼 있지 않다.
+- 신호: Windows 에는 SIGTERM 이 없다. 데몬은 Ctrl-C(SIGINT)로 "진행 중 run 을 마치고" 멈추고, 작업 관리자 종료처럼 강제 종료되면 run 의 스풀이 남아 다음 \`sinclair-agent resume\` 이 이어 보낸다.
+- 스풀 lock: 같은 머신의 다른 프로세스가 쓰는 스풀은 pid 로 판별한다. pid 가 재사용되면 잘못 "사용 중" 으로 보일 수 있으니 그런 스풀은 \`.lock\` 파일을 지우고 \`resume\` 한다.
+- 방화벽: 서버는 기본 127.0.0.1 에만 바인딩하므로 규칙이 필요 없다. 다른 노드에서 접근하려면 \`--host 0.0.0.0\` 과 방화벽 허용이 필요하고, 인증이 없으므로 신뢰망 안에서만.
+- 이 배포본은 macOS 에서 교차 빌드됐다. 실행 검증은 Windows 머신에서 체크리스트(.scratch/packaging/windows-checklist.md)로 한다.
+`;
+}
+
 function readme(version, target, sizeMb) {
   return `# Sinclair ${version} (${target})
 
@@ -130,6 +143,7 @@ zip 을 원하는 곳에 푼다(예: \`/opt/sinclair/<version>\`, \`C:\\sinclair
 
 ## macOS 첫 실행
 서명되지 않은 배포본이라 격리 속성을 지운다: \`xattr -dr com.apple.quarantine <이 디렉터리>\`. 그래도 막히면 시스템 설정 > 개인정보 보호 및 보안에서 허용한다.
+${TARGETS[target].win ? windowsNotes() : ''}
 
 ## 사내망(SSL 인터셉션)
 헬퍼 APK 를 릴리스 URL 에서 받게 하려면(\`SINCLAIR_AGENT_HELPER_URL\`) 사내 CA 번들을 \`NODE_EXTRA_CA_CERTS\` 로 준다. 이 배포본은 APK 를 동봉하므로 기본 설정에서는 네트워크가 필요 없다.

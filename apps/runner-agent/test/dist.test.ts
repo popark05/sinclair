@@ -61,6 +61,35 @@ describe('fetchNode', () => {
   });
 });
 
+describe('fetchNode (Windows zip)', () => {
+  it('zip 배포 파일도 tar 로 풀어 node.exe 와 LICENSE 를 찾는다', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sinclair-node-win-'));
+    try {
+      const dirName = `node-v${NODE_VERSION}-win-x64`;
+      const src = path.join(tmp, 'src', dirName);
+      fs.mkdirSync(src, { recursive: true });
+      fs.writeFileSync(path.join(src, 'node.exe'), 'MZ fake');
+      fs.writeFileSync(path.join(src, 'LICENSE'), 'MIT-ish');
+      const zipPath = path.join(tmp, `${dirName}.zip`);
+      execFileSync('zip', ['-qr', zipPath, dirName], { cwd: path.join(tmp, 'src') });
+      const bytes = fs.readFileSync(zipPath);
+      const sum = createHash('sha256').update(bytes).digest('hex');
+      const server = http.createServer((req, res) => {
+        if (req.url === `/v${NODE_VERSION}/SHASUMS256.txt`) { res.end(`${sum}  ${dirName}.zip\n`); return; }
+        if (req.url === `/v${NODE_VERSION}/${dirName}.zip`) { res.end(bytes); return; }
+        res.writeHead(404).end();
+      });
+      await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+      try {
+        const got = await fetchNode('win-x64', { base: `http://127.0.0.1:${(server.address() as { port: number }).port}`, cacheDir: path.join(tmp, 'cache') });
+        expect(got.exe.endsWith(path.join(dirName, 'node.exe'))).toBe(true);
+        expect(fs.readFileSync(got.exe, 'utf8')).toBe('MZ fake');
+        expect(fs.existsSync(got.license)).toBe(true);
+      } finally { await new Promise<void>((r) => server.close(() => r())); }
+    } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+  });
+});
+
 describe.skipIf(!canRun)('호스트 배포본 (동봉 Node 대신 현재 Node 실행 파일)', { timeout: 120_000 }, () => { // 번들 + usb 패키지 확보 + 자식 프로세스 여럿
   let out: string; let install: string;
   const logs: string[] = [];
@@ -176,7 +205,13 @@ describe.skipIf(!fs.existsSync(HELPER_APK))('Windows 타깃 조립(mac 에서 �
       expect(r.files).toEqual(expect.arrayContaining(['bin/sinclair-agent.cmd', 'bin/sinclair-control-plane.cmd', 'node/node.exe', 'node/LICENSE', 'node_modules/@node-usb/', 'node_modules/usb/', `resources/helper/${helperApkFileName()}`]));
       expect(fs.existsSync(path.join(r.stageDir, 'node_modules', '@node-usb', 'usb-win32-x64-msvc', 'package.json'))).toBe(true);
       expect(r.files.some((f) => f === 'bin/sinclair-agent')).toBe(false);
-      expect(fs.readFileSync(path.join(r.stageDir, 'bin', 'sinclair-agent.cmd'), 'utf8')).toMatch(/node\\node\.exe.*dist\\runner-agent\.mjs.*%\*/);
+      const cmd = fs.readFileSync(path.join(r.stageDir, 'bin', 'sinclair-agent.cmd'), 'utf8');
+      expect(cmd.startsWith('@echo off\r\n')).toBe(true); // CRLF, 에코 끔
+      expect(cmd).toContain('set "DIR=%~dp0.."'); // 런처 위치 기준 상위 디렉터리
+      expect(cmd).toMatch(/"%DIR%\\node\\node\.exe" --no-warnings=ExperimentalWarning "%DIR%\\dist\\runner-agent\.mjs" %\*/); // 플래그 하나, 인자 전달
+      expect(cmd).toContain('exit /b %ERRORLEVEL%'); // 종료 코드 보존
+      const readme = fs.readFileSync(path.join(r.stageDir, 'README.md'), 'utf8');
+      for (const s of ['## Windows', 'WinUSB', '%APPDATA%', 'Ctrl-C', 'windows-checklist']) expect(readme).toContain(s);
     } finally { fs.rmSync(out, { recursive: true, force: true }); }
   }, 120_000); // npm pack 으로 win 플랫폼 패키지를 처음 받을 수 있다
 });
