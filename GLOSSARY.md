@@ -15,3 +15,14 @@
 - **판정(assertion)**: `expect(locator).toBeVisible()` 처럼 화면을 바꾸지 않고 상태를 기한 안에 확인하는 것. 에이전트의 `assert` 도 판정이다.
 - **capability**: 엔진이 선택적으로 구현하는 능력(`pointer`, `keyboard`, `session`). 구현한 메서드로 결정된다.
 - **디바이스 레이어**: 기기 조작 JSON-RPC 서버와 온디바이스 에이전트.
+
+## Run 수명과 재시도 정책
+
+- **Run lease**: 에이전트가 Run 을 클레임해 "지금 내가 돌리고 있다" 고 잡아 두는 시한부 권리. heartbeat 로 연장하고, 만료되면 다른 에이전트가 가져갈 수 있다. 기기 lease(Device)와는 다른 것이다.
+- **재시도(retry)**: 같은 Run 안에서 실패한 테스트를 새 Attempt 로 다시 돌리는 것. Run 을 새로 만들지 않는다. _피할 말_: Run 재시도, 재실행(Run 단위로 쓸 때).
+- **passed-flaky**: 재시도 끝에 통과한 케이스의 Verdict. 통과로 집계되지만 불안정함을 드러낸다.
+- **버려진 Run(abandoned)**: 이벤트를 보내기 시작했는데 끝을 보고하지 않은 채 lease 가 만료되고 유예까지 지난 Run. 에이전트가 죽었다고 보고 `infra-failed` 로 닫는다. lease 없이 보고되는 Run 은 버려진 Run 이 되지 않는다.
+- **대체 Run(replacement)**: 버려진 Run 의 몫을 같은 타깃에서 다시 돌리려고 control-plane 이 등록하는 새 Run. 대체된 Run 은 이력으로 남고 Verdict 에서 빠진다. _피할 말_: 재시도 Run, 재실행.
+- **재시도 한도(retryLimit)**: Cycle 이 타깃마다 허용하는 대체 Run 의 수. 테스트 재시도 횟수와는 별개다. _피할 말_: 재시도 횟수(이 뜻으로 쓸 때).
+- **취소(cancelled)**: lease 를 잃거나 종료 신호를 받아 Run 을 중간에 멈춘 것. 진행 중이던 테스트까지만 결과가 있고, 돌지 못한 케이스는 Verdict 에서 `blocked` 다. 대체 Run 을 자동으로 만들지 않는다.
+- **blocked vs skipped**: `blocked` 는 돌아야 했는데 기기·취소 같은 인프라 사정으로 돌지 못한 케이스, `skipped` 는 테스트 쪽에서 돌지 않기로 한 케이스다.
