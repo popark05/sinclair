@@ -17,7 +17,7 @@ const logs: string[] = [];
 beforeEach(async () => { cp = await startControlPlane(MEMORY); url = `http://127.0.0.1:${cp.server.port}`; spool = fs.mkdtempSync(path.join(os.tmpdir(), 'sinclair-daemon-')); logs.length = 0; });
 afterEach(async () => { await cp?.close(); cp = undefined; fs.rmSync(spool, { recursive: true, force: true }); });
 
-const fakeEngine = async () => { const e = new FakeEngine({ root: LOGIN_SCREEN, onTap: (n) => (n.name === '로그인' ? HOME_SCREEN : undefined) }); return { engine: e, dispose: () => e.dispose(), deviceId: 'fake' }; };
+const fakeEngine = async (a?: { device?: string }) => { const e = new FakeEngine({ root: LOGIN_SCREEN, onTap: (n) => (n.name === '로그인' ? HOME_SCREEN : undefined) }); return { engine: e, dispose: () => e.dispose(), deviceId: a?.device ?? 'fake' }; };
 // sleep 은 20ms 로 눌러 폴링 간격(pollMs)과 무관하게 테스트가 빨리 돈다
 const deps = (extra: Partial<DaemonDeps> = {}): DaemonDeps => ({ log: (l) => logs.push(l), createEngine: fakeEngine, sleep: (ms) => new Promise((r) => setTimeout(r, Math.min(ms, 20))), ...extra });
 /** 조건이 참이 될 때까지 폴링(상한 limitMs). 전체 스위트 병렬 실행에서 고정 대기는 흔들린다 */
@@ -222,7 +222,7 @@ describe('runDaemon · Fleet 보고', () => {
     await post('/cycles/cf2/runs', { targetId: 'android' });
     const r = await runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'node-g', pollMs: 10 }, deps({ maxRuns: 1 }));
     expect(r.runs[0]!.exitCode).toBe(EXIT.ok);
-    expect((await fleet()).nodes.find((n) => n.agentId === 'node-g')!.devices).toMatchObject([{ id: 'fake', model: 'FakeEngine', state: 'idle' }]);
+    expect((await fleet()).nodes.find((n) => n.agentId === 'node-g')!.devices).toMatchObject([{ id: 'fake-node-g', model: 'FakeEngine', state: 'idle' }]);
     // 보고 경로만 깨진 서버: PUT 이 실패해도 run 은 돈다
     logs.length = 0;
     await post('/cycles', { cycleId: 'cf3', build: 'b', targets: ['android'], suite: { tests: path.join(fixtures, 'only-login') } });
@@ -231,5 +231,39 @@ describe('runDaemon · Fleet 보고', () => {
     const r2 = await runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'node-h', pollMs: 10 }, deps({ maxRuns: 1, fetch: broken }));
     expect(r2.runs[0]!.exitCode).toBe(EXIT.ok);
     expect(logs.some((l) => /fleet 보고 실패/.test(l))).toBe(true);
+  });
+});
+
+describe('runDaemon · 기기 lease', () => {
+  it('클레임에 인벤토리 기기를 후보로 보내고 lease 받은 기기로 엔진을 만든다: run 중에는 Fleet 에 leased, 끝나면 idle; run.started 기기가 lease 와 같아 경고가 없다', async () => {
+    await post('/cycles', { cycleId: 'cd', build: 'b', targets: ['android'], suite: { tests: path.join(fixtures, 'only-login') } });
+    await post('/cycles/cd/runs', { targetId: 'android', runId: 'r-dev' });
+    const dev = (id: string) => ({ id, platform: 'android' as const, model: 'SM-N981N', osVersion: '13', connection: 'device' as const, helper: 'ready' as const, locked: false });
+    let seenDevice: string | undefined;
+    let midRun: unknown;
+    const engineSpy = async (a: { device?: string }) => {
+      seenDevice = a.device;
+      midRun = (await (await fetch(`${url}/fleet`)).json() as FleetView).nodes.find((n) => n.agentId === 'node-d')?.devices.map((d) => [d.id, d.state, d.runId]);
+      return fakeEngine(a);
+    };
+    const r = await runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'node-d', pollMs: 10 }, deps({ maxRuns: 1, inventory: async () => [dev('SER-1'), dev('SER-2')], createEngine: engineSpy }));
+    expect(r.runs[0]!.exitCode).toBe(EXIT.ok);
+    expect(seenDevice).toBe('SER-1');
+    expect(midRun).toEqual([['SER-1', 'leased', 'r-dev'], ['SER-2', 'idle', undefined]]);
+    const after = (await (await fetch(`${url}/fleet`)).json() as FleetView).nodes.find((n) => n.agentId === 'node-d')!;
+    expect(after.devices.map((d) => d.state)).toEqual(['idle', 'idle']);
+    const v = await view('cd') as CycleView & { warnings?: string[] };
+    expect(v.runs[0]!.lease?.deviceId).toBe('SER-1');
+    expect(v.warnings).toBeUndefined();
+    expect(logs.join('\n')).toMatch(/기기 …ER-1/);
+    expect(logs.join('\n')).not.toMatch(/SER-1/);
+  });
+
+  it('기기가 없는 노드는 Run 을 클레임하지 않는다(받아도 돌릴 기기가 없다)', async () => {
+    await post('/cycles', { cycleId: 'ce', build: 'b', targets: ['android'], suite: { tests: path.join(fixtures, 'only-login') } });
+    await post('/cycles/ce/runs', { targetId: 'android' });
+    const r = await runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'node-e', pollMs: 10 }, deps({ signal: AbortSignal.timeout(300), inventory: async () => [] }));
+    expect(r.runs).toEqual([]);
+    expect((await view('ce')).runs[0]!.lease).toBeUndefined();
   });
 });

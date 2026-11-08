@@ -7,6 +7,7 @@
 - `fleet-report` fake 데몬은 가짜 기기 하나(`fake`, 모델 `FakeEngine`)를, mobile 데몬은 소유한 디바이스 백엔드의 기기(모델·OS·연결·헬퍼·화면 잠금)를 보고한다.
 - `fleet-states` 연결·승인·헬퍼 ready·잠금 없음 → `idle`; 미승인·adb offline·헬퍼 미준비·잠김 → `untrusted` + 사유; 노드 보고가 TTL 을 넘김 → `offline`("노드 보고 끊김"); 뽑혀서 보고에서 빠진 기기 → `offline`("보고에서 빠짐", 다시 꽂히면 돌아온다).
 - `fleet-offline` 데몬이 죽으면 TTL 뒤 그 노드의 기기가 `offline`, 다른 노드는 그대로.
+- `fleet-lease` 클레임 때 노드의 기기가 Run 에 lease 된다: 도는 동안 `leased`(+ `runId`), 끝나면(run.finished) 바로 `idle`. Cycle 뷰 run 행의 `lease.deviceId` 가 그 기기.
 - `fleet-shared-backend` mobile 데몬은 백엔드를 하나 열어 두고 인벤토리와 run 이 같이 쓴다(run 이 USB 를 다시 잡지 않는다).
 
 ## How to get to it (user POV)
@@ -16,8 +17,8 @@
 ## Driving it with scripts
 
 ```bash
-$S/fleet.sh $RUN              # 자체 control-plane(TTL 2초) + fake 데몬 2개 → 하나 SIGKILL
-# FLEET OK before=fleet-node-b:idle,fleet-node-a:idle after=fleet-node-b:idle,fleet-node-a:offline
+$S/fleet.sh $RUN              # 자체 control-plane(TTL 2초) + fake 데몬 2개 → 느린 Run 하나로 leased 확인 → 하나 SIGKILL
+# FLEET OK before=…:idle during=fleet-node-b:leased,… afterRun=…:idle afterKillA=fleet-node-b:idle,fleet-node-a:offline
 # 증거: $RUN/evidence/fleet.json
 curl -s http://127.0.0.1:<port>/fleet    # 떠 있는 서버에 직접(mobile 노드면 시리얼이 그대로 나온다: 증거로 남기기 전에 마스킹)
 ```
@@ -32,3 +33,5 @@ curl -s http://127.0.0.1:<port>/fleet    # 떠 있는 서버에 직접(mobile �
 - mobile 데몬이 백엔드를 열지 못하면(헬퍼 APK 없음 등) 인벤토리는 비고 run 마다 여는 기존 경로로 돈다.
 - 노드는 지워지지 않는다: 한 번 보고한 agentId 는 데몬을 내려도 offline 으로 남는다(정리는 후속). 뽑힌 기기도 다시 꽂힐 때까지 "보고에서 빠짐" 으로 남는다.
 - run 이 쓰는 중인 기기에는 인벤토리가 잠금 확인(dumpsys)을 보내지 않고 run 시작 때의 값(잠금 없음)을 쓴다.
+- 기기 id 는 Fleet 전체에서 유일해야 한다(기기 lease 가 id 로 독점을 가른다). fake 기기는 노드마다 `fake-<agentId>`.
+- 아직 잠긴 기기도 클레임 후보로 나간다(lease 받고 run 이 blocked 로 끝난다). 상태로 거르는 것은 device-fleet 05.

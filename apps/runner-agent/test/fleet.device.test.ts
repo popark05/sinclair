@@ -18,7 +18,7 @@ const REPO = path.resolve(import.meta.dirname, '../../..');
 const mask = (line: string, serials: string[] = []): string => serials.reduce((l, id) => l.split(id).join(`…${id.slice(-4)}`), line.split(REPO).join('<repo>').split(os.homedir()).join('<home>')).replace(/\b[A-Za-z0-9]{8,}\b/g, (s) => (/\d/.test(s) && /[A-Za-z]/.test(s) && !/^[a-f0-9]{8}-/.test(s) ? `…${s.slice(-4)}` : s));
 
 describe.skipIf(!target)('실기기 Fleet 인벤토리', () => {
-  it('mobile 데몬이 꽂힌 기기를 idle 로 보고하고, 같은 백엔드로 Run 을 끝낸다', async () => {
+  it('mobile 데몬이 꽂힌 기기를 idle 로 보고하고, 그 기기를 lease 받아 같은 백엔드로 Run 을 끝낸 뒤 idle 로 돌아온다', async () => {
     const cp = await startControlPlane({ host: '127.0.0.1', port: 0, store: 'memory', db: 'unused-in-memory-mode', leaseTtlMs: 6_000 });
     const url = `http://127.0.0.1:${cp.server.port}`;
     const logs: string[] = [];
@@ -31,14 +31,15 @@ describe.skipIf(!target)('실기기 Fleet 인벤토리', () => {
         { log: (l) => logs.push(l), maxRuns: 1 },
       );
       const fleet = (await (await fetch(`${url}/fleet`)).json()) as FleetView;
-      const view = (await (await fetch(`${url}/cycles/fleet-device`)).json()) as CycleView;
+      const view = (await (await fetch(`${url}/cycles/fleet-device`)).json()) as CycleView & { warnings?: string[] };
+      const runView = (await (await fetch(`${url}/runs/${view.runs[0]!.runId}`)).json()) as { deviceId?: string };
       const node = fleet.nodes.find((n) => n.agentId === 'device-node');
       const dir = path.join(REPO, '.scratch/device-fleet/evidence');
       await fs.mkdir(dir, { recursive: true });
       await fs.writeFile(path.join(dir, '01-fleet-device-latest.json'), JSON.stringify({
         at: new Date().toISOString(), nodeTtlMs: fleet.nodeTtlMs,
         node: node && { agentId: node.agentId, online: node.online, devices: node.devices.map((d) => ({ id: `…${d.id.slice(-4)}`, platform: d.platform, model: d.model, osVersion: d.osVersion, connection: d.connection, helper: d.helper, locked: d.locked, state: d.state, reason: d.reason })) },
-        run: { exitCode: summary.runs[0]?.exitCode, cycle: { state: view.state, verdict: view.verdict } }, log: logs.map((l) => mask(l, node?.devices.map((d) => d.id) ?? [])),
+        run: { exitCode: summary.runs[0]?.exitCode, cycle: { state: view.state, verdict: view.verdict, warnings: view.warnings }, leasedDevice: view.runs[0]?.lease?.deviceId && `…${view.runs[0].lease.deviceId.slice(-4)}`, startedOnLeasedDevice: !!runView.deviceId && runView.deviceId === view.runs[0]?.lease?.deviceId }, log: logs.map((l) => mask(l, node?.devices.map((d) => d.id) ?? [])),
       }, null, 2) + '\n');
       expect(node?.devices.length).toBeGreaterThan(0);
       // 실패 메시지에 시리얼이 찍히지 않도록 id 를 뺀 값으로 비교한다
@@ -46,6 +47,10 @@ describe.skipIf(!target)('실기기 Fleet 인벤토리', () => {
       expect(first).toMatchObject({ platform: 'android', connection: 'device', helper: 'ready', locked: false, state: 'idle' });
       expect(summary.runs[0]?.exitCode).toBe(EXIT.ok);
       expect(view).toMatchObject({ state: 'finished', verdict: 'verified' });
+      // 기기 lease(device-fleet 02): Run 이 꽂힌 그 기기를 lease 받아 그 기기에서 돌았고, 끝난 뒤 기기는 idle 로 돌아왔다
+      expect(view.runs[0]?.lease?.deviceId === node!.devices[0]!.id).toBe(true);
+      expect(runView.deviceId === view.runs[0]?.lease?.deviceId).toBe(true);
+      expect(view.warnings).toBeUndefined();
       expect(logs.filter((l) => /헬퍼 온보딩.*헬퍼 준비됨/.test(l)).length).toBeLessThanOrEqual(1); // 백엔드를 한 번만 열었다(run 이 다시 열지 않음)
     } finally {
       await cp.close();

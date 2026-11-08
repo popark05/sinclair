@@ -39,8 +39,9 @@ const countNodes = (n: { children?: unknown[] }): number => 1 + ((n.children ?? 
 /** 테스트용: APK 해석 단계의 번들·리포 빌드 위치를 바꿔 끼운다 */
 export interface EngineOverrides { bundledDir?: string; repoBuild?: string }
 
-/** fake 엔진 노드가 보고하는 가짜 기기(Fleet 테스트·verify 스킬용). 언제나 쓸 수 있는 상태 */
-export const FAKE_DEVICE: NodeDevice = { id: 'fake', platform: 'android', model: 'FakeEngine', osVersion: '0', connection: 'device', helper: 'ready', locked: false };
+/** fake 엔진 노드가 보고하는 가짜 기기(Fleet 테스트·verify 스킬용). 언제나 쓸 수 있는 상태.
+ *  기기 id 는 Fleet 전체에서 유일해야 한다(기기 lease 가 id 로 독점을 가른다): 노드마다 `fake-<agentId>` */
+export const fakeDevice = (agentId: string): NodeDevice => ({ id: `fake-${agentId}`, platform: 'android', model: 'FakeEngine', osVersion: '0', connection: 'device', helper: 'ready', locked: false });
 
 /** 디바이스 백엔드 하나를 소유하는 Android 노드. 데몬은 하나를 열어 두고 인벤토리와 run 들이 같이 쓴다(직접 USB 는 한 프로세스만 잡을 수 있다).
  *  `run` 명령은 run 하나 동안만 연다(createEngine) */
@@ -149,7 +150,8 @@ export async function openAndroidNode(args: Pick<RunArgs, 'helperApk' | 'helperC
 export async function createEngine(args: RunArgs, log: (line: string) => void, overrides: EngineOverrides = {}): Promise<EngineHandle> {
   if (args.engine === 'fake') {
     const engine = new FakeEngine({ root: LOGIN_SCREEN, onTap: (n) => (n.name === '로그인' ? HOME_SCREEN : undefined) });
-    return { engine, dispose: () => engine.dispose(), deviceId: 'fake', deviceLabel: 'fake' };
+    // lease 받은 기기로 돈다고 보고한다(run.started.deviceId 가 lease 와 맞아야 Cycle 뷰에 경고가 없다)
+    return { engine, dispose: () => engine.dispose(), deviceId: args.device ?? 'fake', deviceLabel: 'fake' };
   }
   const node = await openAndroidNode(args, log, overrides);
   try {

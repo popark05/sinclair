@@ -88,6 +88,8 @@ export async function buildCycleView(events: EventStore, cycles: CycleStore, cyc
     const view = projectRun(stored);
     if (view.cycleId !== undefined && view.cycleId !== r.cycleId) warnings.push(`run ${r.runId}: 이벤트의 cycleId(${view.cycleId})가 등록(${r.cycleId})과 다름`);
     if (view.targetId !== undefined && view.targetId !== r.targetId) warnings.push(`run ${r.runId}: 이벤트의 targetId(${view.targetId})가 등록(${r.targetId})과 다름`);
+    // 기기 lease 가 있으면 러너가 실제로 쓴 기기와 맞아야 한다(다르면 lease 가 지키는 독점이 깨진 것)
+    if (view.deviceId !== undefined && r.lease?.deviceId !== undefined && view.deviceId !== r.lease.deviceId) warnings.push(`run ${r.runId}: 이벤트의 deviceId(${view.deviceId})가 lease 된 기기(${r.lease.deviceId})와 다름`);
     views.push(view);
   }
   return { ...computeCycle(cycle, regs, views), ...(warnings.length ? { warnings } : {}) };

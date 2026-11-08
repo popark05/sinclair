@@ -108,6 +108,44 @@ export function runClaimSuite(name: string, makeStore: () => Promise<CycleStore>
       expect(runs.find((r) => r.runId === 'r1b')).toMatchObject({ replaces: 'r1' });
     });
 
+    // ---- 기기 lease(device-fleet 02): Run lease 에 deviceId 를 싣고, 바쁜 기기는 다른 Run 에 주지 않는다
+    it('후보 기기 중 쓰지 않는 첫 기기를 lease 에 싣는다: 기기 2대면 Run 2개가 서로 다른 기기, 1대면 두 번째는 기다린다', async () => {
+      const a = await store.claimRun('android', 'n', T0, TTL, noEvents, { devices: ['D1', 'D2'] });
+      const b = await store.claimRun('android', 'n', T0, TTL, noEvents, { devices: ['D1', 'D2'] });
+      expect([a?.runId, a?.lease?.deviceId, b?.runId, b?.lease?.deviceId]).toEqual(['r1', 'D1', 'r3', 'D2']);
+      expect(await store.claimRun('ios', 'n', T0, TTL, noEvents, { devices: ['D1'] })).toBeUndefined(); // D1 은 r1 이 쓰는 중
+      expect(await store.claimRun('ios', 'n', T0, TTL, noEvents, { devices: [] })).toBeUndefined(); // 기기 없는 노드는 받지 않는다
+      expect(await store.deviceLeases(T0)).toEqual([
+        { deviceId: 'D1', runId: 'r1', agentId: 'n', expiresAt: new Date(T0 + TTL).toISOString() },
+        { deviceId: 'D2', runId: 'r3', agentId: 'n', expiresAt: new Date(T0 + TTL).toISOString() },
+      ]);
+    });
+
+    it('기기는 Run 이 끝나거나(finishedRuns) lease 가 만료되거나 Run 이 대체되면 풀린다; heartbeat 는 기기 lease 도 연장한다', async () => {
+      await store.claimRun('android', 'n', T0, TTL, noEvents, { devices: ['D1'] }); // r1
+      expect((await store.heartbeat('r1', 'n', T0 + 10_000, TTL)).outcome).toBe('ok');
+      expect((await store.runsForCycle('c1')).find((r) => r.runId === 'r1')!.lease).toEqual({ agentId: 'n', expiresAt: new Date(T0 + 10_000 + TTL).toISOString(), deviceId: 'D1' });
+      expect(await store.claimRun('ios', 'n', T0 + TTL, TTL, noEvents, { devices: ['D1'] })).toBeUndefined(); // 연장돼서 아직 바쁨
+      // Run 이 끝났다고 알려 주면 바로 풀린다
+      expect((await store.claimRun('ios', 'n', T0 + TTL, TTL, noEvents, { devices: ['D1'], finishedRuns: new Set(['r1']) }))?.lease?.deviceId).toBe('D1'); // r2
+      // r2 의 lease 가 만료되면 풀린다(r1 은 끝나서 이벤트가 있으니 다시 클레임되지 않는다)
+      const r1Done = async (id: string) => id === 'r1';
+      expect(await store.claimRun('android', 'n', T0 + TTL + 1, TTL, r1Done, { devices: ['D1'], finishedRuns: new Set(['r1']) })).toBeUndefined();
+      expect((await store.claimRun('android', 'n', T0 + 2 * TTL, TTL, r1Done, { devices: ['D1'], finishedRuns: new Set(['r1']) }))?.runId).toBe('r3');
+      // r3 가 대체되면 풀린다
+      await store.registerRun({ runId: 'r3b', cycleId: 'c1', targetId: 'android', createdAt: 'x', replaces: 'r3' });
+      await store.markReplaced('r3', 'r3b', 'x');
+      const doneOrReplaced = async (id: string) => id === 'r1' || id === 'r3';
+      expect((await store.claimRun('android', 'n', T0 + 2 * TTL, TTL, doneOrReplaced, { devices: ['D1'], finishedRuns: new Set(['r1']) }))?.runId).toBe('r3b');
+    });
+
+    it('기기 없이 클레임하는 구버전 에이전트는 지금처럼 기기 없는 lease 를 받는다(바쁜 기기와 무관)', async () => {
+      await store.claimRun('android', 'n', T0, TTL, noEvents, { devices: ['D1'] });
+      const legacy = await store.claimRun('android', 'old', T0, TTL, noEvents);
+      expect(legacy).toMatchObject({ runId: 'r3', lease: { agentId: 'old' } });
+      expect(legacy!.lease!.deviceId).toBeUndefined();
+    });
+
     if (makeTwin) {
       it('같은 저장소를 연 두 핸들이 같은 타깃을 동시에 클레임해도 같은 Run 을 두 번 주지 않는다', async () => {
         const twin = await makeTwin(store);
@@ -115,6 +153,14 @@ export function runClaimSuite(name: string, makeStore: () => Promise<CycleStore>
           const results = await Promise.all([store.claimRun('android', 'a', T0, TTL, noEvents), twin.claimRun('android', 'b', T0, TTL, noEvents), store.claimRun('android', 'c', T0, TTL, noEvents)]);
           const ids = results.filter((r) => r !== undefined).map((r) => r!.runId).sort();
           expect(ids).toEqual(['r1', 'r3']);
+        } finally { await twin.close?.(); }
+      });
+
+      it('두 핸들이 같은 기기 하나로 동시에 클레임해도 그 기기는 Run 하나에만 lease 된다', async () => {
+        const twin = await makeTwin(store);
+        try {
+          const results = await Promise.all([store.claimRun('android', 'a', T0, TTL, noEvents, { devices: ['D1'] }), twin.claimRun('android', 'b', T0, TTL, noEvents, { devices: ['D1'] }), twin.claimRun('ios', 'b', T0, TTL, noEvents, { devices: ['D1'] })]);
+          expect(results.filter((r) => r !== undefined).map((r) => r!.lease!.deviceId)).toEqual(['D1']);
         } finally { await twin.close?.(); }
       });
     }

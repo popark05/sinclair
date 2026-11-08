@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { RunEvent } from '@sinclair/protocol';
 import type { EventStore } from './store.ts';
-import { leaseExpired, newLease, type CycleRecord, type CycleStore, type RunRegistration } from './cycle-store.ts';
+import { activeDeviceLeases, leaseExpired, newLease, pickDevice, type CycleRecord, type CycleStore, type RunRegistration } from './cycle-store.ts';
 import { nextNodeRecord, type FleetStore, type NodeRecord } from './fleet.ts';
 
 /** PRAGMA user_version. 스키마를 바꾸면 올리고 SQLITE_MIGRATIONS 에 단계를 더한다 */
@@ -130,15 +130,31 @@ export function createSqliteCycleStore(source: string | DatabaseSync): CycleStor
     async runsForCycle(cycleId) {
       return parse<RunRegistration>(selectRuns.all(cycleId));
     },
-    async claimRun(targetId, agentId, nowMs, ttlMs, hasEvents) {
+    async claimRun(targetId, agentId, nowMs, ttlMs, hasEvents, opts) {
+      const all = (): RunRegistration[] => (selectAllRuns.all() as Array<{ record: string }>).map((row) => JSON.parse(row.record) as RunRegistration);
+      if (pickDevice(all(), nowMs, opts) === undefined) return undefined;
       for (const row of selectAllRuns.all() as Array<{ record: string }>) {
         const r = JSON.parse(row.record) as RunRegistration;
         if (r.targetId !== targetId || !leaseExpired(r.lease, nowMs)) continue;
-        if (await hasEvents(r.runId)) continue;
-        const next = { ...r, lease: newLease(agentId, nowMs, ttlMs) };
-        if (casRun.run(JSON.stringify(next), r.runId, row.record).changes === 1) return next; // 그 사이 바뀌었으면 다음 후보로
+        if (await hasEvents(r.runId)) continue; // 비동기는 트랜잭션 밖에서
+        // 빈 기기 고르기와 Run 갱신을 한 트랜잭션으로: 다른 핸들이 같은 기기를 다른 Run 에 싣는 사이에 끼어들 수 없다(BEGIN IMMEDIATE 가 쓰기 잠금을 먼저 잡는다)
+        db.exec('BEGIN IMMEDIATE');
+        try {
+          const device = pickDevice(all(), nowMs, opts);
+          if (device === undefined) { db.exec('COMMIT'); return undefined; }
+          const next = { ...r, lease: newLease(agentId, nowMs, ttlMs, device ?? undefined) };
+          const changed = casRun.run(JSON.stringify(next), r.runId, row.record).changes === 1; // 그 사이 바뀌었으면 다음 후보로
+          db.exec('COMMIT');
+          if (changed) return next;
+        } catch (err) {
+          db.exec('ROLLBACK');
+          throw err;
+        }
       }
       return undefined;
+    },
+    async deviceLeases(nowMs) {
+      return activeDeviceLeases((selectAllRuns.all() as Array<{ record: string }>).map((row) => JSON.parse(row.record) as RunRegistration), nowMs);
     },
     async heartbeat(runId, agentId, nowMs, ttlMs) {
       // CAS 가 계속 지면 다른 쓰기가 끼어드는 것이다(단일 프로세스에서는 거의 없음). 몇 번 뒤 not-owner 로 끝낸다
@@ -148,7 +164,7 @@ export function createSqliteCycleStore(source: string | DatabaseSync): CycleStor
         const r = JSON.parse(row.record) as RunRegistration;
         if (r.replacedBy) return { outcome: 'replaced', replacedBy: r.replacedBy };
         if (r.lease?.agentId !== agentId) return { outcome: 'not-owner' };
-        const next = { ...r, lease: newLease(agentId, nowMs, ttlMs) };
+        const next = { ...r, lease: newLease(agentId, nowMs, ttlMs, r.lease.deviceId) };
         if (casRun.run(JSON.stringify(next), runId, row.record).changes === 1) return { outcome: 'ok', expiresAt: next.lease.expiresAt };
       }
       return { outcome: 'not-owner' };

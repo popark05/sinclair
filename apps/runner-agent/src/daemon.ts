@@ -8,7 +8,7 @@ import { ControlPlaneError, type RegisteredRun } from './control-plane-client.ts
 import { collectTestFiles, executeRun, EXIT, type ExitCode, type RunOnceDeps } from './run-once.ts';
 import { resumeSpool } from './spool.ts';
 import type { NodeDevice } from '@sinclair/protocol';
-import { FAKE_DEVICE, openAndroidNode, type AndroidNode } from './engines.ts';
+import { fakeDevice, openAndroidNode, type AndroidNode } from './engines.ts';
 
 export interface DaemonArgs extends Omit<RunArgs, 'cycle' | 'target' | 'run'> {
   /** 이 노드가 맡는 타깃들 */
@@ -17,7 +17,7 @@ export interface DaemonArgs extends Omit<RunArgs, 'cycle' | 'target' | 'run'> {
   pollMs?: number;
 }
 
-export interface ClaimedRun { run: RegisteredRun & { lease: { agentId: string; expiresAt: string } }; leaseTtlMs: number; suite?: { tests: string; tags?: string[]; retries?: number } }
+export interface ClaimedRun { run: RegisteredRun & { lease: { agentId: string; expiresAt: string; deviceId?: string } }; leaseTtlMs: number; suite?: { tests: string; tags?: string[]; retries?: number }; warning?: string }
 
 export interface DaemonDeps extends RunOnceDeps {
   /** 중단 신호. abort 되면 진행 중 run 에 취소를 전파해 진행 중 테스트 하나만 마치고(나머지 skipped, run cancelled) 루프를 나온다 */
@@ -37,9 +37,10 @@ const MIN_HEARTBEAT_MS = 1_000;
 
 const DEFAULT_POLL_MS = 5_000;
 
-export async function claimRun(controlPlane: string, targetId: string, agentId: string, doFetch: typeof fetch = fetch): Promise<ClaimedRun | undefined> {
+/** devices: 이 노드가 내놓는 후보 기기. 있으면 control-plane 이 그중 빈 기기를 lease 해 준다(없으면 구버전처럼 기기 없는 lease) */
+export async function claimRun(controlPlane: string, targetId: string, agentId: string, doFetch: typeof fetch = fetch, devices?: readonly string[]): Promise<ClaimedRun | undefined> {
   const base = controlPlane.replace(/\/$/, '');
-  const res = await doFetch(`${base}/runs/claim`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ targetId, agentId }) });
+  const res = await doFetch(`${base}/runs/claim`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ targetId, agentId, ...(devices ? { devices } : {}) }) });
   if (res.status === 204) return undefined;
   if (res.status !== 200) throw new ControlPlaneError(`클레임 실패 ${res.status}`, res.status);
   return (await res.json()) as ClaimedRun;
@@ -98,7 +99,10 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
   if (args.engine === 'mobile' && !deps.createEngine && !deps.inventory) { // 테스트가 엔진·인벤토리를 끼우면 USB 를 열지 않는다
     node = await openAndroidNode(args, log).catch((err: unknown) => { log(`디바이스 백엔드를 열지 못함(run 마다 다시 시도): ${err instanceof Error ? err.message : String(err)}`); return undefined; });
   }
-  const inventory = deps.inventory ?? (node ? () => node.inventory() : args.engine === 'fake' ? async () => [FAKE_DEVICE] : async () => []);
+  const readInventory = deps.inventory ?? (node ? () => node.inventory() : args.engine === 'fake' ? async () => [fakeDevice(agentId)] : async () => []);
+  // 마지막으로 읽은 기기 목록이 클레임 후보다(클레임마다 USB 를 다시 훑지 않는다). 보고가 실패해도 읽기는 됐으면 갱신한다
+  let lastDevices: NodeDevice[] = [];
+  const inventory = async (): Promise<NodeDevice[]> => (lastDevices = await readInventory());
   const runDeps: RunOnceDeps = node ? { ...deps, createEngine: (a, l) => node.engineFor(a, l) } : deps;
 
   // Fleet 보고: 시작할 때 한 번, 그 뒤 서버 TTL 의 1/3 마다. 실패해도 클레임은 계속한다(보고는 보이기 위한 것이고 아직 클레임 조건이 아니다)
@@ -132,15 +136,18 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
       for (const targetId of args.targets) {
         if (deps.signal?.aborted) break;
         let claimed: ClaimedRun | undefined;
-        try { claimed = await claimRun(args.controlPlane, targetId, agentId, deps.fetch); }
+        try { claimed = await claimRun(args.controlPlane, targetId, agentId, deps.fetch, lastDevices.map((d) => d.id)); }
         catch (err) { log(`클레임 오류(${targetId}): ${err instanceof Error ? err.message : String(err)}`); continue; }
         if (!claimed) continue;
         worked = true;
         const { run, leaseTtlMs } = claimed;
-        const testsDir = path.resolve(claimed.suite?.tests ?? args.tests);
+        if (claimed.warning) log(`클레임 경고: ${claimed.warning}`);
+      // lease 받은 기기로 돈다. 그 기기를 못 찾으면 엔진 준비가 실패해 blocked(infra-failed)로 보고되고, run 이 끝나 기기 lease 도 풀린다
+      const leasedDevice = claimed.run.lease.deviceId;
+      const testsDir = path.resolve(claimed.suite?.tests ?? args.tests);
         // Cycle 이 정한 재시도 횟수가 노드 설정보다 우선한다(QA 담당자가 Cycle 단위로 정책을 고른다)
         const retries = claimed.suite?.retries ?? args.retries;
-        log(`run ${run.runId} 클레임 (cycle ${run.cycleId}, target ${targetId}, tests ${testsDir}${retries !== undefined ? `, retries ${retries}` : ''})`);
+        log(`run ${run.runId} 클레임 (cycle ${run.cycleId}, target ${targetId}${leasedDevice ? `, 기기 …${leasedDevice.slice(-4)}` : ''}, tests ${testsDir}${retries !== undefined ? `, retries ${retries}` : ''})`);
 
         // run 마다 취소 컨트롤러: lease 상실과 데몬 종료 신호가 같은 길로 러너에 닿는다. 러너는 진행 중 테스트를 마치고 나머지를 skipped 로 보고하므로
         // 두 에이전트가 같은 Run 에 보고하는 창은 "현재 테스트 하나" 로 줄고, SIGTERM 도 run 전체가 아니라 테스트 하나 뒤에 멈춘다
@@ -162,7 +169,7 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
         try {
           const files = await collectTestFiles(testsDir);
           const { targets: _targets, pollMs: _poll, ...runArgs } = args; // RunArgs 에 데몬 전용 필드가 섞이지 않게
-          code = await executeRun({ ...runArgs, cycle: run.cycleId, target: targetId, run: run.runId, tests: testsDir, ...(retries !== undefined ? { retries } : {}) }, run, files, { ...runDeps, signal: canceller.signal });
+          code = await executeRun({ ...runArgs, cycle: run.cycleId, target: targetId, run: run.runId, tests: testsDir, ...(retries !== undefined ? { retries } : {}), ...(leasedDevice ? { device: leasedDevice } : {}) }, run, files, { ...runDeps, signal: canceller.signal });
         } catch (err) {
           log(`run ${run.runId} 준비 실패: ${err instanceof Error ? err.message : String(err)}`);
           code = EXIT.config;

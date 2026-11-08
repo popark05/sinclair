@@ -3,7 +3,7 @@ export { parseRunArgs, parseResumeArgs, parseDaemonArgs, defaultSpoolDir, defaul
 export { runDaemon, claimRun, heartbeat, reportNode, type DaemonArgs, type DaemonDeps, type DaemonSummary, type ClaimedRun } from './daemon.ts';
 export { main } from './main.ts';
 export { registerRun, ControlPlaneError, type RegisteredRun } from './control-plane-client.ts';
-export { createEngine, type EngineHandle, type EngineOverrides } from './engines.ts';
+export { createEngine, fakeDevice, openAndroidNode, type EngineHandle, type EngineOverrides, type AndroidNode } from './engines.ts';
 export { runOnce, executeRun, collectTestFiles, EXIT, type ExitCode, type RunOnceDeps } from './run-once.ts';
 export { createSpoolReporter, resumeSpool, drainSpool, spoolFiles, spoolOwnerAlive, readAck, writeAck, DEFAULT_MAX_RETRY_MS, type SpoolOptions, type SpoolReporter, type SpoolMeta, type IngestRetryOptions } from './spool.ts';
 export { resolveHelperApk, helperApkFileName, HelperApkError, HELPER_APK_VERSION, DEFAULT_BUNDLED_DIR, DEFAULT_REPO_BUILD, type HelperApkSource, type ResolveHelperApkOptions, type ResolvedHelperApk } from './helper-apk.ts';

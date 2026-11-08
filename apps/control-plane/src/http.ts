@@ -6,7 +6,7 @@
 //   GET  /cycles             CycleRecord 목록
 //   GET  /cycles/:id         CycleView (verdict.ts: 상태·Verdict·매트릭스)
 //   POST /cycles/:id/runs    { targetId, runId? } → RunRegistration (201)
-//   POST /runs/claim         { targetId, agentId } → { run, leaseTtlMs } (200) | 없음 (204)
+//   POST /runs/claim         { targetId, agentId, devices? } → { run(lease.deviceId), leaseTtlMs, warning? } (200) | 없음 (204)
 //   POST /runs/:id/heartbeat { agentId } → { expiresAt } (200) | 409 not-owner·replaced | 404
 //   PUT  /fleet/nodes/:agentId { devices[] } → { ttlMs } (200) | 400 — 노드의 기기 보고(통째 교체)
 //   GET  /fleet              → FleetView(노드별 기기와 idle/untrusted/offline)
@@ -65,6 +65,16 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
   const fleet = opts.fleet ?? createMemoryFleetStore();
   // 노드 보고 TTL 은 Run lease TTL 과 같다: 같은 노드의 heartbeat 와 보고가 같은 박자로 끊기고 살아난다(노드는 TTL/3 마다 보고)
   const nodeTtlMs = (): number => opts.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS;
+  /** 지금 바쁜 기기 → Run. 끝난 Run(run.finished 가 들어옴)의 기기는 lease 가 남아 있어도 풀린 것으로 본다. 바쁜 기기는 노드마다 몇 대라 Run 이벤트 조회가 싸다 */
+  const busyDevices = async (nowMs: number): Promise<{ busy: Map<string, string>; finished: Set<string> }> => {
+    const busy = new Map<string, string>();
+    const finished = new Set<string>();
+    for (const l of await cycles.deviceLeases(nowMs)) {
+      if (projectRun(await store.eventsForRun(l.runId)).finishedAt !== undefined) finished.add(l.runId);
+      else busy.set(l.deviceId, l.runId);
+    }
+    return { busy, finished };
+  };
   const sweepOpts = () => ({ nowMs: (opts.now ?? Date.now)(), graceMs: opts.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS });
   const json = (res: http.ServerResponse, status: number, body: unknown): void => {
     res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
@@ -146,12 +156,18 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         if (!read) return;
         const b = read.body;
         if (!isRecord(b) || typeof b.targetId !== 'string' || !b.targetId || typeof b.agentId !== 'string' || !b.agentId) return json(res, 400, { error: 'targetId 와 agentId(문자열)가 필요함' });
+        if (b.devices !== undefined && !isStringArray(b.devices)) return json(res, 400, { error: 'devices 는 기기 id 문자열 배열이어야 함' });
+        const devices = b.devices as string[] | undefined;
         const ttl = opts.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS;
         await sweepAllAbandoned(store, cycles, sweepOpts()); // 버려진 Run 의 대체 Run 이 이 클레임에서 바로 잡히게
-        const run = await cycles.claimRun(b.targetId, b.agentId, (opts.now ?? Date.now)(), ttl, async (runId) => (await store.eventsForRun(runId)).length > 0);
+        const nowMs = (opts.now ?? Date.now)();
+        const { finished } = devices ? await busyDevices(nowMs) : { finished: new Set<string>() };
+        const run = await cycles.claimRun(b.targetId, b.agentId, nowMs, ttl, async (runId) => (await store.eventsForRun(runId)).length > 0, devices ? { devices, finishedRuns: finished } : undefined);
         if (!run) { res.writeHead(204).end(); return; }
         const cycle = await cycles.getCycle(run.cycleId);
-        return json(res, 200, { run, leaseTtlMs: ttl, ...(cycle?.suite ? { suite: cycle.suite } : {}) });
+        // 구버전 에이전트(devices 없음)도 지금처럼 Run 을 받는다. 다만 기기 lease 가 없어 같은 기기를 다른 Run 이 동시에 쓸 수 있음을 알린다
+        const warning = devices ? undefined : '기기 없이 클레임함: 기기 lease 가 없어 다른 Run 과 같은 기기를 동시에 쓸 수 있음(에이전트를 올리면 사라진다)';
+        return json(res, 200, { run, leaseTtlMs: ttl, ...(cycle?.suite ? { suite: cycle.suite } : {}), ...(warning ? { warning } : {}) });
       }
       if (req.method === 'POST' && parts[0] === 'runs' && parts.length === 3 && parts[2] === 'heartbeat') {
         const read = await readJson(req, res);
@@ -174,7 +190,10 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         await fleet.reportNode(agentId, parsed.value, (opts.now ?? Date.now)());
         return json(res, 200, { ttlMs: nodeTtlMs() });
       }
-      if (req.method === 'GET' && url.pathname === '/fleet') return json(res, 200, buildFleetView(await fleet.listNodes(), (opts.now ?? Date.now)(), nodeTtlMs()));
+      if (req.method === 'GET' && url.pathname === '/fleet') {
+        const nowMs = (opts.now ?? Date.now)();
+        return json(res, 200, buildFleetView(await fleet.listNodes(), nowMs, nodeTtlMs(), (await busyDevices(nowMs)).busy));
+      }
       if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true });
       if (req.method === 'GET' && parts[0] === 'runs' && parts.length === 1) {
         const ids = await store.runIds();

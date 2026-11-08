@@ -38,16 +38,23 @@ export function deviceStatus(device: NodeDevice, reportedAtMs: number, nowMs: nu
 
 export interface FleetView {
   nodeTtlMs: number;
-  nodes: Array<{ agentId: string; reportedAt: string; online: boolean; devices: Array<NodeDevice & DeviceStatus> }>;
+  /** 기기 상태에 lease 중이면 runId 가 붙는다 */
+  nodes: Array<{ agentId: string; reportedAt: string; online: boolean; devices: Array<NodeDevice & DeviceStatus & { runId?: string }> }>;
 }
 
-export function buildFleetView(nodes: NodeRecord[], nowMs: number, nodeTtlMs: number): FleetView {
+/** leases: 지금 바쁜 기기 → 그 Run(끝난 Run 은 호출자가 뺀다). 쓸 수 있는(idle) 기기만 leased 로 바뀌고, 잠김·뽑힘 같은 문제는 lease 중이어도 그대로 보인다(runId 는 붙는다) */
+export function buildFleetView(nodes: NodeRecord[], nowMs: number, nodeTtlMs: number, leases: ReadonlyMap<string, string> = new Map()): FleetView {
   return {
     nodeTtlMs,
     nodes: nodes.map((n) => {
       const at = Date.parse(n.reportedAt);
-      const missing = n.missing.map(({ missingSince: _m, ...d }) => ({ ...d, state: 'offline' as const, reason: '보고에서 빠짐' }));
-      return { agentId: n.agentId, reportedAt: n.reportedAt, online: nowMs - at < nodeTtlMs, devices: [...n.devices.map((d) => ({ ...d, ...deviceStatus(d, at, nowMs, nodeTtlMs) })), ...missing] };
+      const withLease = <D extends NodeDevice & DeviceStatus>(d: D): D & { runId?: string } => {
+        const runId = leases.get(d.id);
+        if (!runId) return d;
+        return { ...d, ...(d.state === 'idle' ? { state: 'leased' as const } : {}), runId };
+      };
+      const missing = n.missing.map(({ missingSince: _m, ...d }) => withLease({ ...d, state: 'offline' as const, reason: '보고에서 빠짐' }));
+      return { agentId: n.agentId, reportedAt: n.reportedAt, online: nowMs - at < nodeTtlMs, devices: [...n.devices.map((d) => withLease({ ...d, ...deviceStatus(d, at, nowMs, nodeTtlMs) })), ...missing] };
     }),
   };
 }
