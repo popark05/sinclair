@@ -34,7 +34,9 @@ export async function main(argv = process.argv.slice(2), env = process.env): Pro
       process.once('SIGTERM', () => stop('SIGTERM'));
       process.once('SIGINT', () => stop('SIGINT'));
       // bin 으로 띄운 데몬은 run 을 워커 프로세스로 돌린다: 같은 node·같은 플래그·같은 bin(리포 체크아웃이든 설치본이든 bin 이 알아서 고른다)
-      const workerCommand = process.argv[1] ? [process.execPath, ...process.execArgv, process.argv[1]] : undefined;
+      // 디버거 플래그는 넘기지 않는다: 워커마다 같은 포트를 잡으려다 실패하거나(--inspect) 중단점에서 멈춰 start 를 못 받는다(--inspect-brk)
+      const execArgv = process.execArgv.filter((a) => !/^--(inspect|debug)/.test(a));
+      const workerCommand = process.argv[1] ? [process.execPath, ...execArgv, process.argv[1]] : undefined;
       const summary = await runDaemon(args, { signal: aborter.signal, ...(workerCommand ? { workerCommand } : {}) });
       console.log(`데몬 요약: run ${summary.runs.length}개 (${summary.runs.map((r) => `${r.targetId}:${r.exitCode}`).join(', ')}), resume ${summary.resumed}`);
       // 중단(cancelled)된 run 은 이 노드의 실패가 아니다: 계획된 종료·lease 상실이고, 케이스 결과는 Cycle 뷰가 blocked·대체로 드러낸다

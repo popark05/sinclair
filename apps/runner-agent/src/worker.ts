@@ -8,8 +8,8 @@ import type { RunArgs } from './args.ts';
 import type { RegisteredRun } from './control-plane-client.ts';
 import { EXIT, executeRun, type ExitCode } from './run-once.ts';
 
-/** 워커가 start 를 기다리는 최대 시간 */
-const START_TIMEOUT_MS = 30_000;
+/** 워커가 start 를 기다리는 최대 시간(테스트용으로 SINCLAIR_AGENT_WORKER_START_TIMEOUT_MS 로 줄일 수 있다) */
+const START_TIMEOUT_MS = Number(process.env.SINCLAIR_AGENT_WORKER_START_TIMEOUT_MS) || 30_000;
 
 /** 데몬이 연 디바이스 RPC 와 그 위에서 쓸 기기(mobile 만) */
 export interface WorkerDevice { rpcPort: number; rpcToken: string; deviceId: string; label: string }
@@ -19,7 +19,7 @@ export type ToWorker =
 export type FromWorker = { type: 'log'; line: string } | { type: 'done'; code: ExitCode };
 
 /** 워커 쪽: IPC 로 start 를 받아 run 하나를 돌리고 done 을 보낸 뒤 끝난다 */
-export async function workerMain(): Promise<ExitCode> {
+export async function workerMain(): Promise<never | ExitCode> {
   if (!process.send) { console.error('__worker 는 데몬이 IPC 로 띄울 때만 쓴다'); return EXIT.config; }
   const send = (m: FromWorker): void => { process.send?.(m); };
   // 터미널 Ctrl-C·SIGTERM 은 프로세스 그룹 전체에 간다: 워커는 무시하고 데몬이 보내는 cancel 로만 멈춘다(현재 테스트까지 마치는 의미를 지키려고)
@@ -39,22 +39,29 @@ export async function workerMain(): Promise<ExitCode> {
       else if (m.type === 'cancel') canceller.abort(new Error(m.reason));
     });
   });
-  if (!start) { console.error(`__worker: ${START_TIMEOUT_MS / 1000}초 안에 start 를 받지 못해 끝냄`); return EXIT.config; }
+  if (!start) { console.error(`__worker: ${START_TIMEOUT_MS / 1000}초 안에 start 를 받지 못해 끝냄`); process.exit(EXIT.config); }
   const { args, run, files, device } = start;
-  const code = await executeRun(args, run, files, {
-    log: (line) => send({ type: 'log', line }),
-    signal: canceller.signal,
-    ...(device ? {
-      createEngine: async () => {
-        const engine = createMobileEngine(rpcOverHttp({ port: device.rpcPort, token: device.rpcToken }), { deviceId: device.deviceId, ...(args.app ? { appId: args.app } : {}) });
-        // 정리(앱 종료·홈)는 데몬이 한다. 여기서는 세션만 되돌린다
-        return { engine, deviceId: device.deviceId, deviceLabel: device.label, dispose: async () => { await engine.session?.restart().catch(() => undefined); } };
-      },
-    } : {}),
-  });
-  send({ type: 'done', code });
-  process.channel?.unref();
-  return code;
+  let code: ExitCode;
+  try {
+    code = await executeRun(args, run, files, {
+      log: (line) => send({ type: 'log', line }),
+      signal: canceller.signal,
+      ...(device ? {
+        createEngine: async () => {
+          const engine = createMobileEngine(rpcOverHttp({ port: device.rpcPort, token: device.rpcToken }), { deviceId: device.deviceId, ...(args.app ? { appId: args.app } : {}) });
+          // 정리(앱 종료·홈)는 데몬이 한다. 여기서는 세션만 되돌린다
+          return { engine, deviceId: device.deviceId, deviceLabel: device.label, dispose: async () => { await engine.session?.restart().catch(() => undefined); } };
+        },
+      } : {}),
+    });
+  } catch (err) {
+    // 예상 밖 오류도 이유를 데몬에 남기고 결과를 보낸다("결과 없이 끝남" 으로 뭉개지 않게)
+    send({ type: 'log', line: `워커 내부 오류: ${err instanceof Error ? err.message : String(err)}` });
+    code = EXIT.config;
+  }
+  // done 이 데몬에 닿은 뒤 스스로 끝낸다: 새어 나간 핸들(소켓·타이머)이 있어도 워커가 남지 않게
+  await new Promise<void>((resolve) => process.send!({ type: 'done', code } satisfies FromWorker, () => resolve()));
+  process.exit(code);
 }
 
 /** 데몬 쪽: 워커를 띄워 run 하나를 맡기고 종료 코드를 기다린다. signal 이 abort 되면 cancel 을 보낸다.
@@ -63,22 +70,37 @@ export function runInWorker(command: readonly string[], start: Extract<ToWorker,
   return new Promise((resolve) => {
     const [cmd, ...cmdArgs] = command;
     const child = spawn(cmd!, [...cmdArgs, '__worker'], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'], env: { ...process.env, SINCLAIR_AGENT_WORKER: '1' } });
-    if (child.pid) opts.onSpawn?.(child.pid);
     let code: ExitCode | undefined;
+    let settled = false;
+    let graceTimer: NodeJS.Timeout | undefined;
     const onAbort = (): void => { if (child.connected) child.send({ type: 'cancel', reason: opts.signal.reason instanceof Error ? opts.signal.reason.message : String(opts.signal.reason) } satisfies ToWorker); };
+    /** 한 번만 끝낸다. spawn 실패(ENOENT 등)는 exit 없이 error·close 만 오므로 close 에서 끝낸다(exit 만 기다리면 영영 안 끝나 lease·기기를 붙잡는다) */
+    const settle = (why: string): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(graceTimer);
+      opts.signal.removeEventListener('abort', onAbort);
+      if (code === undefined) opts.log(`워커가 결과 없이 끝남(${why}): 이 run 은 heartbeat 가 끊겨 버려진 Run 으로 정리된다`);
+      resolve(code ?? EXIT.incomplete);
+    };
     child.on('message', (m: FromWorker) => {
       if (m.type === 'log') opts.log(m.line);
-      else if (m.type === 'done') code = m.code;
+      else if (m.type === 'done') {
+        code = m.code;
+        // 결과를 받았는데 워커가 끝나지 않으면(새어 나간 핸들) 정리를 막지 않도록 잠시 뒤 강제로 끝낸다
+        graceTimer = setTimeout(() => { child.kill('SIGKILL'); }, DONE_GRACE_MS);
+        graceTimer.unref?.();
+      }
     });
     child.on('spawn', () => {
+      if (child.pid) opts.onSpawn?.(child.pid);
       child.send(start satisfies ToWorker);
       if (opts.signal.aborted) onAbort(); else opts.signal.addEventListener('abort', onAbort, { once: true });
     });
-    child.on('error', (err) => { opts.log(`워커를 띄우지 못함: ${err.message}`); });
-    child.on('exit', (exitCode, sig) => {
-      opts.signal.removeEventListener('abort', onAbort);
-      if (code === undefined) opts.log(`워커가 결과 없이 끝남(${sig ?? `exit ${exitCode}`}): 이 run 은 heartbeat 가 끊겨 버려진 Run 으로 정리된다`);
-      resolve(code ?? EXIT.incomplete);
-    });
+    child.on('error', (err) => { opts.log(`워커를 띄우지 못함: ${err.message}`); if (child.pid === undefined) settle('띄우지 못함'); });
+    child.on('close', (exitCode, sig) => settle(sig ?? `exit ${exitCode}`));
   });
 }
+
+/** done 을 받은 뒤 워커가 스스로 끝나기를 기다리는 시간 */
+const DONE_GRACE_MS = 5_000;

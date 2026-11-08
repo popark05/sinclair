@@ -178,7 +178,8 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
   let inFlight: Promise<void> = Promise.resolve();
   const report = (): Promise<void> => (inFlight = reportOnce());
   /** 지금 바로 보고: 진행 중인 보고가 있으면 끝나기를 기다린 뒤 그 보고가 건 타이머를 지우고 새로 보고한다 — 보고 사슬이 언제나 하나다 */
-  const reportNow = async (): Promise<void> => { await inFlight; clearTimeout(reportTimer); if (!reportsStopped) await report(); };
+  // 여러 run 이 동시에 끝나 여러 번 불려도 사슬은 하나: 진행 중 보고 뒤에 줄을 세워 하나씩(각자 앞 보고가 건 타이머를 지우고 새로 건다)
+  const reportNow = (): Promise<void> => (inFlight = inFlight.then(() => { clearTimeout(reportTimer); return reportsStopped ? undefined : reportOnce(); }));
   const reportOnce = async (): Promise<void> => {
     let nextMs = DEFAULT_REPORT_MS;
     try {
@@ -206,12 +207,13 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
     let claimedCount = 0;
 
     /** 클레임한 Run 하나: heartbeat, (워커 모드면) 기기 준비 → 워커 → 정리, 즉시 보고, 요약 */
-    const runClaimed = async (claimed: ClaimedRun): Promise<void> => {
+    /** fallbackDevice: lease 에 기기가 없을 때(구버전 control-plane) 이 run 이 쓸 기기 — 워커 모드에서 데몬 USB 를 워커가 열지 않게, 같은 기기에 run 이 겹치지 않게 */
+    const runClaimed = async (claimed: ClaimedRun, fallbackDevice: string | undefined): Promise<void> => {
       const { run, leaseTtlMs } = claimed;
       const targetId = run.targetId;
       if (claimed.warning) log(`클레임 경고: ${claimed.warning}`);
       // lease 받은 기기로 돈다. 그 기기를 못 찾으면 엔진 준비가 실패해 blocked(infra-failed)로 보고되고, run 이 끝나 기기 lease 도 풀린다
-      const leasedDevice = claimed.run.lease.deviceId;
+      const leasedDevice = claimed.run.lease.deviceId ?? fallbackDevice;
       const testsDir = path.resolve(claimed.suite?.tests ?? args.tests);
       // Cycle 이 정한 재시도 횟수가 노드 설정보다 우선한다(QA 담당자가 Cycle 단위로 정책을 고른다)
       const retries = claimed.suite?.retries ?? args.retries;
@@ -313,8 +315,10 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
         claimedNow = true;
         claimedCount++;
         const runId = claimed.run.runId;
-        const done = runClaimed(claimed).finally(() => { active.delete(runId); });
-        active.set(runId, { deviceId: claimed.run.lease.deviceId, done });
+        // 구버전 control-plane 은 기기 lease 를 안 준다: 내놓은 첫 빈 기기를 이 run 의 기기로 삼아 겹치지 않게 한다
+        const runDevice = claimed.run.lease.deviceId ?? devices[0];
+        const done = runClaimed(claimed, runDevice).finally(() => { active.delete(runId); });
+        active.set(runId, { deviceId: runDevice, done });
         if (!workerMode) await done; // 같은 프로세스 모드: 하나씩
       }
       if (deps.maxRuns !== undefined && claimedCount >= deps.maxRuns) {
@@ -323,7 +327,7 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
         return summary;
       }
       // 아무것도 못 받았으면 폴링 간격만큼, 그 사이 run 이 끝나면 바로 다시 본다(빈 기기가 생겼다)
-      if (!claimedNow && !deps.signal?.aborted) await Promise.race([sleep(args.pollMs ?? DEFAULT_POLL_MS), ...[...active.values()].map((a) => a.done)]);
+      if (!claimedNow && !deps.signal?.aborted) await Promise.race([sleep(args.pollMs ?? DEFAULT_POLL_MS), ...[...active.values()].map((a) => a.done.catch(() => undefined))]);
     }
     // 종료 신호: 각 run 의 취소가 이미 전파됐다. 진행 중 테스트를 마치고 끝나기를 기다린다
     await Promise.allSettled([...active.values()].map((a) => a.done));

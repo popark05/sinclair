@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 (클레임 때 기기 lease)
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] 워커: 데몬이 run 별 자식 프로세스를 띄워 결과(종료 코드·요약)를 받는다. 데몬 종료 신호·lease 상실 취소는 자식에게 전달되어 지금과 같은 의미(현재 테스트까지 마치고 cancelled). 자식이 죽으면 그 run 은 지금의 "에이전트가 죽음" 규칙(버려진 Run)으로 처리된다
 - [x] 스풀: 워커가 쓰고 데몬이 재시작 때 이어 보낸다. 동시 run 들이 서로의 스풀을 건드리지 않는다(기존 pid lock 규칙 확인)
@@ -19,3 +19,6 @@
 - 발견: 리포 체크아웃의 bin 재실행 셸을 거쳐 워커를 띄우면 IPC 가 손자 프로세스에 전달되지 않아 워커가 start 를 영영 못 받는다(테스트가 처음에 그렇게 띄워 매달렸고, 남은 워커 프로세스를 정리했다). 데몬은 자기 execArgv(변환 플래그 포함)로 워커를 띄워 셸을 거치지 않고, 워커는 30초 안에 start 를 못 받으면 끝나게 했다.
 - 테스트: `daemon-workers.test.ts`(실제 bin 워커, 가짜 기기 3대) — Run 3개가 다른 기기·다른 프로세스에서 동시에(시작 최댓값 < 끝 최솟값), 워커 하나 SIGKILL → 나머지 둘 끝남·죽은 run 은 코드 4 와 running 으로 남음, 데몬 종료 신호 → 셋 모두 cancelled, IPC 끊김 → 워커 exit 143·run.finished 없음. 기존 in-process 경로(라이브러리 runDaemon)는 그대로 통과.
 - 증명: `fleet.sh`·`retry-e2e.sh`(데몬이 워커 모드, SIGKILL 경로 포함) 재통과, 끝난 뒤 워커·데몬·서버 프로세스 0. 설치본: verify-install `daemon-fake.sh` → `DAEMON exit=0 finished/verified workerLines=1 workersLeft=0`(번들 모드에서도 워커가 뜬다). 실기기(SM-N981N …XLZW): 데몬이 기기를 준비하고 별도 워커 프로세스가 데몬의 RPC 로 Run verified, run.started 기기 = lease 기기, 결과 줄이 워커에서 옴(`.scratch/device-fleet/evidence/04-worker-device-latest.json`). 기기가 한 대라 실기기 동시성은 증명하지 않았다(06 종단에서 여러 기기).
+- 리뷰 반영(Standards + Spec). **must-fix 둘**: (1) 워커를 띄우지 못하면(ENOENT 등) Node 는 exit 없이 error·close 만 내 `runInWorker` 가 영영 안 끝나 lease·기기·종료를 붙잡았다 → close 에서 한 번만 끝내고(settled), 띄우지 못하면 4. (2) start 시간 초과 워커가 ref 된 IPC 때문에 끝나지 않았다 → process.exit. 그 밖: 워커 내부 예외도 이유를 로그로 보내고 done, done 을 보낸 뒤 워커가 스스로 exit(새어 나간 핸들이 있어도) + 데몬은 done 뒤 5초 안에 안 끝나면 SIGKILL, 여러 run 이 동시에 끝날 때 즉시 보고가 줄을 서게(사슬 하나), 디버거 플래그(--inspect*) 는 워커에 넘기지 않음, 구버전 control-plane(기기 lease 없음)에서 run 마다 내놓은 첫 빈 기기를 쓰게(워커가 USB 를 열거나 한 기기에 run 이 겹치지 않게), race 의 거부 무시, bin 주석 정정(데몬이 사라지면 곧바로 끝남).
+- 테스트 추가: --concurrency 2 면 기기 3대여도 최대 겹침 2, 종료 신호 뒤 각 run 의 첫 테스트 passed·둘째 skipped(cancelled) = "현재 테스트까지", 워커 모드 lease 상실(409) → 그 워커만 cancelled(lease 를 잃음), 워커를 띄우지 못하면 4, start 시간 초과 워커 스스로 종료(시간은 환경변수로 줄임), --concurrency/환경변수 파싱, 세 워커가 같은 스풀 디렉터리를 써도 다 보내고 치움(중복·거부 없음). 스풀 pid 잠금 자체는 기존 spool 테스트(같은 디렉터리 두 데몬)가 다룬다.
+- 재확인: `fleet.sh`·`retry-e2e.sh` 재통과, 설치본 다시 조립해 `daemon-fake.sh` 통과, 끝난 뒤 워커·데몬·서버 0.
