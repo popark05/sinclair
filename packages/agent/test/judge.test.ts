@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { FakeEngine, HOME_SCREEN, LOGIN_SCREEN } from '@sinclair/protocol/testing';
 import type { SemanticNode } from '@sinclair/protocol';
-import { judgeAssert, judgeWaitFor, judgeExtract, ModelConfigError, scriptedExecutor, type JudgeRequest, type StepExecutor } from '../src/index.ts';
+import { judgeAssert, judgeWaitFor, judgeExtract, actProgressOf, ModelConfigError, scriptedExecutor, type JudgeRequest, type StepExecutor } from '../src/index.ts';
 
 /** 대본 judge: 답 배열(다 쓰면 마지막을 되풀이) 또는 함수. 받은 요청을 남긴다 */
 function judgeOnly(answers: unknown[] | ((req: JudgeRequest, i: number) => unknown), usage = { inputTokens: 100, outputTokens: 10 }): StepExecutor & { requests: JudgeRequest[] } {
@@ -30,7 +30,7 @@ describe('judgeAssert', () => {
     const exec = judgeOnly([{ pass: true, reason: '로그인 버튼이 보인다' }]);
     const r = await judgeAssert(engine, '로그인 화면이다', { executor: exec });
     expect(r).toMatchObject({ ok: true, reason: '로그인 버튼이 보인다', modelCalls: 1, usage: { inputTokens: 100, outputTokens: 10 } });
-    expect(engine.sessionCalls).toEqual([]);
+    expect([engine.sessionCalls, engine.performed, engine.typed, engine.pressed]).toEqual([[], [], [], []]); // 어떤 조작도 없다
     expect(exec.requests[0]).toMatchObject({ kind: 'assert', question: '로그인 화면이다' });
     expect(exec.requests[0]!.observation).toMatch(/@e4 button "로그인"/);
     expect(JSON.stringify(exec.requests[0])).not.toMatch(/hunter2/);
@@ -101,5 +101,33 @@ describe('judgeExtract', () => {
     const exec = judgeOnly([{ found: true, value: '1234', sourceRefs: ['@c2'], reason: '비밀번호 칸' }]);
     await expect(judgeExtract(new FakeEngine({ root: CART }), '카드 비밀번호', 'string', { executor: exec })).rejects.toMatchObject({ code: 'secure-read' });
     expect(JSON.stringify(exec.requests[0])).not.toMatch(/1234/); // 관찰에도 값은 없었다
+  });
+});
+
+describe('판정 동사 · 리뷰 반영', () => {
+  it('assert·extract 의 기한 초과는 화면 판정이 아니라 모델 문제(invalid)다', async () => {
+    const hang: StepExecutor = { next: () => new Promise(() => {}), judge: () => new Promise(() => {}) };
+    expect(await judgeAssert(new FakeEngine({ root: LOGIN_SCREEN }), 'x', { executor: hang, timeoutMs: 50 })).toMatchObject({ ok: false, failure: 'invalid', reason: expect.stringMatching(/50ms/) });
+    expect(await judgeExtract(new FakeEngine({ root: CART }), 'x', 'string', { executor: hang, timeoutMs: 50 })).toMatchObject({ ok: false, failure: 'invalid' });
+  });
+
+  it('secure 거부로 던져도 그때까지의 모델 호출·토큰을 오류에서 읽을 수 있다', async () => {
+    const err = await judgeExtract(new FakeEngine({ root: CART }), '카드 비밀번호', 'string', { executor: judgeOnly([{ found: true, value: 'x', sourceRefs: ['@c2'], reason: 'x' }]) }).catch((e: unknown) => e);
+    expect(actProgressOf(err)).toEqual({ modelCalls: 1, usage: { inputTokens: 100, outputTokens: 10 } });
+  });
+
+  it('pixels 를 보는 실행기는 트리가 같아도 이미지가 바뀌면 다시 묻는다', async () => {
+    const engine = new FakeEngine({ root: LOGIN_SCREEN });
+    let n = 0;
+    engine.observe = async () => ({ root: LOGIN_SCREEN, pixels: new Uint8Array([0x89, 0x50, ++n >= 3 ? 1 : 0]) });
+    const inner = judgeOnly((req) => ({ pass: req.pixels?.[2] === 1, reason: 'x' }));
+    const exec: StepExecutor = { pixels: true, next: inner.next, judge: inner.judge! };
+    expect(await judgeWaitFor(engine, '스피너가 사라졌다', { executor: exec, timeoutMs: 2000, intervalMs: 5 })).toMatchObject({ ok: true, modelCalls: 2 });
+  });
+
+  it('extract 타입 객체에 빈 키·__proto__ 키는 쓸 수 없다', async () => {
+    const proto = JSON.parse('{"__proto__":"string"}') as Record<string, 'string'>;
+    await expect(judgeExtract(new FakeEngine({ root: CART }), 'x', proto, { executor: judgeOnly([]) })).rejects.toThrow(/키/);
+    await expect(judgeExtract(new FakeEngine({ root: CART }), 'x', {}, { executor: judgeOnly([]) })).rejects.toThrow(/키/);
   });
 });

@@ -379,7 +379,7 @@ describe('판정 동사 agent.assert·waitFor·extract (대본 judge)', () => {
     const home = /환영합니다/.test(req.observation);
     if (req.kind === 'assert') return { pass: home, reason: home ? '환영 문구가 보인다' : '로그인 화면' };
     if (req.question === '비밀번호') return { found: true, value: 'x', sourceRefs: ['@e3'], reason: '비밀번호 칸' };
-    return { found: home, value: '환영합니다', sourceRefs: home ? ['@h1'] : [], reason: '인사 문구' };
+    return { found: home, value: '환영합니다', sourceRefs: home ? ['@h1'] : [], reason: '"환영합니다" 문구에서 읽음' }; // 실제 모델처럼 근거에 값을 쓴다
   };
   const stepsOf = (events: RunEvent[], attemptNo = 0) => {
     const attempts = events.filter((e) => e.type === 'attempt.started').map((e) => (e as { attemptId: string }).attemptId);
@@ -393,7 +393,9 @@ describe('판정 동사 agent.assert·waitFor·extract (대본 judge)', () => {
     const steps = stepsOf(report.events).filter((e) => e.kind !== 'locator');
     vexpect(steps.map((e) => e.kind)).toEqual(['waitFor', 'assert', 'extract']);
     vexpect(steps[1]).toMatchObject({ modelCalls: 1, usage: { inputTokens: 50, outputTokens: 5 }, instruction: vexpect.stringMatching(/^agent\.assert "홈 화면이다" → 참: 환영 문구가 보인다/) });
-    vexpect(steps[2]!.instruction).not.toMatch(/환영합니다"?$/); // 추출한 값은 스텝에 남기지 않는다
+    vexpect(steps[2]!.instruction).toMatch(/추출함 \(@h1\)/);
+    vexpect(JSON.stringify(steps[2])).not.toContain('환영합니다'); // 추출한 값은 근거 문구로도 스텝에 남지 않는다
+    vexpect([engine.performed.length, engine.typed.length]).toEqual([1, 0]); // 결정적 탭 하나뿐: 판정은 화면을 바꾸지 않았다
     for (const e of report.events) vexpect(parseRunEvent(e).ok).toBe(true);
   });
 
@@ -411,7 +413,7 @@ describe('판정 동사 agent.assert·waitFor·extract (대본 judge)', () => {
     const wrongType = await runTests([fixture('agent-judge.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 500, agent: { executor: judging(honest({ '인사 문구': { found: true, value: 42, sourceRefs: ['@h1'], reason: 'x' } })) } });
     vexpect(wrongType.tests[0]).toMatchObject({ result: 'failed', errorCode: 'agent' });
     vexpect(timeout.tests[1]).toMatchObject({ result: 'failed', errorCode: 'secure-read' });
-    vexpect(stepsOf(timeout.events, 1).map((e) => e.kind)).toEqual(['extract']); // 거부돼도 스텝은 남는다
+    vexpect(stepsOf(timeout.events, 1)).toEqual([vexpect.objectContaining({ kind: 'extract', modelCalls: 1, usage: { inputTokens: 50, outputTokens: 5 } })]); // 거부돼도 스텝·비용은 남는다
   });
 
   it('judge 없는 실행기면 blocked(agent-config)', async () => {

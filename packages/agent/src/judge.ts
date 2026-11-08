@@ -2,7 +2,8 @@
 // 모델은 닫힌 답 스키마로만 답하고, 에이전트가 같은 스키마로 다시 검사한다(구조화 출력을 믿되 확인한다).
 import { EngineError, type Engine, type SemanticNode, type StepUsage } from '@sinclair/protocol';
 import { ModelCallError, ModelConfigError, type JudgeRequest, type StepExecutor } from './executor.ts';
-import { raceAbort } from './loop.ts';
+import { createHash } from 'node:crypto';
+import { raceAbort, recordProgress } from './loop.ts';
 import { renderObservation } from './observe.ts';
 import { addUsage } from './usage.ts';
 
@@ -18,13 +19,16 @@ export type ExtractType = ExtractScalar | { readonly [key: string]: ExtractScala
 export type ExtractValue<T extends ExtractType> = T extends 'string' ? string : T extends 'number' ? number : T extends 'boolean' ? boolean
   : { -readonly [K in keyof T]: T[K] extends 'string' ? string : T[K] extends 'number' ? number : boolean };
 
-/** false: 판정이 거짓, timeout: 기한 안에 참이 안 됨, not-found: 추출 대상이 화면에 없음, invalid: 모델이 계약을 어긴 답(또는 호출 실패) */
+/** false: 판정이 거짓, timeout: waitFor 기한 안에 참이 안 됨, not-found: 추출 대상이 화면에 없음,
+ *  invalid: 모델이 계약을 어긴 답·호출 실패·assert/extract 의 기한 초과(모델 한 번이 멈춘 것이지 화면 탓이 아니다) */
 export type JudgeFailure = 'false' | 'timeout' | 'not-found' | 'invalid';
 export interface JudgeResult<V = unknown> {
   ok: boolean;
   reason: string;
   failure?: JudgeFailure;
   value?: V;
+  /** extract 성공 시 값을 읽은 노드(스텝 기록용 — 값 대신 남긴다) */
+  sourceRefs?: string[];
   modelCalls: number;
   usage?: StepUsage;
 }
@@ -37,6 +41,11 @@ const ASSERT_SCHEMA: Schema = {
   properties: { pass: { type: 'boolean', description: '질문이 지금 화면에서 참인가' }, reason: { type: 'string', description: '화면의 근거' } },
 };
 function extractSchema(type: ExtractType): Schema {
+  if (typeof type !== 'string') {
+    const keys = Object.keys(type);
+    if (keys.length === 0 || keys.some((k) => k === '' || k === '__proto__')) throw new Error('extract 타입 객체에는 빈 키·__proto__ 가 아닌 키가 하나 이상 있어야 함');
+    for (const [k, t] of Object.entries(type)) if (t !== 'string' && t !== 'number' && t !== 'boolean') throw new Error(`extract 타입 ${k}: string|number|boolean 이어야 함`);
+  }
   const value: Schema = typeof type === 'string' ? { type } : { type: 'object', additionalProperties: false, required: Object.keys(type), properties: Object.fromEntries(Object.entries(type).map(([k, t]) => [k, { type: t }])) };
   return {
     type: 'object', additionalProperties: false, required: ['found', 'value', 'sourceRefs', 'reason'],
@@ -90,7 +99,10 @@ class Asker {
     return { observed, text: renderObservation(observed.root) };
   }
   /** 답이 스키마에 맞으면 answer, 아니면 invalid 사유. 호출 실패(거절 등)도 invalid 사유로 */
+  /** 실행 도중 던진 오류에 진행(호출 수·토큰)을 붙여 러너가 실패 스텝에도 비용을 남기게 한다 */
+  mark(err: unknown): unknown { recordProgress(err, { modelCalls: this.modelCalls, ...(this.usage ? { usage: this.usage } : {}) }); return err; }
   async ask(kind: JudgeRequest['kind'], question: string, schema: Schema, obs: Awaited<ReturnType<Asker['observe']>>, signal: AbortSignal): Promise<{ answer: Record<string, unknown> } | { invalid: string }> {
+    if (signal.aborted) throw signal.reason as Error; // 기한이 지났으면 부르지 않는다(호출 수도 세지 않는다)
     this.modelCalls++;
     const req: JudgeRequest = { kind, question, observation: obs.text, schema: structuredClone(schema), ...(this.executor.pixels && obs.observed.pixels ? { pixels: obs.observed.pixels } : {}) };
     try {
@@ -104,7 +116,7 @@ class Asker {
       return { invalid: `모델 호출 실패: ${(err instanceof Error ? err.message : String(err)).slice(0, 300)}` };
     }
   }
-  result<V>(r: { ok: boolean; reason: string; failure?: JudgeFailure; value?: V }): JudgeResult<V> {
+  result<V>(r: { ok: boolean; reason: string; failure?: JudgeFailure; value?: V; sourceRefs?: string[] }): JudgeResult<V> {
     return { ...r, modelCalls: this.modelCalls, ...(this.usage ? { usage: this.usage } : {}) };
   }
 }
@@ -125,8 +137,8 @@ export async function judgeAssert(engine: Engine, question: string, opts: JudgeO
     if ('invalid' in a) return asker.result({ ok: false, failure: 'invalid', reason: a.invalid });
     return asker.result({ ok: a.answer.pass === true, reason: a.answer.reason as string, ...(a.answer.pass ? {} : { failure: 'false' as const }) });
   } catch (err) {
-    if (d.signal.aborted) return asker.result({ ok: false, failure: 'timeout', reason: `판정 기한 ${timeoutMs}ms 에 닿음` });
-    throw err;
+    if (d.signal.aborted) return asker.result({ ok: false, failure: 'invalid', reason: `판정 기한 ${timeoutMs}ms 에 닿음(모델이 답하지 않음)` });
+    throw asker.mark(err);
   } finally { d.clear(); }
 }
 
@@ -143,19 +155,23 @@ export async function judgeWaitFor(engine: Engine, question: string, opts: WaitO
       const obs = await asker.observe();
       if (d.signal.aborted) break;
       // 화면이 지난번에 거짓으로 판정한 그대로면 모델을 다시 부르지 않는다(같은 질문, 같은 화면 → 같은 답이라 비용만 든다)
-      if (obs.text !== lastAsked) {
+      // 모델이 보는 것 전부로 비교한다: 트리 + 위치, 이미지를 보는 실행기면 이미지 해시까지(트리는 같고 픽셀만 바뀌는 화면이 있다)
+      const seen = [obs.text, obs.observed.location ?? '', opts.executor.pixels && obs.observed.pixels ? createHash('sha1').update(obs.observed.pixels).digest('hex') : ''].join('\u0000');
+      if (seen !== lastAsked) {
         const a = await asker.ask('assert', question, ASSERT_SCHEMA, obs, d.signal);
         if ('invalid' in a) return asker.result({ ok: false, failure: 'invalid', reason: a.invalid });
         if (a.answer.pass === true) return asker.result({ ok: true, reason: a.answer.reason as string });
-        lastAsked = obs.text;
+        lastAsked = seen;
         lastReason = a.answer.reason as string;
       }
-      await raceAbort(new Promise((r) => setTimeout(r, intervalMs)), d.signal).catch(() => {});
+      let timer: NodeJS.Timeout | undefined;
+      await raceAbort(new Promise((r) => { timer = setTimeout(r, intervalMs); }), d.signal).catch(() => {});
+      clearTimeout(timer); // 기한으로 끝났으면 남은 간격 타이머가 이벤트 루프를 붙잡지 않게
     }
     return timedOut();
   } catch (err) {
     if (d.signal.aborted) return timedOut();
-    throw err;
+    throw asker.mark(err);
   } finally { d.clear(); }
 }
 
@@ -176,9 +192,9 @@ export async function judgeExtract<T extends ExtractType>(engine: Engine, what: 
     if (unknown.length) return asker.result({ ok: false, failure: 'invalid', reason: `근거 노드가 화면에 없음: ${unknown.slice(0, 5).join(', ')}` });
     const secure = sourceRefs.find((r) => nodes.get(r)!.states?.secure);
     if (secure) throw new EngineError('secure-read', `${secure} 는 secure 노드라 내용을 추출할 수 없음`, { ref: secure });
-    return asker.result({ ok: true, reason, value: value as ExtractValue<T> });
+    return asker.result({ ok: true, reason, value: value as ExtractValue<T>, sourceRefs });
   } catch (err) {
-    if (d.signal.aborted) return asker.result({ ok: false, failure: 'timeout', reason: `추출 기한 ${timeoutMs}ms 에 닿음` });
-    throw err;
+    if (d.signal.aborted) return asker.result({ ok: false, failure: 'invalid', reason: `추출 기한 ${timeoutMs}ms 에 닿음(모델이 답하지 않음)` });
+    throw asker.mark(err);
   } finally { d.clear(); }
 }

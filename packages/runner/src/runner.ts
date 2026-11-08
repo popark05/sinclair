@@ -227,12 +227,15 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
       try {
         r = await run(options.agent.executor);
       } catch (err) {
-        onStep({ kind, instruction: head, durationMs: Date.now() - started, error: err instanceof Error ? err.message : String(err) });
+        const p = actProgressOf(err); // secure 거부 등으로 던져도 그때까지의 모델 비용은 남긴다
+        onStep({ kind, instruction: head, durationMs: Date.now() - started, ...(p ? { modelCalls: p.modelCalls, ...(p.usage ? { usage: p.usage } : {}) } : {}), error: err instanceof Error ? err.message : String(err) });
         throw err;
       }
       const stats = { modelCalls: r.modelCalls, ...(r.usage ? { usage: r.usage } : {}) };
       if (r.ok) {
-        onStep({ kind, instruction: `${head} → ${kind === 'extract' ? '추출함' : '참'}: ${short(r.reason)}`, durationMs: Date.now() - started, ...stats });
+        // extract 는 근거 문구에도 값이 들어가므로(모델이 "합계 12,300원 에서 읽음" 처럼 쓴다) 근거 노드 ref 만 남긴다
+        const done = kind === 'extract' ? `추출함 (${(r.sourceRefs ?? []).filter((x) => /^@[\w:.-]{1,40}$/.test(x)).slice(0, 5).join(', ')})` : `참: ${short(r.reason)}`;
+        onStep({ kind, instruction: `${head} → ${done}`, durationMs: Date.now() - started, ...stats });
         return r;
       }
       onStep({ kind, instruction: head, durationMs: Date.now() - started, ...stats, error: `${r.failure}: ${short(r.reason)}` });

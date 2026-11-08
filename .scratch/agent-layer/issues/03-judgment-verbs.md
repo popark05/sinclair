@@ -19,3 +19,5 @@
 - secure: 관찰에는 원래 값이 없고, 모델이 secure 노드를 근거(sourceRefs)로 대면 `EngineError('secure-read')` — 러너의 기존 secure 읽기 규칙과 같은 코드.
 - 오류 분류: 거짓·기한 초과·못 찾음 → `assertion`(failed + 아티팩트, 근거가 오류 메시지), 계약 위반 답·모델 호출 실패 → `agent`, judge 없음 → `agent-config`(blocked), secure → `secure-read`. 스텝 instruction 에 추출값은 남기지 않는다(화면의 개인정보일 수 있다).
 - opt-in 실호출(`claude-live.test.ts`)에 판정 동사 케이스를 더했다. 이 머신에는 키가 없어 돌리지 못함(02 와 같다).
+- 리뷰 반영(should-fix 5 + nit): (1) extract 성공 스텝에 근거 문구 대신 근거 ref 만(`→ 추출함 (@h1)`): 실제 모델은 근거에 값을 쓴다 — 테스트 대본도 근거에 값을 넣고 스텝 전체에 값이 없음을 확인. (2) secure 거부 등 판정이 던져도 그때까지의 modelCalls·usage 를 실패 스텝에(`recordProgress`/`actProgressOf` 공용). (3) assert·extract 의 기한 초과는 화면 판정이 아니라 모델 문제라 invalid(→ agent); timeout(→ assertion)은 waitFor 만. (4) waitFor 재호출 판단은 트리 + 위치 + (pixels 실행기면) 이미지 해시. (5) 판정이 조작하지 않음을 performed·typed·pressed 까지 확인. nit: 간격 타이머 정리, 기한이 지났으면 judge 를 부르지 않음, extract 타입 객체의 빈 키·`__proto__`·잘못된 스칼라 거부, test.ts import 순서.
+- 남긴 것: 판정 기한을 runTests·환경변수로 바꾸는 설정은 없음(기본 60초/30초, waitFor 는 호출별 옵션). 추출값이 근거 노드의 글자에 실제로 있는지 대조하지 않음(환각 값 + 실제 ref 는 통과) — 필요하면 05(안전망)에서.

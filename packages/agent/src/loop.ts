@@ -48,9 +48,12 @@ export interface ActResult {
   history: AgentTurn[];
 }
 
-/** act 가 던질 때 그때까지 쓴 모델 호출 수·토큰. 오류 객체를 바꾸지 않고 옆에 둔다(러너가 실패 스텝에 싣는다) */
+/** 에이전트 스텝(act·판정 동사)이 던질 때 그때까지 쓴 모델 호출 수·토큰. 오류 객체를 바꾸지 않고 옆에 둔다(러너가 실패 스텝에 싣는다) */
 export interface ActProgress { modelCalls: number; usage?: StepUsage }
 const progress = new WeakMap<object, ActProgress>();
+export function recordProgress(err: unknown, p: ActProgress): void {
+  if (typeof err === 'object' && err !== null) progress.set(err, p);
+}
 export function actProgressOf(err: unknown): ActProgress | undefined {
   return typeof err === 'object' && err !== null ? progress.get(err) : undefined;
 }
@@ -112,7 +115,7 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
     }
     return fail(`턴 한도 ${maxTurns} 안에 목표를 이루지 못함`);
   } catch (err) {
-    if (typeof err === 'object' && err !== null) progress.set(err, { modelCalls, ...(usage ? { usage } : {}) });
+    recordProgress(err, { modelCalls, ...(usage ? { usage } : {}) });
     throw err;
   } finally {
     clearTimeout(timer);

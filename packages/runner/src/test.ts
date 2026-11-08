@@ -1,5 +1,5 @@
-import type { ExtractType, ExtractValue } from '@sinclair/agent';
 // `test()` API: 테스트 파일이 import 해서 등록하고, runTests 가 파일을 불러들여 모아 실행한다(e2e 방식, ADR 0001).
+import type { ExtractType, ExtractValue } from '@sinclair/agent';
 import type { Screen } from './screen.ts';
 import type { LocatorAssertions, ExpectOptions } from './expect.ts';
 import type { Locator } from './screen.ts';
