@@ -61,7 +61,9 @@ describe('fetchNode', () => {
   });
 });
 
-describe('fetchNode (Windows zip)', () => {
+const hasZip = (() => { try { execFileSync('zip', ['-v'], { stdio: 'ignore' }); return true; } catch { return false; } })(); // macOS 기본 포함, 최소 Linux CI 에는 없을 수 있다
+
+describe.skipIf(!hasZip)('fetchNode (Windows zip)', () => {
   it('zip 배포 파일도 tar 로 풀어 node.exe 와 LICENSE 를 찾는다', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sinclair-node-win-'));
     try {
@@ -211,7 +213,10 @@ describe.skipIf(!fs.existsSync(HELPER_APK))('Windows 타깃 조립(mac 에서 �
       expect(cmd).toMatch(/"%DIR%\\node\\node\.exe" --no-warnings=ExperimentalWarning "%DIR%\\dist\\runner-agent\.mjs" %\*/); // 플래그 하나, 인자 전달
       expect(cmd).toContain('exit /b %ERRORLEVEL%'); // 종료 코드 보존
       const readme = fs.readFileSync(path.join(r.stageDir, 'README.md'), 'utf8');
-      for (const s of ['## Windows', 'WinUSB', '%APPDATA%', 'Ctrl-C', 'windows-checklist']) expect(readme).toContain(s);
+      for (const s of ['## Windows', 'WinUSB', '%APPDATA%', 'Ctrl-C', '다른 사용자', '교차 빌드']) expect(readme).toContain(s);
+      expect(readme).not.toContain('.scratch'); // 설치본 문서에 리포 내부 경로를 넣지 않는다
+      expect(r.manifest).toMatchObject({ target: 'win-x64', node: NODE_VERSION, files: expect.arrayContaining(['node/node.exe']) });
+      expect(fs.existsSync(path.join(out, 'sinclair-0.0.0-test-win-x64.manifest.json'))).toBe(true);
     } finally { fs.rmSync(out, { recursive: true, force: true }); }
   }, 120_000); // npm pack 으로 win 플랫폼 패키지를 처음 받을 수 있다
 });

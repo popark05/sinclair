@@ -98,13 +98,13 @@ function launcherCmd(app) {
 function windowsNotes() {
   return `
 ## Windows
-- 실행: \`bin\\sinclair-control-plane.cmd\`, \`bin\\sinclair-agent.cmd\` (PowerShell·cmd 어디서나; 인자와 환경변수는 그대로 전달되고 종료 코드가 보존된다).
+- 실행: \`bin\\sinclair-control-plane.cmd\`, \`bin\\sinclair-agent.cmd\` (PowerShell·cmd 어디서나). 런처는 인자(\`%*\`)와 환경변수를 그대로 넘기고 종료 코드를 돌려주도록 돼 있다(\`exit /b %ERRORLEVEL%\`).
 - 데이터 디렉터리: \`%APPDATA%\\sinclair\` (DB·스풀·헬퍼 캐시). 설치 디렉터리에는 쓰지 않는다.
 - USB: 직접 USB 연결(기본)은 기기에 **WinUSB 드라이버**가 필요하다(Zadig 등으로 "Android ADB Interface" 를 WinUSB 로 바꾼다). 제조사 ADB 드라이버가 잡혀 있거나 adb 서버가 떠 있으면 인터페이스를 못 잡아 "기기 없음" 으로 보인다 — \`adb kill-server\` 를 먼저 한다. adb 서버 경유 모드는 아직 에이전트 옵션으로 노출돼 있지 않다.
 - 신호: Windows 에는 SIGTERM 이 없다. 데몬은 Ctrl-C(SIGINT)로 "진행 중 run 을 마치고" 멈추고, 작업 관리자 종료처럼 강제 종료되면 run 의 스풀이 남아 다음 \`sinclair-agent resume\` 이 이어 보낸다.
-- 스풀 lock: 같은 머신의 다른 프로세스가 쓰는 스풀은 pid 로 판별한다. pid 가 재사용되면 잘못 "사용 중" 으로 보일 수 있으니 그런 스풀은 \`.lock\` 파일을 지우고 \`resume\` 한다.
+- 스풀 lock: 같은 머신의 다른 프로세스가 쓰는 스풀은 pid 로 판별한다. Windows 에서는 다른 사용자의 프로세스가 "살아 있음" 으로 보이고, pid 가 재사용되면 잘못 "사용 중" 으로 보일 수 있다 — 그런 스풀은 \`.lock\` 파일을 지우고 \`resume\` 한다(에이전트는 한 사용자로 돈다는 전제).
 - 방화벽: 서버는 기본 127.0.0.1 에만 바인딩하므로 규칙이 필요 없다. 다른 노드에서 접근하려면 \`--host 0.0.0.0\` 과 방화벽 허용이 필요하고, 인증이 없으므로 신뢰망 안에서만.
-- 이 배포본은 macOS 에서 교차 빌드됐다. 실행 검증은 Windows 머신에서 체크리스트(.scratch/packaging/windows-checklist.md)로 한다.
+- 이 배포본은 macOS 에서 교차 빌드됐다. Windows 에서의 실행 검증은 배포 담당자가 체크리스트로 수행한다(결과는 릴리스 노트에 적는다).
 `;
 }
 
@@ -143,14 +143,13 @@ zip 을 원하는 곳에 푼다(예: \`/opt/sinclair/<version>\`, \`C:\\sinclair
 
 ## macOS 첫 실행
 서명되지 않은 배포본이라 격리 속성을 지운다: \`xattr -dr com.apple.quarantine <이 디렉터리>\`. 그래도 막히면 시스템 설정 > 개인정보 보호 및 보안에서 허용한다.
-${TARGETS[target].win ? windowsNotes() : ''}
 
 ## 사내망(SSL 인터셉션)
 헬퍼 APK 를 릴리스 URL 에서 받게 하려면(\`SINCLAIR_AGENT_HELPER_URL\`) 사내 CA 번들을 \`NODE_EXTRA_CA_CERTS\` 로 준다. 이 배포본은 APK 를 동봉하므로 기본 설정에서는 네트워크가 필요 없다.
 
 ## Android 기기
 USB 디버깅을 켜고 처음 연결 시 기기에서 "USB 디버깅 허용" 을 승인한다. adb 서버가 떠 있으면 USB 인터페이스를 점유하므로 \`adb kill-server\` 를 먼저 한다. 헬퍼 APK 설치·접근성 활성화는 에이전트가 자동으로 한다(Samsung Secure Folder 기기 포함).
-`;
+${TARGETS[target].win ? windowsNotes() : ''}`;
 }
 
 /**
@@ -217,9 +216,13 @@ export async function assembleDistributable({ target, outDir = path.join(root, '
     zipPath = path.join(outDir, `${name}.zip`);
     rmSync(zipPath, { force: true });
     execFileSync('zip', ['-qry', zipPath, name], { cwd: path.join(outDir, 'stage') });
-    log(`[zip] ${path.relative(root, zipPath)} (${(readFileSync(zipPath).length / 1024 / 1024).toFixed(1)} MB)`);
+    log(`[zip] ${path.relative(root, zipPath)} (${(statSync(zipPath).size / 1024 / 1024).toFixed(1)} MB)`);
   }
-  return { stageDir: stage, zipPath, files: listFiles(stage) };
+  const files = listFiles(stage);
+  // 매니페스트: 구성 증거를 사람이 손으로 적지 않도록 조립이 직접 남긴다(.scratch 증거는 이 파일의 복사본)
+  const manifest = { target, version, node: NODE_VERSION, helper: HELPER_APK_VERSION, builtOn: `${process.platform}-${process.arch}`, ...(zipPath ? { zipMb: +(statSync(zipPath).size / 1024 / 1024).toFixed(1) } : {}), files };
+  writeFileSync(path.join(outDir, `${name}.manifest.json`), `${JSON.stringify(manifest, null, 2)}\n`);
+  return { stageDir: stage, zipPath, files, manifest };
 }
 
 function dirSize(dir) {
