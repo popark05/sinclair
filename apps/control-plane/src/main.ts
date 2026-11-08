@@ -13,7 +13,7 @@ export async function startControlPlane(config: ControlPlaneConfig): Promise<Run
   const db = config.store === 'sqlite' ? openSqlite(config.db) : undefined;
   const events = db ? createSqliteEventStore(db) : createMemoryEventStore();
   const cycles = db ? createSqliteCycleStore(db) : createMemoryCycleStore();
-  const server = await serveControlPlane(events, { host: config.host, port: config.port, cycles });
+  const server = await serveControlPlane(events, { host: config.host, port: config.port, cycles, ...(config.leaseTtlMs !== undefined ? { leaseTtlMs: config.leaseTtlMs } : {}) });
   let closed = false;
   return {
     server, config,

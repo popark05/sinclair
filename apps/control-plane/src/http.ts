@@ -2,7 +2,7 @@
 //   POST /ingest             RunEvent[] 배치 → IngestResponse
 //   GET  /runs               run 요약 목록
 //   GET  /runs/:id           RunView (projection.ts)
-//   POST /cycles             { cycleId?, build, targets[], requiredTags? } → CycleRecord (201)
+//   POST /cycles             { cycleId?, build, targets[], requiredTags?, retryLimit? } → CycleRecord (201)
 //   GET  /cycles             CycleRecord 목록
 //   GET  /cycles/:id         CycleView (verdict.ts: 상태·Verdict·매트릭스)
 //   POST /cycles/:id/runs    { targetId, runId? } → RunRegistration (201)
@@ -15,7 +15,8 @@ import { ingestBatch } from './ingest.ts';
 import { projectRun, type RunView } from './projection.ts';
 import type { EventStore } from './store.ts';
 import { createMemoryCycleStore, type CycleStore } from './cycle-store.ts';
-import { buildCycleView } from './cycle-view.ts';
+import { MAX_RETRY_LIMIT } from './verdict.ts';
+import { buildCycleView, sweepAbandoned, sweepAllAbandoned } from './cycle-view.ts';
 
 export interface ControlPlaneOptions {
   port?: number;
@@ -27,6 +28,8 @@ export interface ControlPlaneOptions {
   leaseTtlMs?: number;
   /** 테스트용 시계 */
   now?: () => number;
+  /** 버려진 Run 판정 유예(기본 lease TTL 과 같음). lease 만료(또는 lease 없으면 마지막 이벤트) 뒤 이만큼 더 조용하면 infra-failed 로 닫고 대체 Run 을 만든다 */
+  abandonGraceMs?: number;
 }
 
 const DEFAULT_LEASE_TTL_MS = 60_000;
@@ -53,6 +56,7 @@ const TERMINAL_CYCLE = new Set(['finished', 'expired', 'cancelled']);
 
 export async function serveControlPlane(store: EventStore, opts: ControlPlaneOptions = {}): Promise<ControlPlaneServer> {
   const cycles = opts.cycles ?? createMemoryCycleStore();
+  const sweepOpts = () => ({ nowMs: (opts.now ?? Date.now)(), graceMs: opts.abandonGraceMs ?? opts.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS });
   const json = (res: http.ServerResponse, status: number, body: unknown): void => {
     res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
   };
@@ -92,8 +96,10 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         if (b.requiredTags !== undefined && !isStringArray(b.requiredTags)) return json(res, 400, { error: 'requiredTags 는 문자열 배열이어야 함' });
         if (!optionalId(b.cycleId)) return json(res, 400, { error: 'cycleId 는 비어 있지 않은 문자열이어야 함' });
         if (b.suite !== undefined && (!isRecord(b.suite) || typeof b.suite.tests !== 'string' || !b.suite.tests || (b.suite.tags !== undefined && !isStringArray(b.suite.tags)))) return json(res, 400, { error: 'suite 는 { tests: 문자열, tags?: 문자열 배열 } 이어야 함' });
+        if (b.retryLimit !== undefined && (typeof b.retryLimit !== 'number' || !Number.isInteger(b.retryLimit) || b.retryLimit < 0 || b.retryLimit > MAX_RETRY_LIMIT)) return json(res, 400, { error: `retryLimit 은 0~${MAX_RETRY_LIMIT} 의 정수여야 함` });
         const suite = b.suite as { tests: string; tags?: string[] } | undefined;
         const cycle = {
+          ...(typeof b.retryLimit === 'number' ? { retryLimit: b.retryLimit } : {}),
           cycleId: b.cycleId ?? randomUUID(), build: b.build, targets: [...new Set(b.targets)], requiredTags: (b.requiredTags as string[] | undefined) ?? [],
           ...(suite ? { suite: { tests: suite.tests, ...(suite.tags ? { tags: suite.tags } : {}) } } : {}), createdAt: new Date().toISOString(),
         };
@@ -102,6 +108,8 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
       }
       if (req.method === 'GET' && url.pathname === '/cycles') return json(res, 200, await cycles.listCycles());
       if (req.method === 'GET' && parts[0] === 'cycles' && parts.length === 2) {
+        // 조회도 정리 시점이다: 별도 스케줄러 없이 클레임·조회에서 버려진 Run 을 닫는다
+        await sweepAbandoned(store, cycles, parts[1]!, sweepOpts());
         const view = await buildCycleView(store, cycles, parts[1]!);
         return view ? json(res, 200, view) : json(res, 404, { error: '모르는 Cycle' });
       }
@@ -129,6 +137,7 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         const b = read.body;
         if (!isRecord(b) || typeof b.targetId !== 'string' || !b.targetId || typeof b.agentId !== 'string' || !b.agentId) return json(res, 400, { error: 'targetId 와 agentId(문자열)가 필요함' });
         const ttl = opts.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS;
+        await sweepAllAbandoned(store, cycles, sweepOpts()); // 버려진 Run 의 대체 Run 이 이 클레임에서 바로 잡히게
         const run = await cycles.claimRun(b.targetId, b.agentId, (opts.now ?? Date.now)(), ttl, async (runId) => (await store.eventsForRun(runId)).length > 0);
         if (!run) { res.writeHead(204).end(); return; }
         const cycle = await cycles.getCycle(run.cycleId);

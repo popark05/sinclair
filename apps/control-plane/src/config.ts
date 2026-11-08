@@ -8,6 +8,8 @@ export interface ControlPlaneConfig {
   store: 'memory' | 'sqlite';
   /** sqlite 모드의 DB 파일. memory 모드에서는 무시된다 */
   db: string;
+  /** 클레임 lease 수명(ms). 버려진 Run 판정 유예도 이 값이다. 없으면 서버 기본(60초) */
+  leaseTtlMs?: number;
 }
 
 export class ConfigError extends Error {}
@@ -15,6 +17,7 @@ export class ConfigError extends Error {}
 /** 4780: 등록된 서비스와 겹치지 않는 임의의 높은 포트. 8080/3000 계열은 로컬 개발 서버와 자주 충돌한다 */
 const DEFAULT_PORT = 4780;
 const STORES = ['memory', 'sqlite'] as const;
+const DEFAULT_LEASE_TTL_MS = 60_000;
 
 /** 옵션 표 하나가 파서와 도움말을 모두 만든다. env 는 같은 이름의 환경변수 */
 const OPTIONS = [
@@ -22,12 +25,13 @@ const OPTIONS = [
   { name: 'port', env: 'SINCLAIR_CP_PORT', help: `포트 (기본 ${DEFAULT_PORT}, 0 이면 OS 배정)` },
   { name: 'store', env: 'SINCLAIR_CP_STORE', help: '저장소 memory|sqlite (기본 sqlite)' },
   { name: 'db', env: 'SINCLAIR_CP_DB', help: 'SQLite 파일 (기본 OS 데이터 디렉터리/sinclair/control-plane.db)' },
+  { name: 'lease-ttl-ms', env: 'SINCLAIR_CP_LEASE_TTL_MS', help: `클레임 lease 수명 ms (기본 ${DEFAULT_LEASE_TTL_MS}). 버려진 Run 판정 유예도 같은 값` },
 ] as const;
 
 export const HELP = `사용법: sinclair-control-plane [옵션]
 
-${OPTIONS.map((o) => `  --${o.name.padEnd(8)} <값>   ${o.help} [${o.env}]`).join('\n')}
-  --help           이 도움말
+${OPTIONS.map((o) => `  --${o.name.padEnd(12)} <값>   ${o.help} [${o.env}]`).join('\n')}
+  --help               이 도움말
 
 기동하면 "READY http://<host>:<port> port=<port> store=<memory|sqlite db=<경로> schema=<n>> pid=<pid>" 한 줄을 찍는다(스크립트가 파싱하는 계약).
 SIGTERM/SIGINT 에 연결과 DB 를 닫고 끝난다. 두 번째 신호는 즉시 종료한다.
@@ -72,5 +76,8 @@ export function parseConfig(argv: string[], env: NodeJS.ProcessEnv, platform: No
   if (!(STORES as readonly string[]).includes(store)) throw new ConfigError(`store 는 ${STORES.join('|')} 중 하나여야 함: ${store}`);
   const db = resolve('db', path.join(defaultDataDir(env, platform), 'control-plane.db'));
   if (!db) throw new ConfigError('db 경로가 비어 있음');
-  return { host, port, store: store as ControlPlaneConfig['store'], db };
+  const ttlText = resolve('lease-ttl-ms', String(DEFAULT_LEASE_TTL_MS));
+  const leaseTtlMs = Number(ttlText);
+  if (!/^\d+$/.test(ttlText) || leaseTtlMs < 1000) throw new ConfigError(`lease-ttl-ms 는 1000 이상의 정수여야 함: ${ttlText}`);
+  return { host, port, store: store as ControlPlaneConfig['store'], db, leaseTtlMs };
 }

@@ -144,7 +144,8 @@ describe('Cycle API', () => {
     expect((await post('/runs/없음/heartbeat', { agentId: 'node-1' })).status).toBe(404);
 
     // 이벤트가 들어온 Run 은 lease 가 만료돼도 다시 클레임되지 않는다
-    await post('/ingest', [{ ...base('x0', 0, 'r-i'), type: 'run.started', cycleId: 'cl', targetId: 'ios' }] satisfies RunEvent[]);
+    // 이벤트 시각은 지금: 오래전 이벤트면 버려진 Run 으로 정리돼 대체 Run 이 클레임된다(sweep 테스트가 다룬다)
+    await post('/ingest', [{ ...base('x0', 0, 'r-i'), at: new Date().toISOString(), type: 'run.started', cycleId: 'cl', targetId: 'ios' }] satisfies RunEvent[]);
     expect((await post('/runs/claim', { targetId: 'ios', agentId: 'node-2' })).status).toBe(204);
   });
 
@@ -159,5 +160,75 @@ describe('Cycle API', () => {
     expect((await post('/runs/claim', { targetId: 'android', agentId: 'a2' })).status).toBe(204);
     now += 1;
     expect(((await (await post('/runs/claim', { targetId: 'android', agentId: 'a2' })).json()) as { run: { lease: { agentId: string } } }).run.lease.agentId).toBe('a2');
+  });
+});
+
+// 버려진 Run → 합성 infra-failed → 대체 Run → 클레임·완료 → verified. 시계와 유예는 서버 옵션으로 주입한다.
+describe('버려진 Run 과 대체 Run (HTTP)', () => {
+  const TTL = 1000;
+  let now: number;
+  const get = async (p: string) => (await fetch(url(p))).json() as Promise<CycleView>;
+  const claim = async (targetId: string) => { const r = await post('/runs/claim', { targetId, agentId: 'a1' }); return r.status === 200 ? ((await r.json()) as { run: RunRegistration }).run : undefined; };
+  const started = (runId: string, cycleId: string, s: number): RunEvent[] => [
+    { ...base(`${runId}-0`, s, runId), at: new Date(now + s).toISOString(), type: 'run.started', cycleId, targetId: 'android' },
+    { ...base(`${runId}-1`, s, runId), at: new Date(now + s + 1).toISOString(), type: 'attempt.started', attemptId: `${runId}-a1`, testId: '로그인', attemptNo: 1 },
+  ];
+  const finishedOk = (runId: string, cycleId: string): RunEvent[] => [
+    ...started(runId, cycleId, 0),
+    { ...base(`${runId}-2`, 0, runId), at: new Date(now + 2).toISOString(), type: 'attempt.finished', attemptId: `${runId}-a1`, result: 'passed', artifacts: [] },
+    { ...base(`${runId}-3`, 0, runId), at: new Date(now + 3).toISOString(), type: 'run.finished', state: 'finished' },
+  ];
+  beforeEach(async () => {
+    await server.close();
+    now = Date.parse('2026-11-08T00:00:00.000Z');
+    server = await serveControlPlane(createMemoryEventStore(), { leaseTtlMs: TTL, now: () => now });
+  });
+
+  it('유예 전에는 그대로, 유예 뒤 조회에서 infra-failed + 대체 Run; 대체 Run 을 클레임해 끝내면 Cycle verified', async () => {
+    expect((await post('/cycles', { cycleId: 'c', build: 'b', targets: ['android'], retryLimit: 1 })).status).toBe(201);
+    await post('/cycles/c/runs', { targetId: 'android', runId: 'r1' });
+    expect((await claim('android'))?.runId).toBe('r1');
+    await post('/ingest', started('r1', 'c', 0));
+    now += TTL + TTL - 1; // lease 만료 + 유예 직전
+    let view = await get('/cycles/c');
+    expect(view).toMatchObject({ state: 'running', verdict: 'incomplete', retryLimit: 1, retriesUsed: { android: 0 } });
+    expect(view.runs).toHaveLength(1);
+    now += 1;
+    view = await get('/cycles/c');
+    expect(view.runs).toHaveLength(2);
+    const [r1, rep] = view.runs;
+    expect(r1).toMatchObject({ runId: 'r1', state: 'infra-failed', replacedBy: rep!.runId, abandonedAt: new Date(now).toISOString() });
+    expect(rep).toMatchObject({ targetId: 'android', state: 'queued', replaces: 'r1' });
+    expect(view).toMatchObject({ state: 'running', verdict: 'incomplete', retriesUsed: { android: 1 } });
+    expect(view.matrix['로그인']).toBeUndefined(); // 대체된 run 의 케이스는 판정에서 빠진다(blocked 가 아님)
+    const claimed = await claim('android');
+    expect(claimed?.runId).toBe(rep!.runId);
+    await post('/ingest', finishedOk(rep!.runId, 'c'));
+    view = await get('/cycles/c');
+    expect(view).toMatchObject({ state: 'finished', verdict: 'verified' });
+    expect(view.matrix['로그인']!.android).toMatchObject({ verdict: 'passed' });
+  });
+
+  it('retryLimit 0 이면 대체 없이 infra-failed 로 남아 Cycle 은 blocked; 클레임 경로도 같은 정리를 한다', async () => {
+    await post('/cycles', { cycleId: 'c0', build: 'b', targets: ['android'], retryLimit: 0 });
+    await post('/cycles/c0/runs', { targetId: 'android', runId: 'r1' });
+    await claim('android');
+    await post('/ingest', started('r1', 'c0', 0));
+    now += 2 * TTL;
+    expect(await claim('android')).toBeUndefined(); // 클레임에서 정리됐지만 한도 0 이라 대체 Run 없음
+    const view = await get('/cycles/c0');
+    expect(view).toMatchObject({ state: 'finished', verdict: 'blocked', retryLimit: 0, retriesUsed: { android: 0 } });
+    expect(view.runs).toEqual([expect.objectContaining({ runId: 'r1', state: 'infra-failed' })]);
+    expect(view.runs[0]!.replacedBy).toBeUndefined();
+    expect(view.matrix['로그인']!.android).toEqual({ verdict: 'blocked' });
+  });
+
+  it('retryLimit 검증: 정수 0~5 밖은 400; 생략하면 1', async () => {
+    expect((await post('/cycles', { build: 'b', targets: ['android'], retryLimit: 6 })).status).toBe(400);
+    expect((await post('/cycles', { build: 'b', targets: ['android'], retryLimit: 1.5 })).status).toBe(400);
+    expect((await post('/cycles', { build: 'b', targets: ['android'], retryLimit: '1' })).status).toBe(400);
+    const created = (await (await post('/cycles', { cycleId: 'cd', build: 'b', targets: ['android'] })).json()) as CycleRecord;
+    expect(created.retryLimit).toBeUndefined();
+    expect((await get('/cycles/cd')).retryLimit).toBe(1);
   });
 });

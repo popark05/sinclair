@@ -145,6 +145,17 @@ export function createSqliteCycleStore(source: string | DatabaseSync): CycleStor
       }
       return { outcome: 'not-owner' };
     },
+    async markReplaced(runId, replacedBy, abandonedAt) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const row = selectRun.get(runId) as { record: string } | undefined;
+        if (!row) return 'no-run';
+        const r = JSON.parse(row.record) as RunRegistration;
+        if (r.replacedBy) return 'already';
+        const next = { ...r, replacedBy, abandonedAt };
+        if (casRun.run(JSON.stringify(next), runId, row.record).changes === 1) return 'marked';
+      }
+      return 'already'; // CAS 가 계속 지면 다른 쪽이 먼저 표시한 것이다
+    },
     async close() {
       closeOnce(db);
     },

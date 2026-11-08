@@ -17,6 +17,8 @@ export interface CycleRecord {
   requiredTags: string[];
   /** 없으면 에이전트의 기본 테스트 디렉터리 */
   suite?: SuiteFilter;
+  /** 타깃당 버려진 Run 을 대체 Run 으로 다시 돌릴 수 있는 횟수(기본 1). 0 이면 대체 없음 */
+  retryLimit?: number;
   createdAt: string;
 }
 
@@ -33,6 +35,11 @@ export interface RunRegistration {
   targetId: string;
   createdAt: string;
   lease?: RunLease;
+  /** 이 Run 이 대체하는(버려진) Run */
+  replaces?: string;
+  /** 버려져서 이 Run 으로 대체됨(Verdict 에서 제외) */
+  replacedBy?: string;
+  abandonedAt?: string;
 }
 
 export type HeartbeatResult = { outcome: 'ok'; expiresAt: string } | { outcome: 'not-owner' } | { outcome: 'no-run' };
@@ -51,6 +58,8 @@ export interface CycleStore {
   claimRun(targetId: string, agentId: string, nowMs: number, ttlMs: number, hasEvents: (runId: string) => Promise<boolean>): Promise<RunRegistration | undefined>;
   /** 소유자만 lease 를 연장한다 */
   heartbeat(runId: string, agentId: string, nowMs: number, ttlMs: number): Promise<HeartbeatResult>;
+  /** 버려진 Run 에 대체 표시. 이미 표시돼 있으면 'already'(그 값 유지), 없으면 'no-run' */
+  markReplaced(runId: string, replacedBy: string, abandonedAt: string): Promise<'marked' | 'already' | 'no-run'>;
   close?(): Promise<void>;
 }
 
@@ -98,6 +107,13 @@ export function createMemoryCycleStore(): CycleStore {
       if (r.lease?.agentId !== agentId) return { outcome: 'not-owner' };
       r.lease = newLease(agentId, nowMs, ttlMs);
       return { outcome: 'ok', expiresAt: r.lease.expiresAt };
+    },
+    async markReplaced(runId, replacedBy, abandonedAt) {
+      const r = runs.get(runId);
+      if (!r) return 'no-run';
+      if (r.replacedBy) return 'already';
+      r.replacedBy = replacedBy; r.abandonedAt = abandonedAt;
+      return 'marked';
     },
   };
 }

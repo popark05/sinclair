@@ -90,6 +90,16 @@ export function runClaimSuite(name: string, makeStore: () => Promise<CycleStore>
       expect(await store.heartbeat('r1', 'agent-1', T0, TTL)).toEqual({ outcome: 'not-owner' }); // lease 없는 Run
     });
 
+    it('대체 Run 등록(replaces)과 markReplaced: 한 번만 표시되고 두 번째는 already, 모르는 run 은 no-run', async () => {
+      expect(await store.registerRun({ runId: 'r1b', cycleId: 'c1', targetId: 'android', createdAt: 'y', replaces: 'r1' })).toBe('registered');
+      expect(await store.markReplaced('r1', 'r1b', '2026-11-08T00:01:00.000Z')).toBe('marked');
+      expect(await store.markReplaced('r1', 'r1c', '2026-11-08T00:02:00.000Z')).toBe('already');
+      expect(await store.markReplaced('없음', 'x', 'x')).toBe('no-run');
+      const runs = await store.runsForCycle('c1');
+      expect(runs.find((r) => r.runId === 'r1')).toMatchObject({ replacedBy: 'r1b', abandonedAt: '2026-11-08T00:01:00.000Z' });
+      expect(runs.find((r) => r.runId === 'r1b')).toMatchObject({ replaces: 'r1' });
+    });
+
     if (makeTwin) {
       it('같은 저장소를 연 두 핸들이 같은 타깃을 동시에 클레임해도 같은 Run 을 두 번 주지 않는다', async () => {
         const twin = await makeTwin(store);

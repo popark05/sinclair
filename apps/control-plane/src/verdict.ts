@@ -7,6 +7,10 @@ import type { CaseVerdict, CycleState, CycleVerdict, RunState } from '@sinclair/
 import type { CycleRecord, RunLease, RunRegistration, SuiteFilter } from './cycle-store.ts';
 import type { AttemptView, RunView } from './projection.ts';
 
+/** 버려진 Run 의 기본 대체 한도. 한 번은 인프라 흔들림으로 보고, 두 번째도 버려지면 사람이 본다 */
+export const DEFAULT_RETRY_LIMIT = 1;
+export const MAX_RETRY_LIMIT = 5;
+
 export interface CaseCell { verdict: CaseVerdict; attemptId?: string }
 
 export interface CycleView {
@@ -18,8 +22,12 @@ export interface CycleView {
   createdAt: string;
   state: CycleState;
   verdict: CycleVerdict;
-  /** 등록 순서. 이벤트가 아직 없는 run 은 queued. lease 는 에이전트가 잡은 표시 */
-  runs: Array<{ runId: string; targetId: string; state: RunState; lease?: RunLease }>;
+  /** 등록 순서. 이벤트가 아직 없는 run 은 queued. lease 는 에이전트가 잡은 표시. replacedBy 가 있는 run 은 버려져 대체된 것으로, 행에는 남지만 판정에서는 빠진다 */
+  runs: Array<{ runId: string; targetId: string; state: RunState; lease?: RunLease; replaces?: string; replacedBy?: string; abandonedAt?: string }>;
+  /** 버려진 Run 을 대체할 수 있는 횟수(타깃별). 생성 시 정한다 */
+  retryLimit: number;
+  /** 지금까지 만든 대체 Run 수(타깃별) */
+  retriesUsed: Record<string, number>;
   /** verified 판정에 들어가는 testId 들 */
   required: string[];
   /** testId → targetId → 셀. testId 는 처음 본 순서, targetId 는 Cycle 의 targets 순 */
@@ -48,10 +56,17 @@ function caseVerdict(attempts: AttemptView[]): CaseCell | undefined {
 
 export function computeCycle(cycle: CycleRecord, registrations: RunRegistration[], views: RunView[]): CycleView {
   const byId = new Map(views.map((v) => [v.runId, v]));
-  const runs = registrations.filter((r) => r.cycleId === cycle.cycleId).map((r) => ({ reg: r, view: byId.get(r.runId) }));
-  const runRows = runs.map(({ reg, view }) => ({ runId: reg.runId, targetId: reg.targetId, state: view?.state ?? ('queued' as RunState), ...(reg.lease ? { lease: reg.lease } : {}) }));
+  const all = registrations.filter((r) => r.cycleId === cycle.cycleId).map((r) => ({ reg: r, view: byId.get(r.runId) }));
+  const runRows = all.map(({ reg, view }) => ({
+    runId: reg.runId, targetId: reg.targetId, state: view?.state ?? ('queued' as RunState), ...(reg.lease ? { lease: reg.lease } : {}),
+    ...(reg.replaces ? { replaces: reg.replaces } : {}), ...(reg.replacedBy ? { replacedBy: reg.replacedBy, abandonedAt: reg.abandonedAt! } : {}),
+  }));
+  // 대체된(버려진) run 은 매트릭스·판정에서 뺀다: 그 몫은 대체 Run 이 한다. 행에는 이력으로 남긴다
+  const runs = all.filter(({ reg }) => !reg.replacedBy);
+  const live = runRows.filter((r) => !r.replacedBy);
+  const retriesUsed: Record<string, number> = Object.fromEntries(cycle.targets.map((t) => [t, all.filter(({ reg }) => reg.targetId === t && reg.replaces).length]));
 
-  const state: CycleState = runs.length === 0 ? 'draft' : runRows.every((r) => TERMINAL.has(r.state)) ? 'finished' : 'running';
+  const state: CycleState = runs.length === 0 ? 'draft' : live.every((r) => TERMINAL.has(r.state)) ? 'finished' : 'running';
 
   // 케이스 집합: 이 Cycle 의 run 들이 본 testId 합집합(처음 본 순서)
   const testIds: string[] = [];
@@ -79,7 +94,7 @@ export function computeCycle(cycle: CycleRecord, registrations: RunRegistration[
   if (state !== 'finished') verdict = 'incomplete';
   else {
     // infra-failed/cancelled 로 끝난 run 이 있으면 돌지 못한 케이스가 있을 수 있으므로(케이스 집합을 모르더라도) verified 가 아니다
-    const allRunsFinished = runRows.every((r) => r.state === 'finished');
+    const allRunsFinished = live.every((r) => r.state === 'finished');
     const ok = allRunsFinished && required.every((t) => cycle.targets.every((target) => {
       const v = matrix[t]?.[target]?.verdict;
       return v === 'passed' || v === 'passed-flaky' || v === 'waived';
@@ -87,5 +102,5 @@ export function computeCycle(cycle: CycleRecord, registrations: RunRegistration[
     verdict = ok ? 'verified' : 'blocked';
   }
 
-  return { cycleId: cycle.cycleId, build: cycle.build, targets: cycle.targets, requiredTags: cycle.requiredTags, ...(cycle.suite ? { suite: cycle.suite } : {}), createdAt: cycle.createdAt, state, verdict, runs: runRows, required, matrix };
+  return { cycleId: cycle.cycleId, build: cycle.build, targets: cycle.targets, requiredTags: cycle.requiredTags, ...(cycle.suite ? { suite: cycle.suite } : {}), createdAt: cycle.createdAt, state, verdict, runs: runRows, retryLimit: cycle.retryLimit ?? DEFAULT_RETRY_LIMIT, retriesUsed, required, matrix };
 }
