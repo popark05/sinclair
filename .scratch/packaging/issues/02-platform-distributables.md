@@ -10,10 +10,15 @@
 
 **Blocked by:** 01 (번들)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Node 버전 고정 상수(≥22.13, `node:sqlite` 때문)와 타깃별 다운로드 URL·SHA-256 검증·캐시(`~/Library/Caches` 류), 사내망이면 `NODE_EXTRA_CA_CERTS` 를 따른다. 실패 사유가 명확하다
-- [ ] 실행 스크립트는 동봉 Node 로 번들을 실행하고 `--experimental-*` 플래그가 필요 없다(Node 24 에서 `node:sqlite` 경고만 끈다). 환경변수(`SINCLAIR_CP_*`, `SINCLAIR_AGENT_*`)는 그대로 통과
-- [ ] 헬퍼 APK 는 리포 빌드에서 복사하고 없으면 조립이 실패한다(빌드 절차 안내 메시지). `.sha256` 사이드카를 함께 만든다
-- [ ] 테스트: 호스트 타깃 배포본을 임시 디렉터리에 풀어 실행 스크립트로 서버 기동(READY, sqlite 기본) → `sinclair-agent run --engine fake` → `GET /cycles/:id` verified → 서버 SIGTERM 정상 종료. 기기 없이 `--engine mobile` 은 "기기 없음" blocked(2) 로 끝난다(USB 로드 성공 확인)
-- [ ] 배포본 크기·구성 목록을 README 에 적고, 서명이 없다는 점과 macOS 격리 속성 제거(`xattr -dr com.apple.quarantine`) 절차를 쓴다
+- [x] Node 버전 고정 상수(≥22.13, `node:sqlite` 때문)와 타깃별 다운로드 URL·SHA-256 검증·캐시(`~/Library/Caches` 류), 사내망이면 `NODE_EXTRA_CA_CERTS` 를 따른다. 실패 사유가 명확하다
+- [x] 실행 스크립트는 동봉 Node 로 번들을 실행하고 `--experimental-*` 플래그가 필요 없다(Node 24 에서 `node:sqlite` 경고만 끈다). 환경변수(`SINCLAIR_CP_*`, `SINCLAIR_AGENT_*`)는 그대로 통과
+- [x] 헬퍼 APK 는 리포 빌드에서 복사하고 없으면 조립이 실패한다(빌드 절차 안내 메시지). `.sha256` 사이드카를 함께 만든다
+- [x] 테스트: 호스트 타깃 배포본을 임시 디렉터리에 풀어 실행 스크립트로 서버 기동(READY, sqlite 기본) → `sinclair-agent run --engine fake` → `GET /cycles/:id` verified → 서버 SIGTERM 정상 종료. 기기 없이 `--engine mobile` 은 "기기 없음" blocked(2) 로 끝난다(USB 로드 성공 확인)
+- [x] 배포본 크기·구성 목록을 README 에 적고, 서명이 없다는 점과 macOS 격리 속성 제거(`xattr -dr com.apple.quarantine`) 절차를 쓴다
+
+## Comments
+
+- 2026-11-08: 완료. `scripts/dist.mjs`(`pnpm dist [--targets …] [--out] [--node-binary] [--no-zip]`): `fetchNode(target)` 가 `NODE_VERSION = 24.13.0` 을 nodejs.org 에서 받아 `SHASUMS256.txt` 로 검증 후 OS 캐시 디렉터리(`~/Library/Caches/sinclair/node` 등)에 풀고 LICENSE 포함, 캐시면 네트워크 없음(사내망은 `NODE_EXTRA_CA_CERTS`); `assembleDistributable({target,…})` 가 레이아웃 계약대로 `bin/`(sh 또는 .cmd 런처, `--no-warnings=ExperimentalWarning` 만), `node/`, `dist/`(01 번들), `node_modules/usb` + `@node-usb/usb-<platform>`(`fetch-usb-binaries.mjs` 를 `ensureUsbPackage()` 로 리팩터해 재사용), `resources/helper/sinclair-helper-<V>.apk`+`.sha256`(리포 빌드 없으면 실패 + 빌드 안내), `VERSION`, `README.md`(실행·구성·Gatekeeper `xattr -dr com.apple.quarantine`·사내망·기기 안내)를 조립하고 `zip -qry` 로 `release/sinclair-<version>-<target>.zip`. 루트 package.json version 0.1.0. 테스트 `dist.test.ts`: fetchNode(페이크 릴리스 서버: 검증·캐시·불일치 거부), 호스트 배포본을 현재 Node 로 조립해 zip 을 풀고 런처로 control-plane(sqlite 기본 READY, ingest, 환경변수 통과, SIGTERM 종료 완료), agent(`run --engine fake` verified; `--engine mobile --device NO-SUCH-DEVICE` → blocked(2) 와 "번들 APK (bundled)"·"목록에 없음" 로그 = usb 모듈·APK 로드 확인), Windows 타깃 교차 조립(node.exe, .cmd, win32 usb 패키지). 실제 `pnpm dist --targets mac-x64`: Node 다운로드·검증 포함 9.5초, 38.8 MB zip; /tmp 에 풀어 런처로 서버·에이전트·종료까지 수동 확인.
+- 결정: Node 는 24.13.0 고정(호스트와 동일 LTS 계열). 배포본의 `usb` 는 `<install>/node_modules` 에(Node 해석이 dist 에서 위로 올라감). 서명 없음 → README 에 격리 속성 제거 절차. 관찰: 기기가 꽂힌 머신에서 `--device NO-SUCH-DEVICE` 테스트가 60초 가까이 걸림(실기기 probe 대기) — 기기 없는 CI 에서는 3초.

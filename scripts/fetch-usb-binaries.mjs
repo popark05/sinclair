@@ -60,16 +60,22 @@ function npm(args, cwd) {
   return execFileSync('npm', args, { cwd, encoding: 'utf-8', shell: process.platform === 'win32' });
 }
 
-for (const target of parseTargets()) {
+/** 대상의 플랫폼 패키지 이름(예: usb-darwin-arm64). dist.mjs 가 쓴다 */
+export const USB_PLATFORM_PACKAGES = PACKAGES;
+/** `usb` 패키지 디렉터리(device-layer 워크스페이스의 node_modules) */
+export const USB_PACKAGE_DIR = path.join(root, 'node_modules', 'usb');
+
+/** 대상 플랫폼의 @node-usb 패키지를 device-layer node_modules 에 둔다(이미 같은 버전이면 건너뜀). 디렉터리 경로를 돌려준다 */
+export async function ensureUsbPackage(target) {
   const pkg = PACKAGES[target];
+  if (!pkg) throw new Error(`알 수 없는 대상: ${target}`);
   const name = `@node-usb/${pkg}`;
   const dest = path.join(root, 'node_modules', '@node-usb', pkg);
   const installed = path.join(dest, 'package.json');
   if (existsSync(installed) && JSON.parse(readFileSync(installed, 'utf-8')).version === version) {
     console.log(`[skip] ${name}@${version} 이미 존재`);
-    continue;
+    return dest;
   }
-
   const tmp = await mkdtemp(path.join(os.tmpdir(), 'usb-bin-'));
   try {
     npm(['pack', `${name}@${version}`, '--pack-destination', tmp, '--silent'], tmp);
@@ -80,7 +86,12 @@ for (const target of parseTargets()) {
     // bsdtar/GNU tar 모두 지원(Windows 10+는 tar.exe 기본 포함).
     execFileSync('tar', ['-xzf', path.join(tmp, tarball), '-C', dest, '--strip-components=1']);
     console.log(`[ok] ${name}@${version} → ${path.relative(root, dest)}`);
+    return dest;
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  for (const target of parseTargets()) await ensureUsbPackage(target);
 }
