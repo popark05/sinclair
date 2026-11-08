@@ -4,13 +4,13 @@
 
 **Blocked by:** 01 (테스트 재시도), 02 (취소 신호), 03 (버려진 Run·대체)
 
-**Status:** ready-for-human
+**Status:** done
 
 - [x] 스크립트: 짧은 lease TTL 로 control-plane 기동 → Cycle(`retryLimit` 1, `suite.retries` 1) → 데몬 A 를 느린 FakeEngine 픽스처(첫 시도 실패·두 번째 통과하는 테스트 + 긴 테스트)로 띄우고 run 도중 SIGKILL → 유예 뒤 `GET /cycles/:id` 에 `infra-failed`+`replaces` → 데몬 B 가 대체 Run 을 끝냄 → `verified`, `passed-flaky`
 - [x] 한도 초과 경로: `retryLimit` 0 인 Cycle 에서 같은 시나리오 → `blocked`, 대체 Run 없음
 - [x] lease 상실 경로: 데몬 A 를 죽이지 않고 heartbeat 만 끊어(네트워크 차단 흉내) B 가 가져가게 → A 는 `cancelled` 로 끝나고 B 의 run 이 Verdict 에 쓰인다
 - [x] 증거 `.scratch/retry-policy/evidence/04-e2e-latest.json` 에 세 경로의 상태·Verdict·대체 사슬
-- [ ] 실기기 1회: 재시도 샘플로 `passed-flaky` 가 실기기에서도 나오는 증거(01 의 샘플 재사용)
+- [x] 실기기 1회: 재시도 샘플로 `passed-flaky` 가 실기기에서도 나오는 증거(01 의 샘플 재사용)
 
 ## Comments
 
@@ -21,3 +21,4 @@
 - 개인정보: evidence 로그에 홈 디렉터리 경로가 들어가 있었다 — 실기기 `02-run-once-device-latest.json`·`02-run-once-retry-device-latest.json`(헬퍼 APK 경로)과 데몬(FakeEngine) `04-daemon-latest.json`(테스트 디렉터리 경로). 첫 커밋은 c7b3953, 원격 없음. 현재 파일은 `<repo>`/`<home>` 으로 지웠고 로그를 쓰는 곳(`run-once.device.test.ts`, `daemon.sh`, `retry-e2e.mjs`)이 모두 마스킹한다. 지난 커밋 이력에는 남아 있다.
 - **남은 것(ready-for-human):** 실기기 1회. 재실행 시 기기가 보안 잠금 상태라 엔진 준비가 막혔다("기기 화면이 잠겨 있음"). 잠금 해제 뒤 `adb kill-server && SINCLAIR_TEST_USB=1 npx vitest run apps/runner-agent/test/run-once.device.test.ts` 로 `02-run-once-retry-device-latest.json` 을 갱신하면 이 항목을 닫는다. 그 전까지는 01 에서 남긴 실기기 evidence(2026-11-08T04:48, passed-flaky 셀)가 같은 샘플의 증거다.
 - 리뷰 반영(Standards + Spec). (1) 에이전트 `heartbeat()` 가 409 를 전부 not-owner 로 뭉쳐 e2e 가 replaced 를 증명하지 못함 → 본문 `code` 로 `replaced` 를 구분(lease 상실로 같이 다룸), 데몬 테스트 it.each 에 409 replaced 추가, e2e 는 로그 `: replaced` 를 확인. (2) `retry-e2e.sh`: 통과했을 때만 리포 증거 갱신, EXIT trap 으로 control-plane 정리, 리포 루트로 cd. (3) `hb-proxy.mjs`: 헤더 전송 뒤 상류 오류에 죽지 않게, SIGTERM 에 연결을 끊고 닫음; 부모는 프록시 종료를 기다리고 3초 뒤 SIGKILL. (4) 마스킹 일관화(e2e 에 홈 경로, `daemon.sh` 로그). (5) spec 문구 "먼저 들어간" → "at 이 가장 이른" + projection 테스트(run.finished 둘, 도착 순서 무관). (6) `EXPECTED_CHECKS` 상수, http.ts 중복 주석 삭제, 데몬 SIGTERM 로그를 idle 일 때 오해 없게, SQLite 저장소로 e2e 도는 방법을 Gotchas 에.
+- 2026-11-08 실기기 완료: 잠금 해제 뒤 `run-once.device.test.ts` 통과(25.7초). SM-N981N(…XLZW): 설정 앱 샘플 Cycle verified(exit 0), 재시도 Cycle 은 attemptNo 1 failed → 2 passed, 매트릭스 셀 `passed-flaky`, verified(exit 0). 증거 `.scratch/runner-agent/evidence/02-run-once-device-latest.json`·`02-run-once-retry-device-latest.json`(06:17 UTC, 경로 마스킹 확인).

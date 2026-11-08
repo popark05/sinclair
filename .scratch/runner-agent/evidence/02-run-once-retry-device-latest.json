@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-08T04:48:37.463Z",
+  "at": "2026-11-08T06:17:58.300Z",
   "exitCode": 0,
   "device": "…XLZW",
   "retries": 1,
@@ -10,7 +10,7 @@
       "설정 앱 — 첫 시도만 실패, 재시도에 \"설정\" 제목": {
         "android": {
           "verdict": "passed-flaky",
-          "attemptId": "a1614264-e4ab-4744-a45b-1b38bbf52506"
+          "attemptId": "7b3169f5-29d1-4e59-92ee-2919160a079d"
         }
       }
     }
@@ -28,14 +28,13 @@
     }
   ],
   "log": [
-    "run 1acdbed5-0f4c-4aa7-8a99-81f3a731e220 등록 (cycle device-retry, target android, 테스트 파일 1개)",
+    "run c290afed-ffa6-481e-80e9-d022015e79ef 등록 (cycle device-retry, target android, 테스트 파일 1개)",
     "헬퍼 APK: <repo>/packages/device-layer/android-helper/app/build/outputs/apk/debug/app-debug.apk (repo-build)",
+    "기기  (…XLZW) Android , 헬퍼 pending",
+    "화면: 켜짐, 잠금 없음",
     "헬퍼 온보딩(…XLZW): 헬퍼 이미 설치됨",
     "헬퍼 온보딩(…XLZW): 접근성 서비스 활성화됨",
     "헬퍼 온보딩(…XLZW): 헬퍼 준비됨 v0.1.0",
-    "기기 SM-N981N (…XLZW) Android 13, 헬퍼 ready",
-    "화면: 켜짐, 잠금 없음",
-    "헬퍼를 방금 켰으므로 대상 앱을 한 번 열어 트리를 예열함",
     "결과: passed 1, failed 0, blocked 0, skipped 0 / 전송 8건(accepted 8, duplicate 0, rejected 0, retries 0)"
   ]
 }

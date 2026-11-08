@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-08T04:48:27.811Z",
+  "at": "2026-11-08T06:17:40.495Z",
   "exitCode": 0,
   "device": "…XLZW",
   "agentId": "(호스트명, 생략)",
@@ -10,7 +10,7 @@
       "설정 앱 > 열면 \"설정\" 제목이 보인다": {
         "android": {
           "verdict": "passed",
-          "attemptId": "16818aff-a564-43b6-b7c4-49a5a480d409"
+          "attemptId": "fc1664ef-78aa-4dcd-a65a-e280f3c7448c"
         }
       }
     }
@@ -23,7 +23,7 @@
     }
   ],
   "log": [
-    "run ed95d80b-a029-40b3-82c0-14c3712a8d00 등록 (cycle device, target android, 테스트 파일 1개)",
+    "run b69e8ad6-93f0-4f9e-9a5d-2f7d447d7640 등록 (cycle device, target android, 테스트 파일 1개)",
     "헬퍼 APK: <repo>/packages/device-layer/android-helper/app/build/outputs/apk/debug/app-debug.apk (repo-build)",
     "헬퍼 온보딩(…XLZW): 헬퍼 이미 설치됨",
     "헬퍼 온보딩(…XLZW): 접근성 서비스 활성화됨",
