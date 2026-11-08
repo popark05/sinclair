@@ -104,8 +104,28 @@ describe.skipIf(!canRun)('호스트 배포본 (동봉 Node 대신 현재 Node �
     const sum = fs.readFileSync(path.join(install, 'resources', 'helper', apk[1]!), 'utf8').slice(0, 64);
     expect(createHash('sha256').update(fs.readFileSync(path.join(install, 'resources', 'helper', apk[0]!))).digest('hex')).toBe(sum);
     expect(fs.readFileSync(path.join(install, 'VERSION'), 'utf8')).toContain(`node ${NODE_VERSION}`);
-    expect(fs.readFileSync(path.join(install, 'README.md'), 'utf8')).toMatch(/설치 크기 약 \d+ MB/);
-    expect(fs.readFileSync(path.join(install, 'README.md'), 'utf8')).toContain('quarantine');
+    const readme = fs.readFileSync(path.join(install, 'README.md'), 'utf8');
+    expect(readme).toMatch(/설치 크기 약 \d+ MB/);
+    expect(readme).toContain('quarantine');
+    for (const section of ['## 설치', '## 업그레이드', '## 제거', '데이터 디렉터리', '## 알려진 한계']) expect(readme).toContain(section);
+  });
+
+  it('업그레이드: 새 설치 디렉터리의 런처가 기존 SQLite DB 를 그대로 열어 이전 run 을 돌려준다', async () => {
+    const db = path.join(out, 'data', 'upgrade.db');
+    const old = launch('sinclair-control-plane', ['--port', '0'], { SINCLAIR_CP_DB: db });
+    const port = await old.ready();
+    await fetch(`http://127.0.0.1:${port}/ingest`, { method: 'POST', body: JSON.stringify([{ schema: 1, eventId: 'u1', runId: 'r-up', at: '2026-11-08T00:00:00.000Z', type: 'run.started', targetId: 'android' }]) });
+    const before = await (await fetch(`http://127.0.0.1:${port}/runs/r-up`)).text();
+    expect(await old.stop()).toBe(0);
+    // "새 버전" 설치본: 같은 zip 을 다른 디렉터리에 푼 것으로 흉내 낸다(데이터는 설치 디렉터리 밖에 있다)
+    const next = path.join(out, 'install-next');
+    fs.cpSync(install, next, { recursive: true });
+    const child = spawn(path.join(next, 'bin', 'sinclair-control-plane'), ['--port', '0'], { env: { ...process.env, SINCLAIR_CP_DB: db }, stdio: ['ignore', 'pipe', 'pipe'] });
+    children.push(child);
+    let text = ''; child.stdout!.on('data', (d) => { text += d; });
+    const port2 = await new Promise<number>((resolve, reject) => { const check = () => { const m = /READY .*port=(\d+)/.exec(text); if (m) resolve(Number(m[1])); }; child.stdout!.on('data', check); setTimeout(() => reject(new Error(`READY 대기 초과: ${text}`)), 20_000).unref(); });
+    expect(await (await fetch(`http://127.0.0.1:${port2}/runs/r-up`)).text()).toBe(before);
+    child.kill('SIGTERM');
   });
 
   it('런처: control-plane 이 sqlite 기본으로 READY → ingest → SIGTERM 정상 종료; 환경변수가 통과한다', async () => {

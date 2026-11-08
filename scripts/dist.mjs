@@ -111,6 +111,23 @@ function readme(version, target, sizeMb) {
 ## 구성
 bin/(런처) · node/(Node ${NODE_VERSION} + LICENSE) · dist/(앱 번들) · node_modules/(USB 네이티브 모듈) · resources/helper/(Android 헬퍼 APK ${HELPER_APK_VERSION} + sha256) · VERSION
 
+## 설치
+zip 을 원하는 곳에 푼다(예: \`/opt/sinclair/<version>\`, \`C:\\sinclair\\<version>\`). 설치 디렉터리에는 아무것도 쓰지 않으므로 읽기 전용이어도 된다.
+
+## 데이터 디렉터리
+서버 DB·에이전트 스풀·헬퍼 APK 캐시는 설치 디렉터리 밖, OS 데이터 디렉터리의 \`sinclair/\` 아래에 둔다: macOS \`~/Library/Application Support/sinclair\`, Windows \`%APPDATA%\\sinclair\`, Linux \`$XDG_DATA_HOME/sinclair\`(\`control-plane.db\`, \`spool/\`, \`cache/helper/\`). \`--db\`, \`--spool\`, \`--helper-cache\` 또는 같은 이름의 환경변수로 바꿀 수 있다.
+
+## 업그레이드
+새 zip 을 다른 디렉터리에 풀고 런처만 바꿔 실행한다. 데이터 디렉터리는 그대로라 지난 Cycle/Run 이 보인다(DB 스키마는 기동 시 자동으로 올라가며, 더 새로운 버전의 DB 는 이전 버전이 열지 않는다). 스풀에 남은 이벤트는 새 버전의 \`bin/sinclair-agent resume\` 이 이어 보낸다.
+
+## 제거
+설치 디렉터리를 지운다. 데이터까지 지우려면 데이터 디렉터리의 \`sinclair/\` 도 지운다. 기기의 헬퍼는 \`adb uninstall io.sinclair.helper\`.
+
+## 알려진 한계
+- 코드 서명·공증 없음(사내 배포 전제). macOS 는 아래 격리 속성 제거가 필요하다.
+- Windows 배포본은 교차 빌드만 돼 있고 실행 검증은 별도 체크리스트(packaging 04)로 한다.
+- 한 머신에 에이전트를 여럿 띄우면 \`--agent\` 로 서로 다른 id 를 준다.
+
 ## macOS 첫 실행
 서명되지 않은 배포본이라 격리 속성을 지운다: \`xattr -dr com.apple.quarantine <이 디렉터리>\`. 그래도 막히면 시스템 설정 > 개인정보 보호 및 보안에서 허용한다.
 
