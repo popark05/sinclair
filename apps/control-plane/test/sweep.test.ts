@@ -4,14 +4,14 @@ import type { RunEvent } from '@sinclair/protocol';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { createMemoryEventStore, createMemoryCycleStore, createSqliteEventStore, createSqliteCycleStore, openSqlite, sweepAbandoned, abandonedEventId, projectRun, type EventStore, type CycleStore } from '../src/index.ts';
+import { createMemoryEventStore, createMemoryCycleStore, createSqliteEventStore, createSqliteCycleStore, openSqlite, sweepAbandoned, abandonedEventId, replacementRunId, projectRun, type EventStore, type CycleStore } from '../src/index.ts';
 import { base, at } from './fixtures.ts';
 
 const T0 = Date.parse(at(0)); // fixtures 와 같은 시간축
 const GRACE = 60_000;
-let events: EventStore; let cycles: CycleStore; let ids: string[];
+let events: EventStore; let cycles: CycleStore;
 beforeEach(async () => {
-  events = createMemoryEventStore(); cycles = createMemoryCycleStore(); ids = ['rep-1', 'rep-2', 'rep-3'];
+  events = createMemoryEventStore(); cycles = createMemoryCycleStore();
   await cycles.createCycle({ cycleId: 'c1', build: 'b', targets: ['android', 'ios'], requiredTags: [], retryLimit: 1, createdAt: 'x' });
   await cycles.registerRun({ runId: 'r-a', cycleId: 'c1', targetId: 'android', createdAt: 'x' });
   await cycles.registerRun({ runId: 'r-i', cycleId: 'c1', targetId: 'ios', createdAt: 'x' });
@@ -20,18 +20,19 @@ const started = (runId: string, s: number): RunEvent[] => [
   { ...base('e0', s, runId), type: 'run.started', cycleId: 'c1', targetId: runId === 'r-a' ? 'android' : 'ios' },
   { ...base('e1', s + 1, runId), type: 'attempt.started', attemptId: `${runId}-a1`, testId: 'T', attemptNo: 1 },
 ];
-const sweep = (nowMs: number) => sweepAbandoned(events, cycles, 'c1', { nowMs, graceMs: GRACE, newRunId: () => ids.shift()! });
+const sweep = (nowMs: number) => sweepAbandoned(events, cycles, 'c1', { nowMs, graceMs: GRACE });
+const REP1 = replacementRunId('r-a');
 
 describe('sweepAbandoned', () => {
   it('lease 가 만료되고 유예가 지나야 버려진 것으로 본다; 끝난 run·시작 안 한 run 은 건드리지 않는다', async () => {
     await cycles.claimRun('android', 'a1', T0, GRACE, async () => false); // lease ~T0+60s
     for (const e of started('r-a', 0)) await events.append(e);
     expect(await sweep(T0 + GRACE + GRACE - 1)).toEqual({ abandoned: [], replacements: [] }); // 만료 뒤 유예 직전
-    expect(await sweep(T0 + GRACE + GRACE)).toEqual({ abandoned: ['r-a'], replacements: [{ runId: 'rep-1', replaces: 'r-a', targetId: 'android' }] });
+    expect(await sweep(T0 + GRACE + GRACE)).toEqual({ abandoned: ['r-a'], replacements: [{ runId: REP1, replaces: 'r-a', targetId: 'android' }] });
     expect(projectRun(await events.eventsForRun('r-a')).state).toBe('infra-failed');
     const regs = await cycles.runsForCycle('c1');
-    expect(regs.find((r) => r.runId === 'r-a')).toMatchObject({ replacedBy: 'rep-1' });
-    expect(regs.find((r) => r.runId === 'rep-1')).toMatchObject({ targetId: 'android', replaces: 'r-a' });
+    expect(regs.find((r) => r.runId === 'r-a')).toMatchObject({ replacedBy: REP1, abandonedAt: new Date(T0 + 2 * GRACE).toISOString() });
+    expect(regs.find((r) => r.runId === REP1)).toMatchObject({ targetId: 'android', replaces: 'r-a' });
     expect(regs.find((r) => r.runId === 'r-i')!.replacedBy).toBeUndefined(); // 이벤트 없는 run 은 그대로
   });
 
@@ -47,19 +48,30 @@ describe('sweepAbandoned', () => {
   it('한도(retryLimit) 를 넘기면 infra-failed 로만 닫고 대체 Run 을 만들지 않는다; 대체 Run 자신이 버려지면 한도 안에서만 반복', async () => {
     await cycles.claimRun('android', 'a1', T0, GRACE, async () => false);
     for (const e of started('r-a', 0)) await events.append(e);
-    await sweep(T0 + 2 * GRACE); // r-a → rep-1 (사용 1/1)
-    await cycles.claimRun('android', 'a2', T0 + 2 * GRACE, GRACE, async () => false); // rep-1 클레임
-    for (const e of started('rep-1', 200)) await events.append({ ...e, runId: 'rep-1', eventId: `${e.eventId}-rep` });
+    await sweep(T0 + 2 * GRACE); // r-a → retry:r-a (사용 1/1)
+    await cycles.claimRun('android', 'a2', T0 + 2 * GRACE, GRACE, async (id) => (await events.eventsForRun(id)).length > 0); // 대체 Run 클레임(r-a 는 이벤트가 있어 건너뜀)
+    for (const e of started(REP1, 200)) await events.append({ ...e, runId: REP1, eventId: `${e.eventId}-rep` });
     const r = await sweep(T0 + 5 * GRACE);
-    expect(r).toEqual({ abandoned: ['rep-1'], replacements: [] });
-    expect(projectRun(await events.eventsForRun('rep-1')).state).toBe('infra-failed');
-    expect((await cycles.runsForCycle('c1')).find((x) => x.runId === 'rep-1')!.replacedBy).toBeUndefined();
+    expect(r).toEqual({ abandoned: [REP1], replacements: [] });
+    expect(projectRun(await events.eventsForRun(REP1)).state).toBe('infra-failed');
+    expect((await cycles.runsForCycle('c1')).find((x) => x.runId === REP1)!.replacedBy).toBeUndefined();
   });
 
-  it('lease 없이 시작한 run(`run --run` 오프라인 등)은 마지막 이벤트 시각 기준으로 버려짐을 판정한다', async () => {
-    for (const e of started('r-i', 10)) await events.append(e); // 마지막 이벤트 T0+11s
-    expect((await sweep(T0 + 11_000 + GRACE - 1)).abandoned).toEqual([]);
-    expect((await sweep(T0 + 11_000 + GRACE)).abandoned).toEqual(['r-i']);
+  it('lease 없이 보고되는 run(`run --run` 등)은 아무리 오래 조용해도 건드리지 않는다: 서버는 생산 시각만 알아 늦은 스풀을 죽음으로 오판할 수 있다', async () => {
+    for (const e of started('r-i', 10)) await events.append(e);
+    expect(await sweep(T0 + 365 * 24 * 3600_000)).toEqual({ abandoned: [], replacements: [] });
+    expect(projectRun(await events.eventsForRun('r-i')).state).toBe('running');
+  });
+
+  it('등록 뒤 표시 전에 죽어도 다음 정리가 같은 대체 Run 에 표시를 마친다(결정적 id)', async () => {
+    await cycles.claimRun('android', 'a1', T0, GRACE, async () => false);
+    for (const e of started('r-a', 0)) await events.append(e);
+    // 앞선 서버가 등록까지만 하고 죽은 상태를 재현
+    await cycles.registerRun({ runId: REP1, cycleId: 'c1', targetId: 'android', createdAt: 'x', replaces: 'r-a' });
+    expect(await sweep(T0 + 2 * GRACE)).toEqual({ abandoned: ['r-a'], replacements: [] });
+    const regs = await cycles.runsForCycle('c1');
+    expect(regs.find((r) => r.runId === 'r-a')).toMatchObject({ replacedBy: REP1 });
+    expect(regs.filter((r) => r.replaces === 'r-a')).toHaveLength(1);
   });
 });
 
@@ -74,8 +86,8 @@ describe('sweepAbandoned · SQLite 두 핸들', () => {
     await a.cycles.registerRun({ runId: 'r-a', cycleId: 'c1', targetId: 'android', createdAt: 'x' });
     await a.cycles.claimRun('android', 'a1', T0, GRACE, async () => false);
     for (const e of started('r-a', 0)) await a.events.append(e);
-    const opts = (id: string) => ({ nowMs: T0 + 2 * GRACE, graceMs: GRACE, newRunId: () => id });
-    const [ra, rb] = await Promise.all([sweepAbandoned(a.events, a.cycles, 'c1', opts('rep-a')), sweepAbandoned(b.events, b.cycles, 'c1', opts('rep-b'))]);
+    const opts = { nowMs: T0 + 2 * GRACE, graceMs: GRACE };
+    const [ra, rb] = await Promise.all([sweepAbandoned(a.events, a.cycles, 'c1', opts), sweepAbandoned(b.events, b.cycles, 'c1', opts)]);
     expect(ra.replacements.length + rb.replacements.length).toBe(1);
     expect((await a.events.eventsForRun('r-a')).filter((e) => e.eventId === abandonedEventId('r-a'))).toHaveLength(1);
     const regs = await b.cycles.runsForCycle('c1');

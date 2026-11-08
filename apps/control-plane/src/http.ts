@@ -24,15 +24,13 @@ export interface ControlPlaneOptions {
   maxBodyBytes?: number;
   /** Cycle/Run 등록 저장소. 없으면 인메모리 */
   cycles?: CycleStore;
-  /** 클레임 lease 수명(기본 60초). 에이전트는 이 값의 1/3 마다 heartbeat 한다. 한 테스트가 1분 넘게 조용할 수 있어 짧게 잡지 않는다 */
+  /** 클레임 lease 수명(기본 60초). 버려진 Run 판정 유예도 같은 값이다. 에이전트는 이 값의 1/3 마다 heartbeat 한다. 한 테스트가 1분 넘게 조용할 수 있어 짧게 잡지 않는다 */
   leaseTtlMs?: number;
   /** 테스트용 시계 */
   now?: () => number;
-  /** 버려진 Run 판정 유예(기본 lease TTL 과 같음). lease 만료(또는 lease 없으면 마지막 이벤트) 뒤 이만큼 더 조용하면 infra-failed 로 닫고 대체 Run 을 만든다 */
-  abandonGraceMs?: number;
 }
 
-const DEFAULT_LEASE_TTL_MS = 60_000;
+export const DEFAULT_LEASE_TTL_MS = 60_000;
 
 /** /ingest 본문 상한. 인증이 없으므로 같은 호스트의 다른 프로세스가 메모리를 채우지 못하게 막는다.
  *  Reporter 배치(03)는 수백 이벤트 × 수 KB 라 1 MB 안에 든다 */
@@ -56,7 +54,7 @@ const TERMINAL_CYCLE = new Set(['finished', 'expired', 'cancelled']);
 
 export async function serveControlPlane(store: EventStore, opts: ControlPlaneOptions = {}): Promise<ControlPlaneServer> {
   const cycles = opts.cycles ?? createMemoryCycleStore();
-  const sweepOpts = () => ({ nowMs: (opts.now ?? Date.now)(), graceMs: opts.abandonGraceMs ?? opts.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS });
+  const sweepOpts = () => ({ nowMs: (opts.now ?? Date.now)(), graceMs: opts.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS });
   const json = (res: http.ServerResponse, status: number, body: unknown): void => {
     res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
   };

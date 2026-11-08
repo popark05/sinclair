@@ -1,6 +1,7 @@
 // 서버 설정: 플래그 > 환경변수 > 기본값. 순수 함수라 테이블 테스트가 쉽다.
 import * as path from 'node:path';
 import { parseArgs } from 'node:util';
+import { DEFAULT_LEASE_TTL_MS } from './http.ts';
 
 export interface ControlPlaneConfig {
   host: string;
@@ -8,7 +9,7 @@ export interface ControlPlaneConfig {
   store: 'memory' | 'sqlite';
   /** sqlite 모드의 DB 파일. memory 모드에서는 무시된다 */
   db: string;
-  /** 클레임 lease 수명(ms). 버려진 Run 판정 유예도 이 값이다. 없으면 서버 기본(60초) */
+  /** 클레임 lease 수명(ms). 버려진 Run 판정 유예도 이 값이다. parseConfig 는 항상 채우지만 테스트가 손으로 만드는 설정은 생략할 수 있다(서버 기본 60초) */
   leaseTtlMs?: number;
 }
 
@@ -17,7 +18,6 @@ export class ConfigError extends Error {}
 /** 4780: 등록된 서비스와 겹치지 않는 임의의 높은 포트. 8080/3000 계열은 로컬 개발 서버와 자주 충돌한다 */
 const DEFAULT_PORT = 4780;
 const STORES = ['memory', 'sqlite'] as const;
-const DEFAULT_LEASE_TTL_MS = 60_000;
 
 /** 옵션 표 하나가 파서와 도움말을 모두 만든다. env 는 같은 이름의 환경변수 */
 const OPTIONS = [

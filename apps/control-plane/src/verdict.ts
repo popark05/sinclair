@@ -59,7 +59,7 @@ export function computeCycle(cycle: CycleRecord, registrations: RunRegistration[
   const all = registrations.filter((r) => r.cycleId === cycle.cycleId).map((r) => ({ reg: r, view: byId.get(r.runId) }));
   const runRows = all.map(({ reg, view }) => ({
     runId: reg.runId, targetId: reg.targetId, state: view?.state ?? ('queued' as RunState), ...(reg.lease ? { lease: reg.lease } : {}),
-    ...(reg.replaces ? { replaces: reg.replaces } : {}), ...(reg.replacedBy ? { replacedBy: reg.replacedBy, abandonedAt: reg.abandonedAt! } : {}),
+    ...(reg.replaces ? { replaces: reg.replaces } : {}), ...(reg.replacedBy ? { replacedBy: reg.replacedBy } : {}), ...(reg.abandonedAt ? { abandonedAt: reg.abandonedAt } : {}),
   }));
   // 대체된(버려진) run 은 매트릭스·판정에서 뺀다: 그 몫은 대체 Run 이 한다. 행에는 이력으로 남긴다
   const runs = all.filter(({ reg }) => !reg.replacedBy);
