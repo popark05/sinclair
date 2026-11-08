@@ -7,11 +7,15 @@
  */
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { startControlPlane, type CycleView } from '@sinclair/control-plane';
 import { runOnce, EXIT } from '../src/index.ts';
 
 const target = process.env.SINCLAIR_TEST_USB;
+const REPO = path.resolve(import.meta.dirname, '../../..');
+/** 증거는 리포에 남으므로 리포·홈 경로를 지운다(헬퍼 APK 경로 등이 로그에 찍힌다) */
+const maskPaths = (line: string): string => line.split(REPO).join('<repo>').split(os.homedir()).join('<home>');
 
 describe.skipIf(!target)('실기기 sinclair-agent run', () => {
   it('설정 앱 샘플이 실기기 → control-plane 까지 흐르고 Cycle 이 verified 다', async () => {
@@ -31,7 +35,7 @@ describe.skipIf(!target)('실기기 sinclair-agent run', () => {
       await fs.mkdir(dir, { recursive: true });
       await fs.writeFile(path.join(dir, '02-run-once-device-latest.json'), JSON.stringify({
         at: new Date().toISOString(), exitCode: code, device: masked, agentId: runView.agentId ? '(호스트명, 생략)' : undefined, cycle: { state: view.state, verdict: view.verdict, matrix: view.matrix },
-        attempts: runView.attempts.map((a) => ({ testId: a.testId, result: a.result, steps: a.steps.length })), log: logs,
+        attempts: runView.attempts.map((a) => ({ testId: a.testId, result: a.result, steps: a.steps.length })), log: logs.map(maskPaths),
       }, null, 2) + '\n');
       expect(code).toBe(EXIT.ok);
       expect(view).toMatchObject({ state: 'finished', verdict: 'verified' });
@@ -47,7 +51,7 @@ describe.skipIf(!target)('실기기 sinclair-agent run', () => {
       const retryRun = await (await fetch(`${url}/runs/${retryView.runs[0]!.runId}`)).json() as { attempts: Array<{ testId?: string; attemptNo?: number; result?: string }> };
       await fs.writeFile(path.join(dir, '02-run-once-retry-device-latest.json'), JSON.stringify({
         at: new Date().toISOString(), exitCode: retryCode, device: masked, retries: 1, cycle: { state: retryView.state, verdict: retryView.verdict, matrix: retryView.matrix },
-        attempts: retryRun.attempts.map((a) => ({ testId: a.testId, attemptNo: a.attemptNo, result: a.result })), log: retryLogs,
+        attempts: retryRun.attempts.map((a) => ({ testId: a.testId, attemptNo: a.attemptNo, result: a.result })), log: retryLogs.map(maskPaths),
       }, null, 2) + '\n');
       expect(retryCode).toBe(EXIT.ok);
       expect(retryView).toMatchObject({ state: 'finished', verdict: 'verified' });

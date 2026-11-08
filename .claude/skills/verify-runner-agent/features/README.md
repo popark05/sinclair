@@ -28,3 +28,4 @@
 - `spool-resume.md` — 서버 없이 run → 스풀 → resume.
 - `daemon.md` — 데몬 2개가 Run 을 클레임해 Cycle 을 채움, SIGTERM 종료.
 - `helper-apk.md` — 헬퍼 APK 해석 순서·다운로드 검증·실기기 재설치.
+- `retry-policy.md` — 재시도 정책 종단: 강제 종료·한도 초과·lease 상실 → 대체 Run, passed-flaky, blocked, cancelled.

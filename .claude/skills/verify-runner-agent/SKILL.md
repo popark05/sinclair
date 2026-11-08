@@ -37,6 +37,7 @@ $S/run-fake.sh $RUN [cycleId] [tests-dir]
 # 마지막 줄: AGENT exit=0 cycle=<id> state=finished verdict=verified
 $S/spool-resume.sh $RUN      # RUN exit=0 spool=[…jsonl …meta.json] → RESUME exit=0 spool=[] run.state=finished (약 1분)
 $S/daemon.sh $RUN            # DAEMON … state=finished verdict=verified leases=node-a,node-b exits=0,0
+$S/retry-e2e.sh $RUN         # 재시도 정책 종단(자체 control-plane, TTL 2초): kill·limit·lease 세 경로 → RETRY-E2E OK checks=10/10 (약 45초)
 ```
 
 - 기본 테스트 디렉터리는 `apps/runner-agent/test/fixtures/only-login`(통과 1). `apps/runner-agent/test/fixtures`(통과 1 + 실패 1)를 주면 exit=1, verdict=blocked 가 정상이다.
@@ -66,4 +67,6 @@ $I/stop.sh $RUN
 | `scripts/run-fake.sh <RUN> [cycleId] [tests-dir]` | Cycle 생성 → `sinclair-agent run --engine fake` → 증거 |
 | `scripts/spool-resume.sh <RUN>` | 서버 내린 채 run → 스풀 → 같은 포트 재기동 → `resume` → 증거 |
 | `scripts/daemon.sh <RUN>` | Cycle(타깃 2) + 데몬 2개(bin) → finished/verified → SIGTERM 종료 → 증거 |
+| `scripts/retry-e2e.sh <RUN> [ttl]` | 재시도 정책 세 경로(강제 종료·한도 초과·lease 상실) → `04-e2e-latest.json` |
+| `scripts/hb-proxy.mjs` | heartbeat 만 끊는 프록시(retry-e2e 가 씀) |
 | `verify-ingest/scripts/{start,doctor,stop}.sh` | control-plane 수명 |

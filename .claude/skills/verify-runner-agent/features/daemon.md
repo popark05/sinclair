@@ -6,8 +6,8 @@
 
 - `daemon-claim` 데몬 2개(각 타깃)가 Run 을 하나씩 잡아 Cycle 이 `finished/verified`, run 행의 `lease.agentId` 가 서로 다르다.
 - `daemon-suite` Cycle 의 `suite.tests` 디렉터리를 쓴다(데몬의 `--tests` 는 suite 가 없을 때의 기본값).
-- `daemon-stop` SIGTERM 에 "진행 중 run 을 마치고 멈춤" 뒤 exit 0.
-- `daemon-lease-expiry` 만료된 lease 재클레임(단위 테스트 `daemon.test.ts` 로 증명; 스크립트는 시계를 못 돌린다).
+- `daemon-stop` SIGTERM 에 "진행 중 테스트를 마치고 멈춤": 진행 중 run 이 있으면 남은 테스트는 skipped, run 은 cancelled(코드 5), 데몬은 exit 0.
+- `daemon-lease-expiry` 만료된 lease 재클레임(단위 테스트 `daemon.test.ts`). 실행 중 죽은 데몬의 대체는 `retry-policy.md`.
 
 ## How to get to it (user POV)
 
