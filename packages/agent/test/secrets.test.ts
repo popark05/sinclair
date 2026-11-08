@@ -57,7 +57,7 @@ describe('runAct · 비밀값', () => {
       { name: 'done', input: { summary: `비밀번호는 ${P}` } },
       ...script,
     ]);
-    const r = await runAct(engine, '로그인', { executor: exec, secrets: box() });
+    const r = await runAct(engine, `비밀번호 ${P} 로 로그인`, { executor: exec, secrets: box() });
     expect(r.ok).toBe(true);
     expect(r.history.slice(0, 3).map((h) => h.result)).toEqual(['rejected', 'rejected', 'rejected']);
     expect(r.history[1]!.detail).toMatch(/OTHER/);
@@ -70,7 +70,7 @@ describe('runAct · 비밀값', () => {
     const perform = engine.perform.bind(engine);
     engine.perform = async (ref, action, arg) => { if (first && action === 'type' && ref === '@e3') { first = false; throw new EngineError('not-actionable', `셸 명령 실패: input text '${arg}'`); } return perform(ref, action, arg); };
     const exec = scriptedExecutor([script[1]!, ...script]);
-    await runAct(engine, '로그인', { executor: exec, secrets: box() });
+    await runAct(engine, `비밀번호 ${P} 로 로그인`, { executor: exec, secrets: box() });
     expect(exec.requests[1]!.history[0]!.detail).toMatch(/<입력값>|secret:QA_PASSWORD/);
     expect(JSON.stringify(exec.requests)).not.toContain(VALUE);
   });
@@ -79,7 +79,7 @@ describe('runAct · 비밀값', () => {
     const seen: unknown[] = [];
     const inner = scriptedExecutor(script);
     const visual: StepExecutor = { pixels: true, next: (req, s) => { seen.push(req.pixels); return inner.next(req, s); } };
-    await runAct(plainLogin(), '로그인', { executor: visual, secrets: box() });
+    await runAct(plainLogin(), `비밀번호 ${P} 로 로그인`, { executor: visual, secrets: box() });
     expect(seen.every((p) => p === undefined)).toBe(true);
   });
 });
@@ -93,5 +93,64 @@ describe('판정 동사 · 비밀값', () => {
     await judgeAssert(engine, '비밀번호가 입력됐다', { executor: exec, secrets: box() });
     expect(reqs[0]).toContain(P);
     expect(reqs[0]).not.toContain(VALUE);
+  });
+});
+
+describe('비밀값 · 리뷰 반영(직렬화·겹침·범위)', () => {
+  /** JSON 이 이스케이프하는 글자·숫자처럼 보이는 값·정규화가 다른 값 */
+  const NASTY = ['pa"ss\\w0rd', 'line1\nline2', 'tab\there', '1080', 'true', 'p🔑ss', '한글비번'.normalize('NFD')];
+
+  it.each(NASTY)('관찰(이스케이프된 표현 포함)에서 값 %j 가 모델에 가지 않는다', async (value) => {
+    const engine = plainLogin();
+    const exec = scriptedExecutor([{ name: 'type', input: { ref: '@e3', text: P } }, { name: 'done', input: { summary: 'x' } }]);
+    await runAct(engine, `비밀번호 ${P}`, { executor: exec, secrets: new SecretBox([['QA_PASSWORD', value]]) });
+    expect(engine.performed).toContainEqual({ ref: '@e3', action: 'type', arg: value });
+    const sent = JSON.stringify(exec.requests);
+    for (const form of [value, JSON.stringify(value).slice(1, -1), value.normalize('NFC')]) expect(sent).not.toContain(form);
+    expect(exec.requests[1]!.observation).toContain(P);
+  });
+
+  it('구조적 가림: 문자열 잎만 바꾸고 키·숫자는 건드리지 않는다(숫자 비밀값이 JSON 을 깨지 않는다)', () => {
+    const b = new SecretBox([['PIN', '1080']]);
+    const v = { width: 1080, kind: 'type', text: 'pin 1080', nested: [{ value: '1080' }] };
+    expect(b.redactDeep(v)).toEqual({ width: 1080, kind: 'type', text: `pin ${secretPlaceholder('PIN')}`, nested: [{ value: secretPlaceholder('PIN') }] });
+  });
+
+  it('한 값이 다른 비밀값의 자리표시 안의 글자와 겹쳐도 자리표시를 망가뜨리지 않는다(한 번에 바꾼다)', () => {
+    const b = new SecretBox([['QA_PASSWORD', 'longsecret'], ['B', 'PASS']]);
+    expect(b.redact('x longsecret y PASS')).toBe(`x ${secretPlaceholder('QA_PASSWORD')} y ${secretPlaceholder('B')}`);
+  });
+
+  it('4자보다 짧은 값은 받지 않는다(가림이 다른 글자까지 바꾼다)', () => {
+    expect(() => new SecretBox([['PIN', '123']])).toThrow(/4자/);
+  });
+
+  it('목표에 없는 비밀값은 type 해도 치환하지 않는다(다른 테스트가 등록한 값을 꺼내지 못한다)', async () => {
+    const engine = plainLogin();
+    const b = new SecretBox([['QA_PASSWORD', VALUE], ['OTHER_TOKEN', 'other-value']]);
+    const exec = scriptedExecutor([{ name: 'type', input: { ref: '@e2', text: '{{secret:OTHER_TOKEN}}' } }, ...script]);
+    const r = await runAct(engine, `비밀번호 ${P} 로 로그인`, { executor: exec, secrets: b });
+    expect(r.history[0]).toMatchObject({ result: 'rejected', detail: expect.stringMatching(/OTHER_TOKEN/) });
+    expect(engine.performed.map((p) => p.arg)).not.toContain('other-value');
+  });
+
+  it('비밀값은 입력 칸(textbox·secure)에만 넣는다 — 다른 노드면 거부', async () => {
+    const engine = plainLogin();
+    const exec = scriptedExecutor([{ name: 'type', input: { ref: '@e4', text: P } }, ...script]);
+    const r = await runAct(engine, `비밀번호 ${P}`, { executor: exec, secrets: box() });
+    expect(r.history[0]).toMatchObject({ result: 'rejected', detail: expect.stringMatching(/입력 칸/) });
+    expect(engine.performed.filter((p) => p.ref === '@e4' && p.action === 'type')).toEqual([]);
+  });
+
+  it('오류 문구를 자르기 전에 가린다(경계에 걸친 값의 반쪽이 남지 않는다)', async () => {
+    const engine = plainLogin();
+    const long = 'S'.repeat(40) + 'Zq9-secret-tail';
+    const b = new SecretBox([['TOKEN', long]]);
+    const perform = engine.perform.bind(engine);
+    let first = true;
+    engine.perform = async (ref, action, arg) => { if (first) { first = false; throw new EngineError('not-actionable', `${'x'.repeat(260)}${long}`); } return perform(ref, action, arg); };
+    const exec = scriptedExecutor([{ name: 'tap', input: { ref: '@e4' } }, { name: 'done', input: { summary: 'x' } }]);
+    await runAct(engine, '로그인', { executor: exec, secrets: b });
+    expect(JSON.stringify(exec.requests)).not.toMatch(/S{10}/);
   });
 });

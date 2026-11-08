@@ -392,10 +392,13 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
     return entry.dadb;
   }
 
+  /** 오류 문구에 실을 명령. input text 는 입력한 글자(비밀번호일 수 있다)를 싣지 않는다 */
+  const shownCommand = (command: string): string => (command.startsWith('input text ') ? 'input text <입력값>' : command);
+
   /** 셸 명령을 실행하고 종료 코드가 0이 아니면 출력을 담아 던진다. */
   async function run(deviceId: string, command: string): Promise<string> {
     const r = await dadbFor(deviceId).shell(command);
-    if (r.exitCode !== 0) throw new Error(`셸 명령 실패(exit ${r.exitCode}): ${command}\n${r.allOutput.trim()}`);
+    if (r.exitCode !== 0) throw new Error(`셸 명령 실패(exit ${r.exitCode}): ${shownCommand(command)}\n${r.allOutput.trim()}`);
     return r.allOutput;
   }
 
@@ -461,7 +464,7 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
       for (;;) {
         const packet = await stream.read();
         if (packet.type === 'exit') {
-          if (packet.exitCode !== 0) throw new Error(`셸 명령 실패(exit ${packet.exitCode}): ${command}\n${Buffer.concat(err).toString('utf-8').trim()}`);
+          if (packet.exitCode !== 0) throw new Error(`셸 명령 실패(exit ${packet.exitCode}): ${shownCommand(command)}\n${Buffer.concat(err).toString('utf-8').trim()}`);
           return Buffer.concat(out);
         }
         (packet.type === 'stdout' ? out : err).push(packet.payload);

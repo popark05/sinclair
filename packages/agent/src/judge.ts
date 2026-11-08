@@ -105,7 +105,7 @@ class Asker {
   hide(t: string): string { return this.secrets ? this.secrets.redact(t) : t; }
   async observe() {
     const observed = await this.engine.observe(this.pixels ? { pixels: true } : undefined);
-    return { observed, text: this.hide(renderObservation(observed.root)) };
+    return { observed, text: renderObservation(this.secrets ? this.secrets.redactTree(observed.root) : observed.root) };
   }
   /** 답이 스키마에 맞으면 answer, 아니면 invalid 사유. 호출 실패(거절 등)도 invalid 사유로 */
   /** 실행 도중 던진 오류에 진행(호출 수·토큰)을 붙여 러너가 실패 스텝에도 비용을 남기게 한다 */
@@ -113,7 +113,7 @@ class Asker {
   async ask(kind: JudgeRequest['kind'], question: string, schema: Schema, obs: Awaited<ReturnType<Asker['observe']>>, signal: AbortSignal): Promise<{ answer: Record<string, unknown> } | { invalid: string }> {
     if (signal.aborted) throw signal.reason as Error; // 기한이 지났으면 부르지 않는다(호출 수도 세지 않는다)
     this.modelCalls++;
-    const req: JudgeRequest = { kind, question, observation: obs.text, schema: structuredClone(schema), ...(this.pixels && obs.observed.pixels ? { pixels: obs.observed.pixels } : {}) };
+    const req: JudgeRequest = { kind, question: this.hide(question), observation: obs.text, schema: structuredClone(schema), ...(this.pixels && obs.observed.pixels ? { pixels: obs.observed.pixels } : {}) };
     try {
       const reply = await raceAbort(this.executor.judge!(req, signal), signal);
       this.usage = addUsage(this.usage, reply.usage);
@@ -122,7 +122,7 @@ class Asker {
     } catch (err) {
       if (err instanceof ModelConfigError || signal.aborted) throw err;
       if (err instanceof ModelCallError) this.usage = addUsage(this.usage, err.usage);
-      return { invalid: `모델 호출 실패: ${(err instanceof Error ? err.message : String(err)).slice(0, 300)}` };
+      return { invalid: `모델 호출 실패: ${this.hide(err instanceof Error ? err.message : String(err)).slice(0, 300)}` };
     }
   }
   result<V>(r: { ok: boolean; reason: string; failure?: JudgeFailure; value?: V; sourceRefs?: string[] }): JudgeResult<V> {

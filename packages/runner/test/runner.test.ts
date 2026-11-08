@@ -463,3 +463,34 @@ describe('비밀값 secret()', () => {
     } finally { delete process.env.SINCLAIR_SECRET_QA_PASSWORD; }
   });
 });
+
+describe('비밀값 · 리뷰 반영(직렬화·범위)', () => {
+  function plainPasswordApp(): FakeEngine {
+    const root: SemanticNode = structuredClone(LOGIN_SCREEN);
+    root.children![2] = { ref: '@e3', role: 'textbox', placeholder: '비밀번호' };
+    const engine = new FakeEngine({ root });
+    const perform = engine.perform.bind(engine);
+    engine.perform = async (ref, action, arg) => { await perform(ref, action, arg); if (action === 'type' && ref === '@e3') { const r = structuredClone(root); r.children![2]!.value = arg ?? ''; engine.setRoot(r); } };
+    return engine;
+  }
+
+  it.each(['pa"ss\\w0rd', '1080'])('값 %j: 이벤트·결과·screen-tree 가 올바른 JSON 이고 값(이스케이프 표현 포함)이 없다, 숫자는 그대로', async (value) => {
+    const report = await runTests([fixture('agent-secret.sinclair.ts')], { engine: plainPasswordApp(), artifactsDir, timeoutMs: 300, agent: { executor: scriptedExecutor([{ name: 'done', input: { summary: 'x' } }]) }, secrets: { get: (n) => (n === 'QA_PASSWORD' ? value : undefined) } });
+    vexpect(report.tests[1]).toMatchObject({ result: 'failed', errorCode: 'assertion' });
+    for (const e of report.events) vexpect(parseRunEvent(e).ok).toBe(true);
+    const trees = fs.readdirSync(artifactsDir).filter((f) => f.endsWith('.screen-tree.json')).map((f) => fs.readFileSync(path.join(artifactsDir, f), 'utf8'));
+    const parsed = trees.map((t) => JSON.parse(t) as { root: SemanticNode });
+    vexpect(parsed[0]!.root.rect?.width).toBe(1080); // 숫자 비밀값이 숫자를 바꾸지 않는다
+    const all = [JSON.stringify(report), ...trees].join('\n');
+    for (const form of [value, JSON.stringify(value).slice(1, -1)]) if (!/^\d+$/.test(value)) vexpect(all).not.toContain(form);
+    vexpect(report.tests[1]!.error).toContain('{{secret:QA_PASSWORD}}');
+  });
+
+  it('screen.type 은 이 테스트가 secret() 으로 등록한 이름만 치환한다(앞 테스트의 값을 꺼내지 못한다)', async () => {
+    const engine = plainPasswordApp();
+    const report = await runTests([fixture('agent-secret-scope.sinclair.ts')], { engine, timeoutMs: 300, secrets: { get: () => 'Tr0ub4dor&3' } });
+    vexpect(report.tests.map((t) => t.result)).toEqual(['passed', 'failed']);
+    vexpect(report.tests[1]!.error).toMatch(/QA_PASSWORD/);
+    vexpect(engine.performed.filter((p) => p.ref === '@e2')).toEqual([]);
+  });
+});

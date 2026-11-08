@@ -129,7 +129,8 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
   const secretBox = new SecretBox();
   const secretStore = options.secrets ?? envSecretStore();
   const hide = (t: string): string => (secretBox.size ? secretBox.redact(t) : t);
-  const hideDeep = <T>(v: T): T => (secretBox.size === 0 ? v : (JSON.parse(hide(JSON.stringify(v))) as T));
+  // 문자열 잎만 가린다: 직렬화한 글을 가리면 숫자처럼 보이는 값(PIN)이 키·숫자를 바꿔 JSON 을 깬다
+  const hideDeep = <T>(v: T): T => secretBox.redactDeep(v);
   // 발생 즉시 Reporter 로 넘긴다. Reporter 의 실패·지연이 테스트 실행을 막지 않도록 기다리지 않고 run 끝에 모아서 기다린다
   const emit = (raw: RunEvent): void => {
     const event = hideDeep(raw);
@@ -237,10 +238,13 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
       emit(ev);
     };
     /** screen 의 type 에 온 자리표시를 실제 값으로(에이전트와 같은 규칙: 등록된 이름만) */
+    // 이 시도가 secret() 으로 등록한 이름만 치환한다(앞 테스트가 등록한 값을 자리표시만으로 꺼내지 못하게)
+    const attemptSecrets = new Set<string>();
     const reveal = (text: string): string => {
       if (!text.includes('{{secret:')) return text;
-      const r = secretBox.reveal(text);
-      if (!r.ok) throw new SecretMissingError(r.error);
+      const r = secretBox.reveal(text, attemptSecrets);
+      // 테스트 코드의 실수(secret() 을 부르지 않고 자리표시를 씀)라 설정 문제(blocked)가 아니라 실패다
+      if (!r.ok) throw new Error(`screen.type: ${r.error.replace('목표에 주어진 자리표시만', "이 테스트에서 secret() 으로 받은 자리표시만")}`);
       return r.text;
     };
     const screen = createScreen(engine, { timeoutMs, onStep, reveal });
@@ -307,7 +311,8 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
         if (!SECRET_NAME.test(name)) throw new SecretMissingError(`비밀값 이름 ${JSON.stringify(name)}: 대문자로 시작하는 대문자·숫자·_ 여야 함`);
         const value = secretStore.get(name);
         if (value === undefined || value === '') throw new SecretMissingError(`비밀값 ${name} 이 없음: 환경변수 ${SECRET_ENV_PREFIX}${name} 또는 runTests 의 secrets 저장소에 넣는다`);
-        secretBox.add(name, value);
+        try { secretBox.add(name, value); } catch (err) { throw new SecretMissingError(err instanceof Error ? err.message : String(err)); }
+        attemptSecrets.add(name);
         return secretPlaceholder(name);
       },
     };
@@ -345,7 +350,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
       await fs.mkdir(options.artifactsDir, { recursive: true });
       const treeKey = `${id}.screen-tree.json`;
       // 트리는 값 일치로 가린다(secure 가 아닌 칸에 입력한 비밀값). 스크린샷 픽셀은 가릴 수 없다 — 아티팩트 디렉터리는 비밀로 다룬다
-      await fs.writeFile(path.join(options.artifactsDir, treeKey), hide(JSON.stringify({ root: obs.root, atomic: obs.atomic ?? null }, null, 2)));
+      await fs.writeFile(path.join(options.artifactsDir, treeKey), JSON.stringify({ root: secretBox.redactTree(obs.root), atomic: obs.atomic ?? null }, null, 2));
       artifacts.push({ kind: 'screen-tree', key: treeKey });
       if (obs.pixels) {
         const shotKey = `${id}.screenshot.png`;

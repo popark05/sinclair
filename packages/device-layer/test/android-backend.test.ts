@@ -191,6 +191,14 @@ describe('AndroidBackend 입력 (adb shell input 경로)', () => {
     phone.failInput = 'Error: Invalid arguments';
     await expect(backend.tap('PHONE1', { x: 1, y: 1 })).rejects.toThrow(/Invalid arguments/);
   });
+
+  it('input text 가 실패해도 오류 문구에 입력한 글자를 싣지 않는다(비밀번호일 수 있다)', async () => {
+    const { backend, phone } = await ready();
+    phone.failInput = 'Error: Invalid arguments';
+    const err = (await backend.text('PHONE1', "Tr0ub 4dor'3").then(() => new Error('던지지 않음'), (e: unknown) => e as Error));
+    expect(err.message).toMatch(/input text <입력값>/);
+    expect(err.message).not.toMatch(/Tr0ub|4dor/);
+  });
 });
 
 describe('AndroidBackend 앱·URL·스크린샷 (adb shell 경로)', () => {
