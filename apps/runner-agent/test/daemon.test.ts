@@ -153,7 +153,8 @@ describe('parseDaemonArgs', () => {
   it('필수값·타깃 목록·기본값, 잘못된 값', () => {
     expect(parseDaemonArgs(['--control-plane', 'http://x', '--targets', 'android, ios', '--tests', 'd', '--poll', '100'], { HOME: '/h' }, 'linux')).toEqual({ controlPlane: 'http://x', targets: ['android', 'ios'], tests: 'd', engine: 'mobile', spool: '/h/.local/share/sinclair/spool', helperCache: '/h/.local/share/sinclair/cache/helper', pollMs: 100 });
     expect(() => parseDaemonArgs(['--control-plane', 'http://x', '--targets', 'a', '--tests', 'd', '--poll', '50'], {})).toThrow(/100 이상/);
-    expect(() => parseDaemonArgs(['--control-plane', 'http://x', '--tests', 'd'], {})).toThrow(/targets/);
+    // --targets 는 선택(device-fleet 03): 조건 타깃만 쓰는 Cycle 이면 선언할 이름이 없다
+    expect(parseDaemonArgs(['--control-plane', 'http://x', '--tests', 'd'], { HOME: '/h' }, 'linux')).toMatchObject({ targets: [] });
     expect(() => parseDaemonArgs(['--control-plane', 'http://x', '--targets', 'a', '--tests', 'd', '--poll', 'x'], {})).toThrow(AgentConfigError);
     expect(parseDaemonArgs(['--help'], {})).toEqual({ help: true });
   });
@@ -356,4 +357,20 @@ describe('runDaemon · 보고 사슬', () => {
       expect(inWindow).toBeLessThanOrEqual(4);
     } finally { await srv.close(); cp = undefined; }
   }, 20_000);
+});
+
+describe('runDaemon · 조건 타깃', () => {
+  it('--targets 없이 띄운 데몬이 조건(Android 13 이상)에 맞는 기기로 Run 을 받고, 맞지 않는 조건의 Run 은 받지 않는다', async () => {
+    await post('/cycles', { cycleId: 'cs', build: 'b', targets: [{ id: 'a13', platform: 'android', osVersion: { min: '13' } }, { id: 'a15', platform: 'android', osVersion: { min: '15' } }], suite: { tests: path.join(fixtures, 'only-login') } });
+    await post('/cycles/cs/runs', { targetId: 'a15', runId: 'r-15' }); // 먼저 등록됐지만 맞는 기기가 없다
+    await post('/cycles/cs/runs', { targetId: 'a13', runId: 'r-13' });
+    const dev = (id: string, osVersion: string) => ({ id, platform: 'android' as const, model: 'SM-N981N', osVersion, connection: 'device' as const, helper: 'ready' as const, locked: false });
+    const used: Array<string | undefined> = [];
+    const r = await runDaemon({ controlPlane: url, targets: [], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'node-s', pollMs: 10 }, deps({ maxRuns: 1, inventory: async () => [dev('OLD-12', '12'), dev('NEW-14', '14')], createEngine: async (a) => { used.push(a.device); return fakeEngine(a); } }));
+    expect(r.runs).toEqual([{ runId: 'r-13', targetId: 'a13', exitCode: EXIT.ok }]);
+    expect(used).toEqual(['NEW-14']);
+    const v = await view('cs');
+    expect(v.runs.map((x) => [x.runId, x.state])).toEqual([['r-15', 'queued'], ['r-13', 'finished']]);
+    expect(logs.join('\n')).toMatch(/target a13, 기기 …W-14/);
+  });
 });

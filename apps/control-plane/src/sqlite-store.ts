@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { RunEvent } from '@sinclair/protocol';
 import type { EventStore } from './store.ts';
-import { activeDeviceLeases, leaseExpired, newLease, pickDevice, type CycleRecord, type CycleStore, type RunRegistration } from './cycle-store.ts';
+import { activeDeviceLeases, lastClaimedByDevice, leaseExpired, newLease, pickDevice, type CycleRecord, type CycleStore, type RunRegistration } from './cycle-store.ts';
 import { nextNodeRecord, type FleetStore, type NodeRecord } from './fleet.ts';
 
 /** PRAGMA user_version. 스키마를 바꾸면 올리고 SQLITE_MIGRATIONS 에 단계를 더한다 */
@@ -113,6 +113,8 @@ export function createSqliteCycleStore(source: string | DatabaseSync): CycleStor
   const casRun = db.prepare('UPDATE cycle_runs SET record = ? WHERE run_id = ? AND record = ?');
   const selectAllRuns = db.prepare('SELECT record FROM cycle_runs ORDER BY seq');
   // 기기 lease 판정에 필요한 Run 만: 기기를 가진 만료 전 lease(ISO 8601 은 문자열 비교가 시간 순서와 같다). 이력이 쌓여도 클레임·Fleet 조회가 전체를 읽지 않는다
+  // 기기를 한 번이라도 lease 받은 Run(만료 무관): 기기마다 마지막 클레임 시각을 구한다
+  const selectWithDevice = db.prepare("SELECT record FROM cycle_runs WHERE json_extract(record, '$.lease.deviceId') IS NOT NULL");
   const selectLeased = db.prepare("SELECT record FROM cycle_runs WHERE json_extract(record, '$.lease.deviceId') IS NOT NULL AND json_extract(record, '$.lease.expiresAt') > ?");
   const parse = <T>(rows: unknown[]): T[] => (rows as Array<{ record: string }>).map((r) => JSON.parse(r.record) as T);
   return {
@@ -138,14 +140,17 @@ export function createSqliteCycleStore(source: string | DatabaseSync): CycleStor
       if (pickDevice(all(), nowMs, opts) === undefined) return undefined;
       for (const row of selectAllRuns.all() as Array<{ record: string }>) {
         const r = JSON.parse(row.record) as RunRegistration;
-        if (r.targetId !== targetId || !leaseExpired(r.lease, nowMs)) continue;
+        if ((targetId !== undefined && r.targetId !== targetId) || !leaseExpired(r.lease, nowMs)) continue;
         if (await hasEvents(r.runId)) continue; // 비동기는 트랜잭션 밖에서
+        const ok = opts?.eligible ? await opts.eligible(r) : true;
+        if (ok === false) continue;
         // 빈 기기 고르기와 Run 갱신을 한 트랜잭션으로: 다른 핸들이 같은 기기를 다른 Run 에 싣는 사이에 끼어들 수 없다(BEGIN IMMEDIATE 가 쓰기 잠금을 먼저 잡는다)
         db.exec('BEGIN IMMEDIATE');
         try {
-          const device = pickDevice(all(), nowMs, opts);
-          if (device === undefined) { db.exec('COMMIT'); return undefined; }
-          const next = { ...r, lease: newLease(agentId, nowMs, ttlMs, device ?? undefined) };
+          const lastClaimed = lastClaimedByDevice((selectWithDevice.all() as Array<{ record: string }>).map((row) => JSON.parse(row.record) as RunRegistration));
+          const device = pickDevice(all(), nowMs, opts, ok === true ? undefined : ok, lastClaimed);
+          if (device === undefined) { db.exec('COMMIT'); continue; } // 이 Run 에 맞는 빈 기기가 없다: 다음 Run 을 본다
+          const next = { ...r, lease: newLease(agentId, nowMs, ttlMs, device ?? undefined, device ? new Date(nowMs).toISOString() : undefined) };
           const changed = casRun.run(JSON.stringify(next), r.runId, row.record).changes === 1; // 그 사이 바뀌었으면 다음 후보로
           db.exec('COMMIT');
           if (changed) return next;
@@ -167,7 +172,7 @@ export function createSqliteCycleStore(source: string | DatabaseSync): CycleStor
         const r = JSON.parse(row.record) as RunRegistration;
         if (r.replacedBy) return { outcome: 'replaced', replacedBy: r.replacedBy };
         if (r.lease?.agentId !== agentId) return { outcome: 'not-owner' };
-        const next = { ...r, lease: newLease(agentId, nowMs, ttlMs, r.lease.deviceId) };
+        const next = { ...r, lease: newLease(agentId, nowMs, ttlMs, r.lease.deviceId, r.lease.claimedAt) };
         if (casRun.run(JSON.stringify(next), runId, row.record).changes === 1) return { outcome: 'ok', expiresAt: next.lease.expiresAt };
       }
       return { outcome: 'not-owner' };

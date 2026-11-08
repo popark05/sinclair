@@ -9,6 +9,7 @@
 - `fleet-offline` 데몬이 죽으면 TTL 뒤 그 노드의 기기가 `offline`, 다른 노드는 그대로.
 - `fleet-lease` 클레임 때 노드의 기기가 Run 에 lease 된다: 도는 동안 `leased`(+ `runId`), 끝나면(run.finished) 바로 `idle`. Cycle 뷰 run 행의 `lease.deviceId` 가 그 기기.
 - `fleet-health-gate` 잠김·헬퍼 미준비·미승인 기기는 클레임 후보에서 빠진다(데몬 로그 "후보에서 뺌: <사유>" 한 번). Run 은 대기하고, 쓸 수 있게 되면 다음 클레임에 다시 후보로. 잠긴 mobile 기기는 한 번 깨우고 위로 스와이프해 본다(비보안 잠금은 풀린다). 보안 잠금이면 화면을 다시 끄고("보안 잠금: 풀기 시도를 멈추고 화면을 끔" 한 번) 사람이 풀 때까지 다시 깨우지 않는다.
+- `fleet-selector` 조건 타깃(플랫폼·모델·OS 범위)은 `--targets` 선언 없이 조건에 맞는 빈 기기가 받는다(가장 오래 쉰 기기 먼저). 맞는 기기가 없는 조건의 Run 은 대기. 셀에 돈 기기가 보인다.
 - `fleet-shared-backend` mobile 데몬은 백엔드를 하나 열어 두고 인벤토리와 run 이 같이 쓴다(run 이 USB 를 다시 잡지 않는다).
 
 ## How to get to it (user POV)
@@ -19,7 +20,7 @@
 
 ```bash
 $S/fleet.sh $RUN              # 자체 control-plane(TTL 2초) + fake 데몬 2개 → 느린 Run 하나로 leased 확인 → 하나 SIGKILL
-# FLEET OK before=…:idle during=fleet-node-b:leased,… afterRun=…:idle afterKillA=fleet-node-b:idle,fleet-node-a:offline
+# FLEET OK before=…:idle during=fleet-node-b:leased,… afterRun=…:idle selector=finished@fake-fleet-node-?,os99:queued afterKillA=fleet-node-b:idle,fleet-node-a:offline
 # 증거: $RUN/evidence/fleet.json
 curl -s http://127.0.0.1:<port>/fleet    # 떠 있는 서버에 직접(mobile 노드면 시리얼이 그대로 나온다: 증거로 남기기 전에 마스킹)
 ```
@@ -37,3 +38,4 @@ curl -s http://127.0.0.1:<port>/fleet    # 떠 있는 서버에 직접(mobile �
 - 기기 id 는 Fleet 전체에서 유일해야 한다(기기 lease 가 id 로 독점을 가른다). fake 기기는 노드마다 `fake-<agentId>`.
 - 잠긴 기기 실기기 증명은 잠긴 폰에서만 돈다: `SINCLAIR_TEST_USB=1 npx vitest run apps/runner-agent/test/fleet-locked.device.test.ts` → `05-locked-device-latest.json`(Run 대기, untrusted/화면 잠김). `SINCLAIR_TEST_UNLOCK_WAIT_MS=90000` 을 더하면 "잠금을 풀어 주세요" 뒤 사람이 풀었을 때 같은 데몬이 다시 후보로 내 Run 을 끝내는 것까지(제외 → 다시 후보 → verified) 본다.
 - run 도중 기기가 잠기면 run 이 끝난 뒤 보고에서야 untrusted 로 보인다(run 중에는 그 기기의 잠금을 다시 보지 않는다).
+- 실기기 조건 타깃: `SINCLAIR_TEST_USB=1 npx vitest run apps/runner-agent/test/selector.device.test.ts` → `03-selector-device-latest.json`(기기의 모델·OS 조건 Run 은 그 기기로, OS 99 이상 조건은 대기). 폰 잠금 해제 필요.

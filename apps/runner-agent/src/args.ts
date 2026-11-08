@@ -156,7 +156,7 @@ export function parseRunArgs(argv: string[], env: NodeJS.ProcessEnv, platform: N
 /** daemon 옵션: run 의 표에서 cycle/target/run 을 빼고 targets/poll 을 더한다 */
 const DAEMON_OPTIONS: readonly OptionSpec[] = [
   OPTIONS.find((o) => o.name === 'control-plane')!,
-  { name: 'targets', key: 'targets', env: 'SINCLAIR_AGENT_TARGETS', required: true, help: '이 노드가 맡는 타깃 id 들, 쉼표 구분' },
+  { name: 'targets', key: 'targets', env: 'SINCLAIR_AGENT_TARGETS', required: false, help: '이 노드가 맡는 이름 타깃들, 쉼표 구분. 조건 타깃(플랫폼·모델·OS)은 기기가 맞으면 선언 없이 받는다' },
   { ...OPTIONS.find((o) => o.name === 'tests')!, help: 'Cycle 에 suite 가 없을 때 쓸 기본 테스트 디렉터리' },
   ...OPTIONS.filter((o) => ['engine', 'device', 'app', 'artifacts', 'timeout', 'retries', 'agent', 'spool', 'helper-apk', 'helper-cache'].includes(o.name)),
   { name: 'poll', key: 'pollMs', env: 'SINCLAIR_AGENT_POLL', required: false, help: '대기 중인 Run 이 없을 때 다시 묻는 간격 ms (기본 5000, 최소 100)' },
@@ -180,8 +180,7 @@ export function parseDaemonArgs(argv: string[], env: NodeJS.ProcessEnv, platform
   if (parsed.help) return { help: true };
   const out = parsed.values;
   try { new URL(out.controlPlane!); } catch { throw new AgentConfigError(`--control-plane 은 URL 이어야 함: ${out.controlPlane}`); }
-  const targets = out.targets!.split(',').map((t) => t.trim()).filter(Boolean);
-  if (targets.length === 0) throw new AgentConfigError('--targets 가 비어 있음 (쉼표 구분)');
+  const targets = (out.targets ?? '').split(',').map((t) => t.trim()).filter(Boolean);
   const engine = out.engine ?? 'mobile';
   if (!(ENGINES as readonly string[]).includes(engine)) throw new AgentConfigError(`--engine 은 ${ENGINES.join('|')} 중 하나여야 함: ${engine}`);
   const timeoutMs = positiveInt('timeout', out.timeoutMs);

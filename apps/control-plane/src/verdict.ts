@@ -3,7 +3,7 @@
 // 필수 케이스(requiredTags 가 비면 전부, 아니면 그 태그를 가진 테스트)가 전부 passed/passed-flaky 면 verified, 아니면 blocked.
 // 끝나지 않은 run 이 있으면 incomplete. `waived` 는 Issue/waive 티켓이 만들기 전까지 생성 경로가 없고(통과로 집계), Cycle 상태(CYCLE_STATES)의 expired/cancelled 는
 // Scheduler 가 생기기 전까지 도달하지 않는다(Run 상태 cancelled 는 러너 취소 신호가 만든다). 판정은 저장하지 않고 조회마다 다시 계산한다(늦게 온 이벤트가 반영된다).
-import type { CaseVerdict, CycleState, CycleVerdict, RunState } from '@sinclair/protocol';
+import type { CaseVerdict, CycleState, CycleVerdict, RunState, TargetSelector } from '@sinclair/protocol';
 import type { CycleRecord, RunLease, RunRegistration, SuiteFilter } from './cycle-store.ts';
 import type { AttemptView, RunView } from './projection.ts';
 
@@ -13,13 +13,16 @@ export const MAX_RETRY_LIMIT = 5;
 /** 러너 CANCELLED_CODE 와 같은 문자열(apps 는 러너를 import 하지 않는다; runner-agent 테스트가 같음을 확인) */
 export const CANCELLED_CODE = 'cancelled';
 
-export interface CaseCell { verdict: CaseVerdict; attemptId?: string }
+/** deviceId: 그 셀의 결과를 낸 Run 이 lease 받은 기기(조건 타깃은 여러 기기가 같은 열을 채울 수 있다) */
+export interface CaseCell { verdict: CaseVerdict; attemptId?: string; deviceId?: string }
 
 export interface CycleView {
   cycleId: string;
   build: string;
   targets: string[];
   requiredTags: string[];
+  /** 조건 타깃의 정의(device-fleet 03). 없는 타깃은 이름 타깃 */
+  targetSelectors?: Record<string, TargetSelector>;
   suite?: SuiteFilter;
   createdAt: string;
   state: CycleState;
@@ -84,9 +87,10 @@ export function computeCycle(cycle: CycleRecord, registrations: RunRegistration[
         const attempts = (view?.attempts ?? []).filter((a) => a.testId === testId);
         const cell = caseVerdict(attempts);
         // 러너가 취소로 시작하지 못한 케이스(errorCode cancelled 인 skipped)는 "안 돌기로 한 것" 이 아니라 "돌지 못한 것" 이라 blocked. 작성자의 test.skip 은 그대로 skipped
-        if (cell) row[targetId] = cell.verdict === 'skipped' && lastFinished(attempts)?.errorCode === CANCELLED_CODE ? { ...cell, verdict: 'blocked' } : cell;
-        else if (view && view.state === 'finished' && !row[targetId]) row[targetId] = { verdict: 'skipped' };
-        else if (view && (view.state === 'infra-failed' || view.state === 'cancelled') && !row[targetId]) row[targetId] = { verdict: 'blocked' };
+        const dev = reg.lease?.deviceId ? { deviceId: reg.lease.deviceId } : {};
+        if (cell) row[targetId] = { ...(cell.verdict === 'skipped' && lastFinished(attempts)?.errorCode === CANCELLED_CODE ? { ...cell, verdict: 'blocked' as const } : cell), ...dev };
+        else if (view && view.state === 'finished' && !row[targetId]) row[targetId] = { verdict: 'skipped', ...dev };
+        else if (view && (view.state === 'infra-failed' || view.state === 'cancelled') && !row[targetId]) row[targetId] = { verdict: 'blocked', ...dev };
       }
     }
     matrix[testId] = row;
@@ -105,5 +109,5 @@ export function computeCycle(cycle: CycleRecord, registrations: RunRegistration[
     verdict = ok ? 'verified' : 'blocked';
   }
 
-  return { cycleId: cycle.cycleId, build: cycle.build, targets: cycle.targets, requiredTags: cycle.requiredTags, ...(cycle.suite ? { suite: cycle.suite } : {}), createdAt: cycle.createdAt, state, verdict, runs: runRows, retryLimit: cycle.retryLimit ?? DEFAULT_RETRY_LIMIT, retriesUsed, required, matrix };
+  return { cycleId: cycle.cycleId, build: cycle.build, targets: cycle.targets, requiredTags: cycle.requiredTags, ...(cycle.targetSelectors ? { targetSelectors: cycle.targetSelectors } : {}), ...(cycle.suite ? { suite: cycle.suite } : {}), createdAt: cycle.createdAt, state, verdict, runs: runRows, retryLimit: cycle.retryLimit ?? DEFAULT_RETRY_LIMIT, retriesUsed, required, matrix };
 }

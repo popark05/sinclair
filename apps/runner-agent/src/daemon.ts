@@ -11,7 +11,7 @@ import { nodeDeviceProblem, type NodeDevice } from '@sinclair/protocol';
 import { fakeDevice, openAndroidNode, type AndroidNode } from './engines.ts';
 
 export interface DaemonArgs extends Omit<RunArgs, 'cycle' | 'target' | 'run'> {
-  /** 이 노드가 맡는 타깃들 */
+  /** 이 노드가 맡겠다고 선언하는 이름 타깃들(문자열 타깃용, 하위 호환). 조건 타깃만 쓰면 비어도 된다 */
   targets: string[];
   /** 대기 중인 Run 이 없을 때 다시 물어보는 간격(ms, 기본 5초: Cycle 생성 뒤 몇 초 안에 돌기 시작하면서 서버에 부담이 없을 만큼) */
   pollMs?: number;
@@ -38,9 +38,10 @@ const MIN_HEARTBEAT_MS = 1_000;
 const DEFAULT_POLL_MS = 5_000;
 
 /** devices: 이 노드가 내놓는 후보 기기. 있으면 control-plane 이 그중 빈 기기를 lease 해 준다(없으면 구버전처럼 기기 없는 lease) */
-export async function claimRun(controlPlane: string, targetId: string, agentId: string, doFetch: typeof fetch = fetch, devices?: readonly string[]): Promise<ClaimedRun | undefined> {
+/** targetId 가 없으면 서버가 이 노드의 기기와 선언한 이름 타깃(targets)으로 Run 을 고른다(device-fleet 03). 있으면 그 타깃만(기존 방식) */
+export async function claimRun(controlPlane: string, targetId: string | undefined, agentId: string, doFetch: typeof fetch = fetch, devices?: readonly string[], targets?: readonly string[]): Promise<ClaimedRun | undefined> {
   const base = controlPlane.replace(/\/$/, '');
-  const res = await doFetch(`${base}/runs/claim`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ targetId, agentId, ...(devices ? { devices } : {}) }) });
+  const res = await doFetch(`${base}/runs/claim`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agentId, ...(targetId ? { targetId } : {}), ...(devices ? { devices } : {}), ...(targets?.length ? { targets } : {}) }) });
   if (res.status === 204) return undefined;
   if (res.status !== 200) throw new ControlPlaneError(`클레임 실패 ${res.status}`, res.status);
   return (await res.json()) as ClaimedRun;
@@ -84,14 +85,13 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
     deps.signal?.addEventListener('abort', done, { once: true });
   }));
   const agentId = args.agent ?? os.hostname();
-  if (args.targets.length === 0) throw new AgentConfigError('--targets 가 비어 있음');
   const summary: DaemonSummary = { runs: [], resumed: 0, stoppedBy: 'signal' };
 
   // 지난번에 못 보낸 이벤트부터
   const resumed = await resumeSpool({ dir: args.spool, controlPlane: args.controlPlane, ...(deps.fetch ? { fetch: deps.fetch } : {}), log });
   summary.resumed = resumed.resumed.length;
   for (const w of resumed.warnings) log(`  경고: ${w}`);
-  log(`데몬 시작: agent ${agentId}, targets ${args.targets.join(', ')}, control-plane ${args.controlPlane}`);
+  log(`데몬 시작: agent ${agentId}, 이름 타깃 ${args.targets.length ? args.targets.join(', ') : '없음(조건 타깃만)'}, control-plane ${args.controlPlane}`);
 
   // mobile 데몬은 디바이스 백엔드를 하나 소유해 인벤토리와 run 들이 같이 쓴다(직접 USB 는 한 프로세스만 잡을 수 있다).
   // 열지 못하면(헬퍼 APK 없음 등) 인벤토리가 비어 클레임하지 않고(기기 없는 노드), 보고 때마다 다시 연다
@@ -191,23 +191,24 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
   try {
     while (!deps.signal?.aborted) {
       let worked = false;
-      for (const targetId of args.targets) {
-        if (deps.signal?.aborted) break;
+      // 폴링마다 클레임 한 번: 서버가 이 노드에 줄 Run 을 고른다 — 이름 타깃은 --targets 로 선언한 것, 조건 타깃은 내놓은 기기 중 맞는 것이 있을 때(device-fleet 03)
+      claim: {
         let claimed: ClaimedRun | undefined;
-        await refreshCandidates(); // 타깃마다: 앞 타깃의 run 이 길었으면 그 사이 상태가 바뀌었을 수 있다
+        await refreshCandidates(); // 클레임 직전: 앞 run 이 길었으면 그 사이 상태가 바뀌었을 수 있다
         const devices = candidateIds;
         if (devices.length === 0) {
           // 기기 없는 노드는 클레임하지 않는다(받아도 돌릴 기기가 없다). 조용히 기다리지 않도록 한 번 알린다
           if (!announcedNoCandidates) log(`후보 기기 없음: 클레임하지 않고 기다림${args.device ? ` (--device …${args.device.slice(-4)} 가 목록에 없음)` : ''}`);
           announcedNoCandidates = true;
-          continue;
+          break claim;
         }
         announcedNoCandidates = false;
-        try { claimed = await claimRun(args.controlPlane, targetId, agentId, deps.fetch, devices); }
-        catch (err) { log(`클레임 오류(${targetId}): ${err instanceof Error ? err.message : String(err)}`); continue; }
-        if (!claimed) continue;
+        try { claimed = await claimRun(args.controlPlane, undefined, agentId, deps.fetch, devices, args.targets); }
+        catch (err) { log(`클레임 오류: ${err instanceof Error ? err.message : String(err)}`); break claim; }
+        if (!claimed) break claim;
         worked = true;
         const { run, leaseTtlMs } = claimed;
+        const targetId = run.targetId;
         if (claimed.warning) log(`클레임 경고: ${claimed.warning}`);
         // lease 받은 기기로 돈다. 그 기기를 못 찾으면 엔진 준비가 실패해 blocked(infra-failed)로 보고되고, run 이 끝나 기기 lease 도 풀린다
         const leasedDevice = claimed.run.lease.deviceId;

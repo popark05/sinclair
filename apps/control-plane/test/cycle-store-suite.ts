@@ -124,7 +124,7 @@ export function runClaimSuite(name: string, makeStore: () => Promise<CycleStore>
     it('기기는 Run 이 끝나거나(finishedRuns) lease 가 만료되거나 Run 이 대체되면 풀린다; heartbeat 는 기기 lease 도 연장한다', async () => {
       await store.claimRun('android', 'n', T0, TTL, noEvents, { devices: ['D1'] }); // r1
       expect((await store.heartbeat('r1', 'n', T0 + 10_000, TTL)).outcome).toBe('ok');
-      expect((await store.runsForCycle('c1')).find((r) => r.runId === 'r1')!.lease).toEqual({ agentId: 'n', expiresAt: new Date(T0 + 10_000 + TTL).toISOString(), deviceId: 'D1' });
+      expect((await store.runsForCycle('c1')).find((r) => r.runId === 'r1')!.lease).toEqual({ agentId: 'n', expiresAt: new Date(T0 + 10_000 + TTL).toISOString(), deviceId: 'D1', claimedAt: new Date(T0).toISOString() }); // 클레임 시각은 heartbeat 로 바뀌지 않는다
       expect(await store.claimRun('ios', 'n', T0 + TTL, TTL, noEvents, { devices: ['D1'] })).toBeUndefined(); // 연장돼서 아직 바쁨
       // Run 이 끝났다고 알려 주면 바로 풀린다
       expect((await store.claimRun('ios', 'n', T0 + TTL, TTL, noEvents, { devices: ['D1'], finishedRuns: new Set(['r1']) }))?.lease?.deviceId).toBe('D1'); // r2

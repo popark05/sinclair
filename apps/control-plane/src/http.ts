@@ -2,11 +2,12 @@
 //   POST /ingest             RunEvent[] 배치 → IngestResponse
 //   GET  /runs               run 요약 목록
 //   GET  /runs/:id           RunView (projection.ts)
-//   POST /cycles             { cycleId?, build, targets[], requiredTags?, suite?{tests,tags?,retries?}, retryLimit? } → CycleRecord (201)
+//   POST /cycles             { cycleId?, build, targets[](이름 | {id, platform, model?, osVersion?}), requiredTags?, suite?{tests,tags?,retries?}, retryLimit? } → CycleRecord (201)
 //   GET  /cycles             CycleRecord 목록
 //   GET  /cycles/:id         CycleView (verdict.ts: 상태·Verdict·매트릭스)
 //   POST /cycles/:id/runs    { targetId, runId? } → RunRegistration (201)
-//   POST /runs/claim         { targetId, agentId, devices? } → { run(lease.deviceId), leaseTtlMs, warning? } (200) | 없음 (204)
+//   POST /runs/claim         { agentId, targetId?, devices?, targets? } → { run(lease.deviceId), leaseTtlMs, warning? } (200) | 없음 (204)
+//                            targetId 없으면 서버가 고른다: 이름 타깃은 targets 에 선언됐을 때, 조건 타깃은 맞는 빈 기기가 있을 때
 //   POST /runs/:id/heartbeat { agentId } → { expiresAt } (200) | 409 not-owner·replaced | 404
 //   PUT  /fleet/nodes/:agentId { devices[] } → { ttlMs } (200) | 400 — 노드의 기기 보고(통째 교체)
 //   GET  /fleet              → FleetView(노드별 기기와 idle/untrusted/offline)
@@ -16,9 +17,9 @@ import { randomUUID } from 'node:crypto';
 import { ingestBatch } from './ingest.ts';
 import { projectRun, type RunView } from './projection.ts';
 import type { EventStore } from './store.ts';
-import { createMemoryCycleStore, type CycleStore } from './cycle-store.ts';
+import { createMemoryCycleStore, type CycleStore, type RunRegistration } from './cycle-store.ts';
 import { MAX_RETRY_LIMIT } from './verdict.ts';
-import { parseNodeReport } from '@sinclair/protocol';
+import { matchesTarget, parseCycleTargets, parseNodeReport, type NodeDevice } from '@sinclair/protocol';
 import { buildFleetView, createMemoryFleetStore, type FleetStore } from './fleet.ts';
 import { buildCycleView, sweepAbandoned, sweepAllAbandoned } from './cycle-view.ts';
 
@@ -111,7 +112,10 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         const read = await readJson(req, res);
         if (!read) return;
         const b = read.body;
-        if (!isRecord(b) || typeof b.build !== 'string' || !b.build || !isStringArray(b.targets) || b.targets.length === 0) return json(res, 400, { error: 'build(문자열)와 targets(비어 있지 않은 문자열 배열)가 필요함' });
+        if (!isRecord(b) || typeof b.build !== 'string' || !b.build) return json(res, 400, { error: 'build(문자열)와 targets 가 필요함' });
+        // 타깃은 이름 문자열(노드가 선언) 또는 기기 선택 조건(device-fleet 03). 같은 id 가 두 번이면 거부한다(예전처럼 조용히 합치지 않는다)
+        const targets = parseCycleTargets(b.targets);
+        if (!targets.ok) return json(res, 400, { error: 'targets 가 올바르지 않음', errors: targets.errors });
         if (b.requiredTags !== undefined && !isStringArray(b.requiredTags)) return json(res, 400, { error: 'requiredTags 는 문자열 배열이어야 함' });
         if (!optionalId(b.cycleId)) return json(res, 400, { error: 'cycleId 는 비어 있지 않은 문자열이어야 함' });
         if (b.suite !== undefined && (!isRecord(b.suite) || typeof b.suite.tests !== 'string' || !b.suite.tests || (b.suite.tags !== undefined && !isStringArray(b.suite.tags)))) return json(res, 400, { error: 'suite 는 { tests: 문자열, tags?: 문자열 배열, retries?: 정수 } 이어야 함' });
@@ -120,7 +124,7 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         const suite = b.suite as { tests: string; tags?: string[]; retries?: number } | undefined;
         const cycle = {
           ...(typeof b.retryLimit === 'number' ? { retryLimit: b.retryLimit } : {}),
-          cycleId: b.cycleId ?? randomUUID(), build: b.build, targets: [...new Set(b.targets)], requiredTags: (b.requiredTags as string[] | undefined) ?? [],
+          cycleId: b.cycleId ?? randomUUID(), build: b.build, targets: targets.ids, ...(Object.keys(targets.selectors).length ? { targetSelectors: targets.selectors } : {}), requiredTags: (b.requiredTags as string[] | undefined) ?? [],
           ...(suite ? { suite: { tests: suite.tests, ...(suite.tags ? { tags: suite.tags } : {}), ...(suite.retries !== undefined ? { retries: suite.retries } : {}) } } : {}), createdAt: new Date().toISOString(),
         };
         if ((await cycles.createCycle(cycle)) === 'duplicate') return json(res, 409, { error: `Cycle ${cycle.cycleId} 가 이미 있음`, code: 'cycle-exists' });
@@ -155,14 +159,35 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         const read = await readJson(req, res);
         if (!read) return;
         const b = read.body;
-        if (!isRecord(b) || typeof b.targetId !== 'string' || !b.targetId || typeof b.agentId !== 'string' || !b.agentId) return json(res, 400, { error: 'targetId 와 agentId(문자열)가 필요함' });
+        if (!isRecord(b) || typeof b.agentId !== 'string' || !b.agentId) return json(res, 400, { error: 'agentId(문자열)가 필요함' });
+        if (b.targetId !== undefined && (typeof b.targetId !== 'string' || !b.targetId)) return json(res, 400, { error: 'targetId 는 비어 있지 않은 문자열이어야 함' });
         if (b.devices !== undefined && !isStringArray(b.devices)) return json(res, 400, { error: 'devices 는 기기 id 문자열 배열이어야 함' });
+        if (b.targets !== undefined && !isStringArray(b.targets)) return json(res, 400, { error: 'targets 는 이 노드가 맡는 이름 타깃의 문자열 배열이어야 함' });
         const devices = b.devices as string[] | undefined;
+        const targetId = b.targetId as string | undefined;
+        // targetId 없이 클레임하면 서버가 타깃을 고른다: 그러려면 내놓을 기기가 있어야 한다
+        if (targetId === undefined && !devices) return json(res, 400, { error: 'targetId 없이 클레임하려면 devices 가 필요함' });
+        const declared = new Set((b.targets as string[] | undefined) ?? []);
         const ttl = opts.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS;
         await sweepAllAbandoned(store, cycles, sweepOpts()); // 버려진 Run 의 대체 Run 이 이 클레임에서 바로 잡히게
         const nowMs = (opts.now ?? Date.now)();
         const { finished } = devices ? await busyDevices(nowMs) : { finished: new Set<string>() };
-        const run = await cycles.claimRun(b.targetId, b.agentId, nowMs, ttl, async (runId) => (await store.eventsForRun(runId)).length > 0, devices ? { devices, finishedRuns: finished } : undefined);
+        // 조건 타깃에 맞출 기기 속성은 Fleet 보고에서 안다(플랫폼·모델·OS 는 거의 바뀌지 않는다). 보고하지 않은 기기는 조건 타깃을 받지 못한다
+        const known = new Map<string, NodeDevice>();
+        if (devices) for (const n of await fleet.listNodes()) for (const d of n.devices) if (!known.has(d.id) || n.agentId === b.agentId) known.set(d.id, d);
+        const cycleCache = new Map<string, Awaited<ReturnType<typeof cycles.getCycle>>>();
+        const eligible = async (reg: RunRegistration): Promise<boolean | readonly string[]> => {
+          if (!cycleCache.has(reg.cycleId)) cycleCache.set(reg.cycleId, await cycles.getCycle(reg.cycleId));
+          const selector = cycleCache.get(reg.cycleId)?.targetSelectors?.[reg.targetId];
+          if (selector) {
+            if (!devices) return false; // 기기 없이 클레임하는 구버전은 조건을 확인할 수 없다
+            const fit = devices.filter((id) => { const d = known.get(id); return !!d && matchesTarget(d, selector); });
+            return fit.length ? fit : false;
+          }
+          // 이름 타깃: targetId 로 직접 청했거나(기존 방식) 노드가 그 이름을 맡겠다고 선언했을 때
+          return targetId !== undefined || declared.has(reg.targetId);
+        };
+        const run = await cycles.claimRun(targetId, b.agentId, nowMs, ttl, async (runId) => (await store.eventsForRun(runId)).length > 0, { ...(devices ? { devices, finishedRuns: finished } : {}), eligible });
         if (!run) { res.writeHead(204).end(); return; }
         const cycle = await cycles.getCycle(run.cycleId);
         // 구버전 에이전트(devices 없음)도 지금처럼 Run 을 받는다. 다만 기기 lease 가 없어 같은 기기를 다른 Run 이 동시에 쓸 수 있음을 알린다
