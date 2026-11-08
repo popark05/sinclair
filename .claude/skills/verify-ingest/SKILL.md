@@ -24,6 +24,7 @@ SINCLAIR_INGEST_STORE=sqlite $S/start.sh $RUN
 ```
 
 - `start.sh` 가 서버 엔트리 `apps/control-plane/bin/sinclair-control-plane.mjs`(루트 `pnpm control-plane` 과 같은 것)를 `--port 0 --store <kind> --db <file>` 로 띄운다. 이 엔트리는 아직 리포 체크아웃 안에서만 돈다(설치형 번들은 패키징 티켓). 준비 완료 기준은 `server.out` 의 `READY` 줄이며 그때 `$RUN/server.json`(port, pid, store, sqlite 면 db) 이 있다. bin 은 `--experimental-transform-types` 로 자신을 다시 띄우므로 `server.pid` 는 셸 프로세스이고, 그 자식이 서버다(stop.sh 의 SIGTERM 이 전달된다).
+- **짧은 lease:** `SINCLAIR_INGEST_LEASE_TTL_MS=<ms>` 로 띄우면 `--lease-ttl-ms` 가 전달돼 버려진 Run 정리(`features/abandoned.md`)를 초 단위로 본다.
 - **SQLite 모드:** `SINCLAIR_INGEST_STORE=sqlite`. DB 파일은 `$RUN/control-plane.db`(`SINCLAIR_INGEST_DB` 로 변경). 같은 `$RUN` 으로 `stop.sh` → `start.sh` 하면 같은 파일을 다시 열어 이전 run 이 보인다(`features/persistence.md`).
 - 시드 데이터 없음. 빈 저장소로 시작하므로 멱등 증명은 한 RUN 안에서 한다.
 - 인증 없음(아직 범위 밖). 127.0.0.1 에만 바인딩한다. 설정 오류·스키마 불일치면 종료 코드 2 와 메시지가 `server.out` 에 남고 start.sh 가 실패한다.
@@ -45,6 +46,7 @@ $S/get.sh $RUN /runs [evidence-name]                        # 요약 목록
 $S/order-check.sh $RUN <events.json> [evidence-name]        # 정순 run 과 역순·분할 run 의 투영 비교 → ORDER-INDEPENDENT
 $S/run-sample.sh $RUN [batchSize]                           # 러너(FakeEngine 샘플) → HTTP Reporter → Ingest. evidence/run-sample.json
 $S/cycle.sh $RUN [name]                                     # Cycle → Run 등록 → 이벤트 → 매트릭스·Verdict. evidence/<name>-*.json
+SINCLAIR_INGEST_LEASE_TTL_MS=1000 $S/abandoned.sh $RUN [name]  # 버려진 Run → infra-failed + 대체 Run → 클레임·완료 → verified (같은 값으로 start.sh 한 서버)
 ```
 
 - `evidence-name` 을 주면 요청+상태+응답을 `$RUN/evidence/<name>.json` 에 저장한다.
