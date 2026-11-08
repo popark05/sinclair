@@ -1,0 +1,40 @@
+{
+  "at": "2026-11-08T06:43:46.409Z",
+  "nodeTtlMs": 6000,
+  "node": {
+    "agentId": "device-node",
+    "online": true,
+    "devices": [
+      {
+        "id": "…XLZW",
+        "platform": "android",
+        "model": "SM-N981N",
+        "osVersion": "13",
+        "connection": "device",
+        "helper": "ready",
+        "locked": false,
+        "state": "idle"
+      }
+    ]
+  },
+  "run": {
+    "exitCode": 0,
+    "cycle": {
+      "state": "finished",
+      "verdict": "verified"
+    }
+  },
+  "log": [
+    "데몬 시작: agent device-node, targets android, control-plane http://127.0.0.1:62134",
+    "헬퍼 APK: <repo>/packages/device-layer/android-helper/app/build/outputs/apk/debug/app-debug.apk (repo-build)",
+    "헬퍼 온보딩(…XLZW): 헬퍼 이미 설치됨",
+    "헬퍼 온보딩(…XLZW): 접근성 서비스 활성화됨",
+    "헬퍼 온보딩(…XLZW): 헬퍼 준비됨 v0.1.0",
+    "fleet 보고: 기기 1대",
+    "run …64da-c3f4-4794-a66e-…9eeb 클레임 (cycle fleet-device, target android, tests <repo>/apps/runner-agent/test/fixtures/device)",
+    "기기 SM-N981N (…XLZW) Android 13, 헬퍼 ready",
+    "화면: 켜짐, 잠금 없음",
+    "헬퍼를 방금 켰으므로 대상 앱을 한 번 열어 트리를 예열함",
+    "결과: passed 1, failed 0, blocked 0, skipped 0 / 전송 5건(accepted 5, duplicate 0, rejected 0, retries 0)"
+  ]
+}

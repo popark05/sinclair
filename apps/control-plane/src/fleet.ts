@@ -1,12 +1,23 @@
 // Fleet: 노드(runner-agent)가 보고한 기기들과 그 상태. 상태는 저장하지 않고 조회 시점에 보고와 시계로 계산한다(Verdict 와 같은 방식).
-// 규칙: 노드 보고가 TTL 을 넘기면 offline, 아니면 미승인·연결 끊김·헬퍼 미준비·잠김이 untrusted(사유), 나머지 idle. leased 는 기기 lease(device-fleet 02)가 생기면.
+// 규칙: 노드 보고가 TTL 을 넘기거나 기기가 보고에서 빠지면 offline, 아니면 미승인·연결 끊김·헬퍼 미준비·잠김이 untrusted(사유), 나머지 idle. leased 는 기기 lease(device-fleet 02)가 생기면.
 // 구현체는 test/fleet.test.ts 의 FleetStore 계약을 통과해야 한다.
 import type { DeviceState, NodeDevice, NodeReport } from '@sinclair/protocol';
 
-export interface NodeRecord { agentId: string; reportedAt: string; devices: NodeDevice[] }
+/** 보고에서 빠진 기기: 마지막으로 보인 모습과 처음 빠진 시각. 다시 보고되면 사라진다. 뽑힌 기기(lease 중이던 기기 포함)를 "사라짐" 이 아니라 offline 으로 보이게 한다 */
+export type MissingDevice = NodeDevice & { missingSince: string };
+export interface NodeRecord { agentId: string; reportedAt: string; devices: NodeDevice[]; missing: MissingDevice[] }
+
+/** 이전 기록과 새 보고로 다음 기록을 만든다(두 저장소가 같은 규칙을 쓴다) */
+export function nextNodeRecord(prev: NodeRecord | undefined, agentId: string, report: NodeReport, nowMs: number): NodeRecord {
+  const at = new Date(nowMs).toISOString();
+  const present = new Set(report.devices.map((d) => d.id));
+  const stillMissing = (prev?.missing ?? []).filter((d) => !present.has(d.id));
+  const newlyMissing = (prev?.devices ?? []).filter((d) => !present.has(d.id) && !stillMissing.some((m) => m.id === d.id)).map((d) => ({ ...d, missingSince: at }));
+  return { agentId, reportedAt: at, devices: report.devices.map((d) => ({ ...d })), missing: [...stillMissing, ...newlyMissing] };
+}
 
 export interface FleetStore {
-  /** 노드 보고를 통째로 바꾼다(보고에서 빠진 기기는 사라진다). 같은 보고를 반복해도 결과가 같다 */
+  /** 노드 보고로 기기 목록을 바꾼다. 보고에서 빠진 기기는 missing 으로 옮긴다(nextNodeRecord). 같은 보고를 반복해도 결과가 같다 */
   reportNode(agentId: string, report: NodeReport, nowMs: number): Promise<void>;
   /** 처음 보고한 순서 */
   listNodes(): Promise<NodeRecord[]>;
@@ -35,7 +46,8 @@ export function buildFleetView(nodes: NodeRecord[], nowMs: number, nodeTtlMs: nu
     nodeTtlMs,
     nodes: nodes.map((n) => {
       const at = Date.parse(n.reportedAt);
-      return { agentId: n.agentId, reportedAt: n.reportedAt, online: nowMs - at < nodeTtlMs, devices: n.devices.map((d) => ({ ...d, ...deviceStatus(d, at, nowMs, nodeTtlMs) })) };
+      const missing = n.missing.map(({ missingSince: _m, ...d }) => ({ ...d, state: 'offline' as const, reason: '보고에서 빠짐' }));
+      return { agentId: n.agentId, reportedAt: n.reportedAt, online: nowMs - at < nodeTtlMs, devices: [...n.devices.map((d) => ({ ...d, ...deviceStatus(d, at, nowMs, nodeTtlMs) })), ...missing] };
     }),
   };
 }
@@ -44,10 +56,10 @@ export function createMemoryFleetStore(): FleetStore {
   const nodes = new Map<string, NodeRecord>(); // Map 은 삽입 순서를 지키므로 첫 보고 순서가 유지된다
   return {
     async reportNode(agentId, report, nowMs) {
-      nodes.set(agentId, { agentId, reportedAt: new Date(nowMs).toISOString(), devices: report.devices.map((d) => ({ ...d })) });
+      nodes.set(agentId, nextNodeRecord(nodes.get(agentId), agentId, report, nowMs));
     },
     async listNodes() {
-      return [...nodes.values()].map((n) => ({ ...n, devices: n.devices.map((d) => ({ ...d })) }));
+      return [...nodes.values()].map((n) => ({ ...n, devices: n.devices.map((d) => ({ ...d })), missing: n.missing.map((d) => ({ ...d })) }));
     },
   };
 }

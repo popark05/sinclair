@@ -30,6 +30,7 @@ describe('parseNodeReport', () => {
     expect(parseNodeReport({ devices: [ok.devices[0], ok.devices[0]] }).ok).toBe(false);
     expect(parseNodeReport({}).ok).toBe(false);
     expect(parseNodeReport('x').ok).toBe(false);
+    expect(parseNodeReport({ devices: [], extra: 1 })).toEqual({ ok: false, errors: ['extra: 모르는 필드'] }); // 최상위도 닫혀 있다
   });
 
   it('허용 값은 프로토콜 상수와 같다(드리프트 방지)', () => {

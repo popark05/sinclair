@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { RunEvent } from '@sinclair/protocol';
 import type { EventStore } from './store.ts';
 import { leaseExpired, newLease, type CycleRecord, type CycleStore, type RunRegistration } from './cycle-store.ts';
-import type { FleetStore, NodeRecord } from './fleet.ts';
+import { nextNodeRecord, type FleetStore, type NodeRecord } from './fleet.ts';
 
 /** PRAGMA user_version. 스키마를 바꾸면 올리고 SQLITE_MIGRATIONS 에 단계를 더한다 */
 export const SQLITE_SCHEMA_VERSION = 3;
@@ -174,14 +174,24 @@ export function createSqliteFleetStore(source: string | DatabaseSync): FleetStor
   const db = typeof source === 'string' ? openSqlite(source) : source;
   // ON CONFLICT 로 갱신하면 seq(첫 보고 순서)가 유지된다
   const upsert = db.prepare('INSERT INTO fleet_nodes (agent_id, record) VALUES (?, ?) ON CONFLICT(agent_id) DO UPDATE SET record = excluded.record');
+  const selectOne = db.prepare('SELECT record FROM fleet_nodes WHERE agent_id = ?');
   const selectAll = db.prepare('SELECT record FROM fleet_nodes ORDER BY seq');
   return {
     async reportNode(agentId, report, nowMs) {
-      const record: NodeRecord = { agentId, reportedAt: new Date(nowMs).toISOString(), devices: report.devices };
-      upsert.run(agentId, JSON.stringify(record));
+      // 이전 기록을 읽고 쓰는 사이가 끊기지 않게 한 트랜잭션으로(같은 노드는 한 데몬만 보고하지만 두 서버가 한 파일을 볼 수 있다)
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const row = selectOne.get(agentId) as { record: string } | undefined;
+        const prev = row ? (JSON.parse(row.record) as NodeRecord) : undefined;
+        upsert.run(agentId, JSON.stringify(nextNodeRecord(prev && { ...prev, missing: prev.missing ?? [] }, agentId, report, nowMs)));
+        db.exec('COMMIT');
+      } catch (err) {
+        db.exec('ROLLBACK');
+        throw err;
+      }
     },
     async listNodes() {
-      return (selectAll.all() as Array<{ record: string }>).map((r) => JSON.parse(r.record) as NodeRecord);
+      return (selectAll.all() as Array<{ record: string }>).map((r) => { const n = JSON.parse(r.record) as NodeRecord; return { ...n, missing: n.missing ?? [] }; });
     },
     async close() {
       closeOnce(db);

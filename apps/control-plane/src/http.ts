@@ -166,8 +166,7 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         return json(res, 200, { expiresAt: result.expiresAt });
       }
       if (req.method === 'PUT' && parts[0] === 'fleet' && parts[1] === 'nodes' && parts.length === 3) {
-        const agentId = parts[2]!;
-        if (!agentId) return json(res, 400, { error: 'agentId 가 필요함' });
+        const agentId = parts[2]!; // filter(Boolean) 로 빈 id 는 이 경로에 오지 않는다
         const read = await readJson(req, res);
         if (!read) return;
         const parsed = parseNodeReport(read.body);

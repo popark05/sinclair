@@ -27,6 +27,7 @@ const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v.length 
 export function parseNodeReport(input: unknown): NodeReportParse {
   if (!isRecord(input) || !Array.isArray(input.devices)) return { ok: false, errors: ['보고는 { devices: [...] } 이어야 함'] };
   const errors: string[] = [];
+  for (const k of Object.keys(input)) if (k !== 'devices') errors.push(`${k}: 모르는 필드`);
   const seen = new Set<string>();
   input.devices.forEach((d: unknown, i: number) => {
     const at = `devices[${i}]`;

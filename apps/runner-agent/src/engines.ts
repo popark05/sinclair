@@ -1,4 +1,5 @@
-// 엔진 팩토리: fake(로그인 시나리오) 또는 mobile(디바이스 레이어 Android 백엔드 위 engine-mobile). 엔진 수명은 run 하나.
+// 엔진 팩토리: fake(로그인 시나리오) 또는 mobile(디바이스 레이어 Android 백엔드 위 engine-mobile). 엔진 수명은 run 하나,
+// 백엔드 수명은 그것을 연 쪽이 정한다(`run` 은 run 하나, 데몬은 데몬 수명 동안 openAndroidNode 로 하나를 연다).
 import type { Engine, NodeDevice } from '@sinclair/protocol';
 // testing/index 는 vitest 계약 스위트를 끌어오므로(vitest 밖에서 import 불가) 파일 단위 export 를 쓴다
 import { FakeEngine } from '@sinclair/protocol/testing/fake-engine';
@@ -55,24 +56,27 @@ export async function openAndroidNode(args: Pick<RunArgs, 'helperApk' | 'helperC
   // USB 를 건드리기 전에 APK 부터: 없으면 기기 상태와 무관하게 "헬퍼 APK 없음" 으로 빨리 실패한다
   const helperApk = await resolveHelperApk({ ...(args.helperApk ? { flag: args.helperApk } : {}), env: process.env, cacheDir: args.helperCache, log, ...overrides });
   // listDevices 가 첫 판정(온보딩 포함)을 기다리므로 "방금 설치·활성화했는지" 는 info 상태가 아니라 온보딩 단계 콜백으로 안다
-  let onboardedNow = false;
+  // 방금 설치·활성화한 기기들. 그 기기의 첫 run 이 예열까지 마쳐야 지운다(앞선 run 이 예열 전에 실패하면 다음 run 이 이어받는다)
+  const needsWarmup = new Set<string>();
+  // run 이 쓰는 중인 기기와 그 기기의 마지막 잠금 상태: 인벤토리가 run 도중 그 기기에 dumpsys 를 보내지 않게 한다(쓰는 중이면 잠금 해제 상태다)
+  const inUse = new Set<string>();
+  const lastLocked = new Map<string, boolean>();
   const backend = createAndroidBackend({
     dadb: { includeEmulators: false, authTimeoutMs: APPROVAL_WAIT_MS }, probeWaitMs: APPROVAL_WAIT_MS, helperApkPath: helperApk.path,
-    onHelperStep: (serial, text) => { if (/설치됨|활성화됨/.test(text)) onboardedNow = true; log(`헬퍼 온보딩(…${serial.slice(-4)}): ${text}`); },
+    onHelperStep: (serial, text) => { if (/(?<!이미 )설치됨|활성화됨/.test(text)) needsWarmup.add(serial); log(`헬퍼 온보딩(…${serial.slice(-4)}): ${text}`); },
   });
   return {
     async inventory() {
       const devices = await backend.listDevices();
       return Promise.all(devices.map(async (d): Promise<NodeDevice> => {
-        const screen = d.state === 'device' ? await backend.screenState?.(d.id).catch(() => undefined) : undefined;
+        const screen = d.state !== 'device' ? undefined
+          : inUse.has(d.id) ? (lastLocked.has(d.id) ? { locked: lastLocked.get(d.id)! } : undefined)
+          : await backend.screenState?.(d.id).catch(() => undefined);
+        if (screen?.locked !== undefined) lastLocked.set(d.id, screen.locked);
         return { id: d.id, platform: d.platform, model: d.model, osVersion: d.osVersion, connection: d.state, ...(d.helper ? { helper: d.helper.state } : {}), ...(screen?.locked !== undefined ? { locked: screen.locked } : {}) };
       }));
     },
     async engineFor(args, log) {
-      // 온보딩 플래그는 이번 run 의 엔진 준비에서만 의미가 있다(다음 run 은 이미 켜진 헬퍼를 본다)
-      const fresh = onboardedNow;
-      onboardedNow = false;
-      const onboardedThisRun = (): boolean => fresh || onboardedNow;
       let devices = await backend.listDevices();
       for (let i = 0; i < LIST_RETRIES && !devices.some((d) => (args.device ? d.id === args.device : true)); i++) {
         await new Promise((r) => setTimeout(r, LIST_RETRY_MS));
@@ -110,7 +114,10 @@ export async function openAndroidNode(args: Pick<RunArgs, 'helperApk' | 'helperC
         await backend.keys(deviceId, ['KEYCODE_HOME']).catch(() => undefined); // 홈에서 시작(창 이벤트도 만든다)
       }
       const engine = createMobileEngine(rpcOverDispatcher(createDeviceServer([backend])), { deviceId, ...(args.app ? { appId: args.app } : {}) });
-      if (onboardedThisRun() && info.helper?.state === 'ready' && args.app) {
+      // 여기까지 왔으면 잠금이 풀려 있다. 이제부터 dispose 까지 인벤토리는 이 기기에 dumpsys 를 보내지 않는다
+      inUse.add(deviceId);
+      lastLocked.set(deviceId, false);
+      if (needsWarmup.has(deviceId) && info.helper?.state === 'ready' && args.app) {
         // 막 설치·활성화된 접근성 서비스는 첫 앱 실행의 창 내용을 한동안(5초 넘게) 비어 있는 트리로 돌려준다(실기기 재설치 직후 반복 확인).
         // 테스트가 그 창을 만나지 않도록 대상 앱을 한 번 열어 트리가 찰 때까지 기다렸다가 닫는다
         log('헬퍼를 방금 켰으므로 대상 앱을 한 번 열어 트리를 예열함');
@@ -122,6 +129,7 @@ export async function openAndroidNode(args: Pick<RunArgs, 'helperApk' | 'helperC
         }
         await backend.terminateApp(deviceId, args.app).catch(() => undefined);
         await backend.button(deviceId, 'home').catch(() => undefined);
+        needsWarmup.delete(deviceId);
       }
       return {
         engine, deviceId, deviceLabel: label,
@@ -129,6 +137,7 @@ export async function openAndroidNode(args: Pick<RunArgs, 'helperApk' | 'helperC
           await engine.session?.restart().catch(() => undefined);
           if (args.app) await backend.terminateApp(deviceId, args.app).catch(() => undefined);
           await backend.button(deviceId, 'home').catch(() => undefined);
+          inUse.delete(deviceId);
           // 백엔드는 닫지 않는다: 노드(데몬)가 소유하고 다음 run·인벤토리가 같이 쓴다
         },
       };

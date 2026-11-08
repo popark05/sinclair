@@ -9,4 +9,4 @@ export { computeCycle, tagsOf, type CycleView, type CaseCell, DEFAULT_RETRY_LIMI
 export { buildCycleView, sweepAbandoned, sweepAllAbandoned, abandonedEventId, replacementRunId, type CycleViewWithWarnings, type SweepOptions, type SweepResult } from './cycle-view.ts';
 export { parseConfig, defaultDataDir, ConfigError, HELP, type ControlPlaneConfig } from './config.ts';
 export { startControlPlane, type RunningControlPlane } from './main.ts'; // main() 은 bin 만 쓴다(프로세스 제어)
-export { deviceStatus, buildFleetView, createMemoryFleetStore, type FleetStore, type NodeRecord, type DeviceStatus, type FleetView } from './fleet.ts';
+export { deviceStatus, buildFleetView, nextNodeRecord, createMemoryFleetStore, type FleetStore, type NodeRecord, type MissingDevice, type DeviceStatus, type FleetView } from './fleet.ts';

@@ -5,7 +5,7 @@
 ## Sub-features
 
 - `fleet-report` fake 데몬은 가짜 기기 하나(`fake`, 모델 `FakeEngine`)를, mobile 데몬은 소유한 디바이스 백엔드의 기기(모델·OS·연결·헬퍼·화면 잠금)를 보고한다.
-- `fleet-states` 연결·승인·헬퍼 ready·잠금 없음 → `idle`; 미승인·adb offline·헬퍼 미준비·잠김 → `untrusted` + 사유; 노드 보고가 TTL 을 넘김 → `offline`(사유 "노드 보고 끊김").
+- `fleet-states` 연결·승인·헬퍼 ready·잠금 없음 → `idle`; 미승인·adb offline·헬퍼 미준비·잠김 → `untrusted` + 사유; 노드 보고가 TTL 을 넘김 → `offline`("노드 보고 끊김"); 뽑혀서 보고에서 빠진 기기 → `offline`("보고에서 빠짐", 다시 꽂히면 돌아온다).
 - `fleet-offline` 데몬이 죽으면 TTL 뒤 그 노드의 기기가 `offline`, 다른 노드는 그대로.
 - `fleet-shared-backend` mobile 데몬은 백엔드를 하나 열어 두고 인벤토리와 run 이 같이 쓴다(run 이 USB 를 다시 잡지 않는다).
 
@@ -19,7 +19,7 @@
 $S/fleet.sh $RUN              # 자체 control-plane(TTL 2초) + fake 데몬 2개 → 하나 SIGKILL
 # FLEET OK before=fleet-node-b:idle,fleet-node-a:idle after=fleet-node-b:idle,fleet-node-a:offline
 # 증거: $RUN/evidence/fleet.json
-curl -s http://127.0.0.1:<port>/fleet    # 떠 있는 서버에 직접
+curl -s http://127.0.0.1:<port>/fleet    # 떠 있는 서버에 직접(mobile 노드면 시리얼이 그대로 나온다: 증거로 남기기 전에 마스킹)
 ```
 
 실기기: `adb kill-server && SINCLAIR_TEST_USB=1 npx vitest run apps/runner-agent/test/fleet.device.test.ts` → `.scratch/device-fleet/evidence/01-fleet-device-latest.json`(잠금 해제 상태: idle + Run 완료). 잠긴 기기는 `untrusted`/"화면 잠김" 으로 보이고 run 은 blocked(`01-fleet-device-locked.json`).
@@ -30,3 +30,5 @@ curl -s http://127.0.0.1:<port>/fleet    # 떠 있는 서버에 직접
 - 보고가 실패해도 데몬은 클레임을 계속한다. 로그는 처음 보고·실패·회복 때만 한 줄(시리얼을 쓰지 않는다).
 - `GET /fleet` 응답에는 시리얼이 그대로 있다(control-plane 안의 식별자). 증거로 남길 때는 마스킹한다.
 - mobile 데몬이 백엔드를 열지 못하면(헬퍼 APK 없음 등) 인벤토리는 비고 run 마다 여는 기존 경로로 돈다.
+- 노드는 지워지지 않는다: 한 번 보고한 agentId 는 데몬을 내려도 offline 으로 남는다(정리는 후속). 뽑힌 기기도 다시 꽂힐 때까지 "보고에서 빠짐" 으로 남는다.
+- run 이 쓰는 중인 기기에는 인벤토리가 잠금 확인(dumpsys)을 보내지 않고 run 시작 때의 값(잠금 없음)을 쓴다.

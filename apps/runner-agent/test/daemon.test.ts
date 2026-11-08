@@ -6,7 +6,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { startControlPlane, serveControlPlane, createMemoryEventStore, type RunningControlPlane, type CycleView, type FleetView } from '@sinclair/control-plane';
 import { FakeEngine, HOME_SCREEN, LOGIN_SCREEN } from '@sinclair/protocol/testing';
-import { runDaemon, parseDaemonArgs, AgentConfigError, EXIT, type DaemonDeps } from '../src/index.ts';
+import { runDaemon, parseDaemonArgs, reportNode, AgentConfigError, EXIT, type DaemonDeps } from '../src/index.ts';
 
 const MEMORY = { host: '127.0.0.1', port: 0, store: 'memory', db: 'unused-in-memory-mode' } as const;
 const fixtures = path.resolve(import.meta.dirname, 'fixtures');
@@ -181,6 +181,41 @@ describe('runDaemon · Fleet 보고', () => {
       expect(logs.join('\n')).not.toMatch(/SER-A|SER-B/); // 로그에 시리얼을 쓰지 않는다
     } finally { await srv.close(); cp = undefined; }
   }, 15_000);
+
+  it('데몬이 멈출 때 진행 중이던 보고가 끝나기를 기다리고, 멈춘 뒤에는 보고를 보내지 않는다(닫히는 백엔드의 덜 채운 보고가 덮어쓰지 않게)', async () => {
+    await cp!.close();
+    const srv = await serveControlPlane(createMemoryEventStore(), { leaseTtlMs: 3_000 }); // 보고 간격 1초
+    url = `http://127.0.0.1:${srv.port}`;
+    try {
+      let calls = 0;
+      let stopped = false;
+      const puts: number[] = [];
+      const counting: typeof fetch = (input, init) => { if (String(input).includes('/fleet/nodes/')) puts.push(Date.now()); return fetch(input, init); };
+      // 두 번째 인벤토리는 느리고, 데몬이 멈춘 뒤에 끝나면 잠금 정보를 잃은 보고를 돌려준다(닫히는 백엔드 흉내)
+      const inventory = async () => {
+        if (++calls === 1) return [dev('SER-A')];
+        await new Promise((r) => setTimeout(r, 600));
+        const { locked: _l, ...degraded } = dev('SER-A');
+        return [stopped ? degraded : dev('SER-A')];
+      };
+      const aborter = new AbortController();
+      const p = runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'node-s', pollMs: 50 }, deps({ signal: aborter.signal, inventory, fetch: counting }));
+      await until(() => calls >= 2, 4_000); // 두 번째 보고가 인벤토리 중
+      aborter.abort(); stopped = true;
+      await p;
+      const returnedAt = Date.now();
+      await new Promise((r) => setTimeout(r, 900));
+      expect(puts.filter((t) => t > returnedAt)).toEqual([]); // 멈춘 뒤 보고 없음
+      expect((await fleet()).nodes[0]!.devices[0]).toMatchObject({ locked: false });
+    } finally { await srv.close(); cp = undefined; }
+  }, 15_000);
+
+  it('reportNode 는 ttlMs 가 숫자가 아닌 응답을 거부한다(간격이 NaN 이 되어 서버를 두드리지 않게)', async () => {
+    const bad: typeof fetch = async () => new Response(JSON.stringify({ ttlMs: 'soon' }), { status: 200 });
+    await expect(reportNode('http://x', 'n', [], bad)).rejects.toThrow(/ttlMs/);
+    const zero: typeof fetch = async () => new Response(JSON.stringify({ ttlMs: 0 }), { status: 200 });
+    await expect(reportNode('http://x', 'n', [], zero)).rejects.toThrow(/ttlMs/);
+  });
 
   it('fake 엔진 데몬은 가짜 기기 하나를 보고하고, 보고가 실패해도 클레임은 계속된다', async () => {
     await post('/cycles', { cycleId: 'cf2', build: 'b', targets: ['android'], suite: { tests: path.join(fixtures, 'only-login') } });

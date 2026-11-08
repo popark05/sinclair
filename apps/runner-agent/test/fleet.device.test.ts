@@ -14,7 +14,8 @@ import { runDaemon, EXIT } from '../src/index.ts';
 
 const target = process.env.SINCLAIR_TEST_USB;
 const REPO = path.resolve(import.meta.dirname, '../../..');
-const mask = (line: string): string => line.split(REPO).join('<repo>').split(os.homedir()).join('<home>').replace(/\b[A-Z0-9]{8,}\b/g, (s) => `…${s.slice(-4)}`);
+/** 리포·홈 경로와 시리얼을 지운다. 시리얼은 Fleet 이 알려 준 실제 값으로 지우고(대소문자·길이 무관), 정규식은 혹시 모를 나머지를 위한 보조다 */
+const mask = (line: string, serials: string[] = []): string => serials.reduce((l, id) => l.split(id).join(`…${id.slice(-4)}`), line.split(REPO).join('<repo>').split(os.homedir()).join('<home>')).replace(/\b[A-Za-z0-9]{8,}\b/g, (s) => (/\d/.test(s) && /[A-Za-z]/.test(s) && !/^[a-f0-9]{8}-/.test(s) ? `…${s.slice(-4)}` : s));
 
 describe.skipIf(!target)('실기기 Fleet 인벤토리', () => {
   it('mobile 데몬이 꽂힌 기기를 idle 로 보고하고, 같은 백엔드로 Run 을 끝낸다', async () => {
@@ -37,7 +38,7 @@ describe.skipIf(!target)('실기기 Fleet 인벤토리', () => {
       await fs.writeFile(path.join(dir, '01-fleet-device-latest.json'), JSON.stringify({
         at: new Date().toISOString(), nodeTtlMs: fleet.nodeTtlMs,
         node: node && { agentId: node.agentId, online: node.online, devices: node.devices.map((d) => ({ id: `…${d.id.slice(-4)}`, platform: d.platform, model: d.model, osVersion: d.osVersion, connection: d.connection, helper: d.helper, locked: d.locked, state: d.state, reason: d.reason })) },
-        run: { exitCode: summary.runs[0]?.exitCode, cycle: { state: view.state, verdict: view.verdict } }, log: logs.map(mask),
+        run: { exitCode: summary.runs[0]?.exitCode, cycle: { state: view.state, verdict: view.verdict } }, log: logs.map((l) => mask(l, node?.devices.map((d) => d.id) ?? [])),
       }, null, 2) + '\n');
       expect(node?.devices.length).toBeGreaterThan(0);
       // 실패 메시지에 시리얼이 찍히지 않도록 id 를 뺀 값으로 비교한다

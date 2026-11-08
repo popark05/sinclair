@@ -1,6 +1,6 @@
 // runner-agent: 기기 노드에서 러너를 실행하고 control-plane 에 보고한다.
 export { parseRunArgs, parseResumeArgs, parseDaemonArgs, defaultSpoolDir, defaultHelperCacheDir, AgentConfigError, RUN_HELP, RESUME_HELP, DAEMON_HELP, type RunArgs, type ResumeArgs, type DaemonCliArgs, MAX_RETRIES } from './args.ts';
-export { runDaemon, claimRun, heartbeat, type DaemonArgs, type DaemonDeps, type DaemonSummary, type ClaimedRun } from './daemon.ts';
+export { runDaemon, claimRun, heartbeat, reportNode, type DaemonArgs, type DaemonDeps, type DaemonSummary, type ClaimedRun } from './daemon.ts';
 export { main } from './main.ts';
 export { registerRun, ControlPlaneError, type RegisteredRun } from './control-plane-client.ts';
 export { createEngine, type EngineHandle, type EngineOverrides } from './engines.ts';

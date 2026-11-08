@@ -61,14 +61,19 @@ export async function heartbeat(controlPlane: string, runId: string, agentId: st
 
 /** Fleet 노드 보고. 응답의 ttlMs 가 다음 보고 간격(TTL/3)의 기준이다 */
 export async function reportNode(controlPlane: string, agentId: string, devices: NodeDevice[], doFetch: typeof fetch = fetch): Promise<{ ttlMs: number }> {
-  const res = await doFetch(`${controlPlane.replace(/\/$/, '')}/fleet/nodes/${encodeURIComponent(agentId)}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ devices }) });
+  // 답 없는 서버에 매달려 보고 타이머가 영영 다시 걸리지 않는 일이 없도록 기한을 둔다
+  const res = await doFetch(`${controlPlane.replace(/\/$/, '')}/fleet/nodes/${encodeURIComponent(agentId)}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ devices }), signal: AbortSignal.timeout(REPORT_TIMEOUT_MS) });
   if (res.status !== 200) throw new ControlPlaneError(`fleet 보고 ${res.status}: ${(await res.text()).slice(0, 200)}`, res.status);
-  return (await res.json()) as { ttlMs: number };
+  const body = (await res.json()) as { ttlMs?: unknown };
+  // ttlMs 가 숫자가 아니면 간격이 NaN 이 되어 setTimeout 이 1ms 로 돈다(서버를 두드린다)
+  if (typeof body.ttlMs !== 'number' || !Number.isFinite(body.ttlMs) || body.ttlMs <= 0) throw new ControlPlaneError(`fleet 보고 응답의 ttlMs 가 올바르지 않음: ${JSON.stringify(body.ttlMs)}`, res.status);
+  return { ttlMs: body.ttlMs };
 }
 
 /** 보고 간격의 하한·서버가 TTL 을 알려 주기 전 기본값 */
 const MIN_REPORT_MS = 1_000;
 const DEFAULT_REPORT_MS = 20_000;
+const REPORT_TIMEOUT_MS = 10_000;
 
 export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promise<DaemonSummary> {
   const log = deps.log ?? ((line: string) => console.log(line));
@@ -90,20 +95,24 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
   // mobile 데몬은 디바이스 백엔드를 하나 소유해 인벤토리와 run 들이 같이 쓴다(직접 USB 는 한 프로세스만 잡을 수 있다).
   // 열지 못하면(헬퍼 APK 없음 등) run 마다 여는 기존 경로로 돌아가고 인벤토리는 비어 있다
   let node: AndroidNode | undefined;
-  if (args.engine === 'mobile' && !deps.createEngine && !deps.inventory) {
+  if (args.engine === 'mobile' && !deps.createEngine && !deps.inventory) { // 테스트가 엔진·인벤토리를 끼우면 USB 를 열지 않는다
     node = await openAndroidNode(args, log).catch((err: unknown) => { log(`디바이스 백엔드를 열지 못함(run 마다 다시 시도): ${err instanceof Error ? err.message : String(err)}`); return undefined; });
   }
   const inventory = deps.inventory ?? (node ? () => node.inventory() : args.engine === 'fake' ? async () => [FAKE_DEVICE] : async () => []);
-  const runDeps: RunOnceDeps = node && !deps.createEngine ? { ...deps, createEngine: (a, l) => node.engineFor(a, l) } : deps;
+  const runDeps: RunOnceDeps = node ? { ...deps, createEngine: (a, l) => node.engineFor(a, l) } : deps;
 
   // Fleet 보고: 시작할 때 한 번, 그 뒤 서버 TTL 의 1/3 마다. 실패해도 클레임은 계속한다(보고는 보이기 위한 것이고 아직 클레임 조건이 아니다)
   let reportTimer: NodeJS.Timeout | undefined;
   let lastReportError = '';
   let reportsStopped = false;
-  const report = async (): Promise<void> => {
+  let inFlight: Promise<void> = Promise.resolve();
+  const report = (): Promise<void> => (inFlight = reportOnce());
+  const reportOnce = async (): Promise<void> => {
     let nextMs = DEFAULT_REPORT_MS;
     try {
       const devices = await inventory();
+      // 멈추는 중이면 보내지 않는다: 닫히는 백엔드에서 읽은 덜 채운 목록(잠금 정보 없음 등)이 마지막 보고를 덮어쓰지 않게
+      if (reportsStopped) return;
       const { ttlMs } = await reportNode(args.controlPlane, agentId, devices, deps.fetch);
       nextMs = Math.max(MIN_REPORT_MS, Math.floor(ttlMs / 3));
       if (lastReportError || !reportTimer) log(`fleet 보고: 기기 ${devices.length}대`); // 처음과 회복 때만(시리얼은 쓰지 않는다)
@@ -174,6 +183,7 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
   } finally {
     reportsStopped = true;
     clearTimeout(reportTimer);
+    await inFlight; // 진행 중이던 인벤토리가 백엔드를 쓰는 동안 닫지 않는다
     await node?.close().catch(() => undefined);
   }
 }
