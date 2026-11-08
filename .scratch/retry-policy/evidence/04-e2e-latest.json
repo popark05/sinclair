@@ -1,5 +1,6 @@
 {
-  "at": "2026-11-08T05:55:31.769Z",
+  "at": "2026-11-08T06:07:51.623Z",
+  "store": "memory",
   "leaseTtlMs": 2000,
   "graceMs": 2000,
   "suite": "apps/runner-agent/test/fixtures/retry-e2e",
@@ -10,7 +11,7 @@
   "paths": {
     "kill": {
       "cycle": {
-        "cycleId": "retry-e2e-kill-1794117331769-54269",
+        "cycleId": "retry-e2e-kill-1794118071622-60557",
         "state": "finished",
         "verdict": "verified",
         "retryLimit": 1,
@@ -19,17 +20,17 @@
         },
         "runs": [
           {
-            "runId": "kill-r1-1794117331769-54269",
+            "runId": "kill-r1-1794118071622-60557",
             "state": "infra-failed",
             "agent": "kill-a",
-            "replacedBy": "retry:kill-r1-1794117331769-54269",
-            "abandonedAt": "2026-11-08T05:55:36.297Z"
+            "replacedBy": "retry:kill-r1-1794118071622-60557",
+            "abandonedAt": "2026-11-08T06:07:56.152Z"
           },
           {
-            "runId": "retry:kill-r1-1794117331769-54269",
+            "runId": "retry:kill-r1-1794118071622-60557",
             "state": "finished",
             "agent": "kill-b",
-            "replaces": "kill-r1-1794117331769-54269"
+            "replaces": "kill-r1-1794118071622-60557"
           }
         ],
         "matrix": {
@@ -59,21 +60,21 @@
           }
         }
       },
-      "killedAfterMs": 18022,
+      "killedAfterMs": 17852,
       "daemonA": {
         "signal": "SIGKILL",
         "log": [
-          "데몬 시작: agent kill-a, targets e2e-kill, control-plane http://127.0.0.1:57677",
-          "run kill-r1-1794117331769-54269 클레임 (cycle retry-e2e-kill-1794117331769-54269, target e2e-kill, tests <repo>/apps/runner-agent/test/fixtures/retry-e2e, retries 1)"
+          "데몬 시작: agent kill-a, targets e2e-kill, control-plane http://127.0.0.1:59516",
+          "run kill-r1-1794118071622-60557 클레임 (cycle retry-e2e-kill-1794118071622-60557, target e2e-kill, tests <repo>/apps/runner-agent/test/fixtures/retry-e2e, retries 1)"
         ]
       },
       "daemonB": {
         "exit": 0,
         "log": [
-          "데몬 시작: agent kill-b, targets e2e-kill, control-plane http://127.0.0.1:57677",
-          "run retry:kill-r1-1794117331769-54269 클레임 (cycle retry-e2e-kill-1794117331769-54269, target e2e-kill, tests <repo>/apps/runner-agent/test/fixtures/retry-e2e, retries 1)",
+          "데몬 시작: agent kill-b, targets e2e-kill, control-plane http://127.0.0.1:59516",
+          "run retry:kill-r1-1794118071622-60557 클레임 (cycle retry-e2e-kill-1794118071622-60557, target e2e-kill, tests <repo>/apps/runner-agent/test/fixtures/retry-e2e, retries 1)",
           "결과: passed 8, failed 0, blocked 0, skipped 0 / 전송 29건(accepted 29, duplicate 0, rejected 0, retries 0)",
-          "SIGTERM 수신, 진행 중 테스트를 마치고 멈춤(남은 테스트는 skipped, run 은 cancelled)",
+          "SIGTERM 수신, 멈춤(진행 중 run 이 있으면 현재 테스트까지 마치고 나머지는 skipped, run 은 cancelled)",
           "데몬 종료",
           "데몬 요약: run 1개 (e2e-kill:0), resume 0"
         ]
@@ -81,7 +82,7 @@
     },
     "limit": {
       "cycle": {
-        "cycleId": "retry-e2e-limit-1794117331769-54269",
+        "cycleId": "retry-e2e-limit-1794118071622-60557",
         "state": "finished",
         "verdict": "blocked",
         "retryLimit": 0,
@@ -90,7 +91,7 @@
         },
         "runs": [
           {
-            "runId": "limit-r1-1794117331769-54269",
+            "runId": "limit-r1-1794118071622-60557",
             "state": "infra-failed",
             "agent": "limit-a"
           }
@@ -107,14 +108,14 @@
       "daemonA": {
         "signal": "SIGKILL",
         "log": [
-          "데몬 시작: agent limit-a, targets e2e-limit, control-plane http://127.0.0.1:57677",
-          "run limit-r1-1794117331769-54269 클레임 (cycle retry-e2e-limit-1794117331769-54269, target e2e-limit, tests <repo>/apps/runner-agent/test/fixtures/retry-e2e, retries 1)"
+          "데몬 시작: agent limit-a, targets e2e-limit, control-plane http://127.0.0.1:59516",
+          "run limit-r1-1794118071622-60557 클레임 (cycle retry-e2e-limit-1794118071622-60557, target e2e-limit, tests <repo>/apps/runner-agent/test/fixtures/retry-e2e, retries 1)"
         ]
       }
     },
     "lease": {
       "cycle": {
-        "cycleId": "retry-e2e-lease-1794117331769-54269",
+        "cycleId": "retry-e2e-lease-1794118071622-60557",
         "state": "finished",
         "verdict": "verified",
         "retryLimit": 1,
@@ -123,17 +124,17 @@
         },
         "runs": [
           {
-            "runId": "lease-r1-1794117331769-54269",
+            "runId": "lease-r1-1794118071622-60557",
             "state": "infra-failed",
             "agent": "lease-a",
-            "replacedBy": "retry:lease-r1-1794117331769-54269",
-            "abandonedAt": "2026-11-08T05:56:00.043Z"
+            "replacedBy": "retry:lease-r1-1794118071622-60557",
+            "abandonedAt": "2026-11-08T06:08:19.740Z"
           },
           {
-            "runId": "retry:lease-r1-1794117331769-54269",
+            "runId": "retry:lease-r1-1794118071622-60557",
             "state": "finished",
             "agent": "lease-b",
-            "replaces": "lease-r1-1794117331769-54269"
+            "replaces": "lease-r1-1794118071622-60557"
           }
         ],
         "matrix": {
@@ -163,25 +164,25 @@
           }
         }
       },
-      "unblockedAfterMs": 3636,
+      "unblockedAfterMs": 3440,
       "daemonA": {
         "exit": 0,
         "log": [
-          "데몬 시작: agent lease-a, targets e2e-lease, control-plane http://127.0.0.1:57687",
-          "run lease-r1-1794117331769-54269 클레임 (cycle retry-e2e-lease-1794117331769-54269, target e2e-lease, tests <repo>/apps/runner-agent/test/fixtures/retry-e2e, retries 1)",
-          "heartbeat lease-r1-1794117331769-54269: error",
-          "heartbeat lease-r1-1794117331769-54269: error",
-          "heartbeat lease-r1-1794117331769-54269: error",
-          "heartbeat lease-r1-1794117331769-54269: error",
-          "heartbeat lease-r1-1794117331769-54269: not-owner",
+          "데몬 시작: agent lease-a, targets e2e-lease, control-plane http://127.0.0.1:59528",
+          "run lease-r1-1794118071622-60557 클레임 (cycle retry-e2e-lease-1794118071622-60557, target e2e-lease, tests <repo>/apps/runner-agent/test/fixtures/retry-e2e, retries 1)",
+          "heartbeat lease-r1-1794118071622-60557: error",
+          "heartbeat lease-r1-1794118071622-60557: error",
+          "heartbeat lease-r1-1794118071622-60557: error",
+          "heartbeat lease-r1-1794118071622-60557: error",
+          "heartbeat lease-r1-1794118071622-60557: replaced",
           "결과: passed 4, failed 0, blocked 0, skipped 4 / 전송 25건(accepted 25, duplicate 0, rejected 0, retries 0)",
           "  skipped: 재시도 > 긴 테스트 4",
           "  skipped: 재시도 > 긴 테스트 5",
           "  skipped: 재시도 > 긴 테스트 6",
           "  skipped: 재시도 > 긴 테스트 7",
-          "run lease-r1-1794117331769-54269 중단(cancelled): lease 를 잃음",
-          "run lease-r1-1794117331769-54269: lease 를 잃어 중단 — 진행 중이던 테스트까지만 보고됐고 나머지는 skipped(cancelled)",
-          "SIGTERM 수신, 진행 중 테스트를 마치고 멈춤(남은 테스트는 skipped, run 은 cancelled)",
+          "run lease-r1-1794118071622-60557 중단(cancelled): lease 를 잃음",
+          "run lease-r1-1794118071622-60557: lease 를 잃어 중단 — 진행 중이던 테스트까지만 보고됐고 나머지는 skipped(cancelled)",
+          "SIGTERM 수신, 멈춤(진행 중 run 이 있으면 현재 테스트까지 마치고 나머지는 skipped, run 은 cancelled)",
           "데몬 종료",
           "데몬 요약: run 1개 (e2e-lease:5), resume 0"
         ]
@@ -189,20 +190,20 @@
       "daemonB": {
         "exit": 0,
         "log": [
-          "데몬 시작: agent lease-b, targets e2e-lease, control-plane http://127.0.0.1:57677",
-          "run retry:lease-r1-1794117331769-54269 클레임 (cycle retry-e2e-lease-1794117331769-54269, target e2e-lease, tests <repo>/apps/runner-agent/test/fixtures/retry-e2e, retries 1)",
+          "데몬 시작: agent lease-b, targets e2e-lease, control-plane http://127.0.0.1:59516",
+          "run retry:lease-r1-1794118071622-60557 클레임 (cycle retry-e2e-lease-1794118071622-60557, target e2e-lease, tests <repo>/apps/runner-agent/test/fixtures/retry-e2e, retries 1)",
           "결과: passed 8, failed 0, blocked 0, skipped 0 / 전송 29건(accepted 29, duplicate 0, rejected 0, retries 0)",
-          "SIGTERM 수신, 진행 중 테스트를 마치고 멈춤(남은 테스트는 skipped, run 은 cancelled)",
+          "SIGTERM 수신, 멈춤(진행 중 run 이 있으면 현재 테스트까지 마치고 나머지는 skipped, run 은 cancelled)",
           "데몬 종료",
           "데몬 요약: run 1개 (e2e-lease:0), resume 0"
         ]
       },
       "proxy": [
-        "hb-proxy → http://127.0.0.1:57677 port=57687",
-        "차단 heartbeat /runs/lease-r1-1794117331769-54269/heartbeat (누적 1)",
-        "차단 heartbeat /runs/lease-r1-1794117331769-54269/heartbeat (누적 2)",
-        "차단 heartbeat /runs/lease-r1-1794117331769-54269/heartbeat (누적 3)",
-        "차단 heartbeat /runs/lease-r1-1794117331769-54269/heartbeat (누적 4)"
+        "hb-proxy → http://127.0.0.1:59516 port=59528",
+        "차단 heartbeat /runs/lease-r1-1794118071622-60557/heartbeat (누적 1)",
+        "차단 heartbeat /runs/lease-r1-1794118071622-60557/heartbeat (누적 2)",
+        "차단 heartbeat /runs/lease-r1-1794118071622-60557/heartbeat (누적 3)",
+        "차단 heartbeat /runs/lease-r1-1794118071622-60557/heartbeat (누적 4)"
       ]
     }
   },

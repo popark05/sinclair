@@ -5,13 +5,14 @@
 // 사용: node retry-e2e.mjs <RUN_DIR> <lease-ttl-ms>   (서버는 같은 TTL 로 기동돼 있어야 한다)  증거: <RUN_DIR>/evidence/retry-e2e.json
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 const [runDir, ttlText] = process.argv.slice(2);
 if (!runDir || !ttlText) { console.error('사용: retry-e2e.mjs <RUN_DIR> <lease-ttl-ms>'); process.exit(2); }
 const TTL = Number(ttlText);
 const REPO = process.cwd();
-const { port } = JSON.parse(fs.readFileSync(path.join(runDir, 'server.json'), 'utf8'));
+const { port, store } = JSON.parse(fs.readFileSync(path.join(runDir, 'server.json'), 'utf8'));
 const URL0 = `http://127.0.0.1:${port}`;
 const BIN = path.join(REPO, 'apps/runner-agent/bin/sinclair-agent.mjs');
 const SUITE = 'apps/runner-agent/test/fixtures/retry-e2e';
@@ -20,7 +21,9 @@ const STAMP = `${Date.now()}-${process.pid}`;
 const SLOW_MS = Math.max(2000, Math.ceil(TTL / 2));
 const SLOW_COUNT = Math.ceil((5 * TTL) / SLOW_MS) + 2;
 const env = { ...process.env, SINCLAIR_E2E_SLOW_MS: String(SLOW_MS), SINCLAIR_E2E_SLOW_COUNT: String(SLOW_COUNT) };
-const mask = (line) => line.split(REPO).join('<repo>');
+const mask = (line) => line.split(REPO).join('<repo>').split(os.homedir()).join('<home>');
+/** 경로별 판정 수(kill 4, limit 2, lease 4). 판정을 더하면 여기와 문서의 "10/10" 을 함께 바꾼다 */
+const EXPECTED_CHECKS = 10;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function api(method, p, body) {
@@ -68,7 +71,7 @@ async function newCycle(kind, retryLimit) {
 const running = (cycleId, runId) => until(`${runId} 이 이벤트를 보내기 시작`, async () => (await view(cycleId)).runs.find((r) => r.runId === runId)?.state === 'running', 30_000);
 const finished = (cycleId, limit = 60_000 + SLOW_MS * SLOW_COUNT * 2) => until(`${cycleId} finished`, async () => { const v = await view(cycleId); return v.state === 'finished' ? v : undefined; }, limit);
 
-const evidence = { at: new Date().toISOString(), leaseTtlMs: TTL, graceMs: TTL, suite: SUITE, slow: { ms: SLOW_MS, count: SLOW_COUNT }, paths: {} };
+const evidence = { at: new Date().toISOString(), store, leaseTtlMs: TTL, graceMs: TTL, suite: SUITE, slow: { ms: SLOW_MS, count: SLOW_COUNT }, paths: {} };
 const checks = [];
 const check = (pathName, label, ok) => { checks.push({ path: pathName, label, ok: !!ok }); console.log(`${ok ? 'OK  ' : 'FAIL'} ${pathName}: ${label}`); };
 const daemons = [];
@@ -132,12 +135,14 @@ try {
       const s = summarize(v);
       const summaryLine = aEnd.log.find((l) => l.startsWith('데몬 요약')) ?? '';
       evidence.paths.lease = { cycle: s, unblockedAfterMs, daemonA: { exit: aEnd.code, log: aEnd.log }, daemonB: { exit: bEnd.code, log: bEnd.log }, proxy: fs.readFileSync(path.join(runDir, 'hb-proxy.out'), 'utf8').split('\n').filter(Boolean) };
-      check('lease', 'A 의 heartbeat 가 replaced(409) 를 받고 run 이 중단(코드 5)', aEnd.log.some((l) => l.includes(`heartbeat ${c.runId}: not-owner`)) && summaryLine.includes(`${c.target}:5`));
+      check('lease', 'A 의 heartbeat 가 replaced(409) 를 받고 run 이 중단(코드 5)', aEnd.log.some((l) => l.includes(`heartbeat ${c.runId}: replaced`)) && summaryLine.includes(`${c.target}:5`));
       check('lease', 'A 프로세스는 중단을 실패로 세지 않음(exit 0)', aEnd.code === 0);
       check('lease', '원래 Run 은 대체됐고 Verdict 는 B 의 run', s.runs[0]?.replacedBy === rep.runId && s.runs[1]?.agent === 'lease-b' && s.runs[1]?.state === 'finished');
       check('lease', 'Cycle verified, passed-flaky', s.verdict === 'verified' && s.matrix['재시도 > 첫 시도만 실패한다']?.[c.target] === 'passed-flaky');
     } finally {
+      const gone = new Promise((r) => proxy.on('exit', r));
       proxy.kill('SIGTERM');
+      await Promise.race([gone, sleep(3_000).then(() => proxy.kill('SIGKILL'))]);
     }
   }
 } catch (err) {
@@ -148,7 +153,7 @@ try {
 }
 
 evidence.checks = checks;
-const ok = !evidence.error && checks.length === 10 && checks.every((c) => c.ok);
+const ok = !evidence.error && checks.length === EXPECTED_CHECKS && checks.every((c) => c.ok);
 evidence.result = ok ? 'RETRY-E2E OK' : 'RETRY-E2E FAIL';
 fs.mkdirSync(path.join(runDir, 'evidence'), { recursive: true });
 fs.writeFileSync(path.join(runDir, 'evidence', 'retry-e2e.json'), JSON.stringify(evidence, null, 2) + '\n');

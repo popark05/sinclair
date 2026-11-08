@@ -41,10 +41,15 @@ export async function claimRun(controlPlane: string, targetId: string, agentId: 
   return (await res.json()) as ClaimedRun;
 }
 
-export async function heartbeat(controlPlane: string, runId: string, agentId: string, doFetch: typeof fetch = fetch): Promise<'ok' | 'not-owner' | 'no-run' | 'error'> {
+/** replaced: 버려진 Run 으로 정리돼 대체 Run 이 생겼다(409 code replaced). not-owner 와 같이 lease 상실로 다루되 로그에서 구분한다 */
+export async function heartbeat(controlPlane: string, runId: string, agentId: string, doFetch: typeof fetch = fetch): Promise<'ok' | 'not-owner' | 'replaced' | 'no-run' | 'error'> {
   try {
     const res = await doFetch(`${controlPlane.replace(/\/$/, '')}/runs/${encodeURIComponent(runId)}/heartbeat`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agentId }) });
-    return res.status === 200 ? 'ok' : res.status === 409 ? 'not-owner' : res.status === 404 ? 'no-run' : 'error';
+    if (res.status === 409) {
+      const body = (await res.json().catch(() => ({}))) as { code?: unknown };
+      return body.code === 'replaced' ? 'replaced' : 'not-owner';
+    }
+    return res.status === 200 ? 'ok' : res.status === 404 ? 'no-run' : 'error';
   } catch {
     return 'error';
   }
@@ -94,7 +99,7 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
         void heartbeat(args.controlPlane, run.runId, agentId, deps.fetch).then((r) => {
           if (r === 'ok') return;
           log(`heartbeat ${run.runId}: ${r}`);
-          if (r === 'not-owner' || r === 'no-run') { leaseLost = true; clearInterval(heartbeatTimer); canceller.abort(new Error('lease 를 잃음')); }
+          if (r === 'not-owner' || r === 'replaced' || r === 'no-run') { leaseLost = true; clearInterval(heartbeatTimer); canceller.abort(new Error('lease 를 잃음')); }
         });
       }, Math.max(MIN_HEARTBEAT_MS, Math.floor(leaseTtlMs / 3)));
       heartbeatTimer.unref?.();

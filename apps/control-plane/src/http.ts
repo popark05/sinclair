@@ -8,7 +8,6 @@
 //   POST /cycles/:id/runs    { targetId, runId? } → RunRegistration (201)
 //   POST /runs/claim         { targetId, agentId } → { run, leaseTtlMs } (200) | 없음 (204)
 //   POST /runs/:id/heartbeat { agentId } → { expiresAt } (200) | 409 not-owner·replaced | 404
-//   POST /runs/:id/heartbeat { agentId } → { expiresAt } (200) | 409 not-owner | 404
 //   GET  /health             200
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';

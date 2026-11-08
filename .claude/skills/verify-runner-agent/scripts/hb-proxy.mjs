@@ -20,7 +20,10 @@ const server = http.createServer((req, res) => {
     res.writeHead(up.statusCode ?? 502, up.headers);
     up.pipe(res);
   });
-  out.on('error', () => { res.writeHead(502).end(); });
+  // 상류가 헤더를 보낸 뒤 끊기면 502 를 쓸 수 없다: 그때는 연결을 끊는다(프록시가 죽지 않게)
+  out.on('error', () => { if (!res.headersSent) res.writeHead(502).end(); else res.destroy(); });
+  req.on('error', () => out.destroy());
+  res.on('error', () => out.destroy());
   req.pipe(out);
 });
 server.listen(0, '127.0.0.1', () => {
@@ -28,4 +31,4 @@ server.listen(0, '127.0.0.1', () => {
   fs.writeFileSync(portFile, String(typeof addr === 'object' && addr ? addr.port : ''));
   console.log(`hb-proxy → ${target} port=${typeof addr === 'object' && addr ? addr.port : '?'}`);
 });
-process.on('SIGTERM', () => server.close(() => process.exit(0)));
+process.on('SIGTERM', () => { server.closeAllConnections(); server.close(() => process.exit(0)); });

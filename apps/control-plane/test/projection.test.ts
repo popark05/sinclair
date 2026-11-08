@@ -1,5 +1,6 @@
 // projectRun: 저장된 RunEvent 목록에서 Run/Attempt 투영을 만든다. 도착 순서와 무관해야 한다.
 import { describe, it, expect } from 'vitest';
+import type { RunEvent } from '@sinclair/protocol';
 import { projectRun } from '../src/index.ts';
 import { RUN, at, base } from './fixtures.ts';
 
@@ -39,6 +40,13 @@ describe('projectRun', () => {
     expect(view.finishedAt).toBeUndefined();
     expect(view.attempts[0]).toMatchObject({ attemptId: 'a1', testId: '로그인', steps: [{ stepIndex: 0 }] });
     expect(view.attempts[0]!.result).toBeUndefined();
+  });
+
+  it('run.finished 가 둘이면 도착 순서와 무관하게 at 이 이른 것이 상태다(버려진 Run 의 합성 종료 뒤 늦게 온 cancelled)', () => {
+    const synthetic: RunEvent = { ...base('abandoned:r1', 5), type: 'run.finished', state: 'infra-failed' };
+    const late: RunEvent = { ...base('late', 9), type: 'run.finished', state: 'cancelled' };
+    expect(projectRun([...RUN.slice(0, 2), synthetic, late]).state).toBe('infra-failed');
+    expect(projectRun([late, ...RUN.slice(0, 2), synthetic]).state).toBe('infra-failed');
   });
 
   it('run.started 가 아직 없으면 state 는 queued 이고 targetId 는 비어 있다', () => {

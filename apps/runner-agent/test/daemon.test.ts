@@ -69,7 +69,7 @@ describe('runDaemon', () => {
     expect(logs.at(-1)).toBe('데몬 종료');
   });
 
-  it.each([[409, 'not-owner'], [404, 'no-run']] as const)('heartbeat 가 %i(%s) 면 러너를 취소한다: 현재 테스트만 마치고 run 은 cancelled, 로그 "lease 를 잃어 중단", 다음 클레임은 계속', async (status, outcome) => {
+  it.each([[409, 'not-owner'], [409, 'replaced'], [404, 'no-run']] as const)('heartbeat 가 %i(%s) 면 러너를 취소한다: 현재 테스트만 마치고 run 은 cancelled, 로그 "lease 를 잃어 중단", 다음 클레임은 계속', async (status, outcome) => {
     await cp!.close();
     const srv = await serveControlPlane(createMemoryEventStore(), { leaseTtlMs: 3_000 }); // heartbeat 간격 1초(하한)
     url = `http://127.0.0.1:${srv.port}`;

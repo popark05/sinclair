@@ -18,6 +18,7 @@ for _ in $(seq 1 120); do  # 0.25s × 120 = 30초: 셸 재실행 bin 2개 기동
 done
 kill -TERM $A $B 2>/dev/null; wait $A; CA=$?; wait $B; CB=$?
 VIEW=$(curl -s "$URL/cycles/$CYCLE")
-node -e 'const [view,ca,cb,oa,ob,dest]=process.argv.slice(1);const v=JSON.parse(view);const fs=require("fs");fs.writeFileSync(dest,JSON.stringify({cycleId:v.cycleId,state:v.state,verdict:v.verdict,runs:v.runs,matrix:v.matrix,daemons:{a:{exit:Number(ca),log:fs.readFileSync(oa,"utf8").split("\n").filter(Boolean)},b:{exit:Number(cb),log:fs.readFileSync(ob,"utf8").split("\n").filter(Boolean)}}},null,2))' "$VIEW" "$CA" "$CB" "$RUN_DIR/daemon-a.out" "$RUN_DIR/daemon-b.out" "$RUN_DIR/evidence/daemon.json"
+# 로그의 리포·홈 경로는 지운다(증거가 리포에 복사될 수 있다)
+node -e 'const [view,ca,cb,oa,ob,dest]=process.argv.slice(1);const v=JSON.parse(view);const fs=require("fs");const m=(l)=>l.split(process.cwd()).join("<repo>").split(require("os").homedir()).join("<home>");const rd=(f)=>fs.readFileSync(f,"utf8").split("\n").filter(Boolean).map(m);fs.writeFileSync(dest,JSON.stringify({cycleId:v.cycleId,state:v.state,verdict:v.verdict,runs:v.runs,matrix:v.matrix,daemons:{a:{exit:Number(ca),log:rd(oa)},b:{exit:Number(cb),log:rd(ob)}}},null,2))' "$VIEW" "$CA" "$CB" "$RUN_DIR/daemon-a.out" "$RUN_DIR/daemon-b.out" "$RUN_DIR/evidence/daemon.json"
 echo "DAEMON cycle=$CYCLE state=$STATE verdict=$(node -p "JSON.parse(process.argv[1]).verdict" "$VIEW") leases=$(node -p "JSON.parse(process.argv[1]).runs.map(r=>r.lease&&r.lease.agentId).join(',')" "$VIEW") exits=$CA,$CB"
 [ "$STATE" = "finished" ] && [ "$CA" = "0" ] && [ "$CB" = "0" ]
