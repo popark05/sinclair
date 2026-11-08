@@ -29,7 +29,7 @@ describe('SQLite 마이그레이션 1→2', () => {
 
     const db = openSqlite(file);
     expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: SQLITE_SCHEMA_VERSION });
-    expect(SQLITE_SCHEMA_VERSION).toBe(2);
+    expect(SQLITE_SCHEMA_VERSION).toBe(3);
     const events = createSqliteEventStore(db);
     const cycles = createSqliteCycleStore(db);
     expect((await events.eventsForRun('r1')).map((e) => e.eventId)).toEqual(['e1']);

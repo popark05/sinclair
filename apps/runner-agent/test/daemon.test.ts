@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { startControlPlane, serveControlPlane, createMemoryEventStore, type RunningControlPlane, type CycleView } from '@sinclair/control-plane';
+import { startControlPlane, serveControlPlane, createMemoryEventStore, type RunningControlPlane, type CycleView, type FleetView } from '@sinclair/control-plane';
 import { FakeEngine, HOME_SCREEN, LOGIN_SCREEN } from '@sinclair/protocol/testing';
 import { runDaemon, parseDaemonArgs, AgentConfigError, EXIT, type DaemonDeps } from '../src/index.ts';
 
@@ -155,5 +155,46 @@ describe('parseDaemonArgs', () => {
     expect(() => parseDaemonArgs(['--control-plane', 'http://x', '--tests', 'd'], {})).toThrow(/targets/);
     expect(() => parseDaemonArgs(['--control-plane', 'http://x', '--targets', 'a', '--tests', 'd', '--poll', 'x'], {})).toThrow(AgentConfigError);
     expect(parseDaemonArgs(['--help'], {})).toEqual({ help: true });
+  });
+});
+
+describe('runDaemon · Fleet 보고', () => {
+  const fleet = async () => (await (await fetch(`${url}/fleet`)).json()) as FleetView;
+  const dev = (id: string, locked = false) => ({ id, platform: 'android' as const, model: 'SM-N981N', osVersion: '13', connection: 'device' as const, helper: 'ready' as const, locked });
+
+  it('데몬은 시작할 때와 TTL/3 마다 기기를 보고한다: GET /fleet 에 노드와 기기 상태가 보이고, 바뀐 상태가 다음 보고에 반영된다', async () => {
+    await cp!.close();
+    const srv = await serveControlPlane(createMemoryEventStore(), { leaseTtlMs: 3_000 }); // 보고 간격 1초(하한)
+    url = `http://127.0.0.1:${srv.port}`;
+    try {
+      let locked = false;
+      const aborter = new AbortController();
+      const p = runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'node-f', pollMs: 50 }, deps({ signal: aborter.signal, inventory: async () => [dev('SER-A'), dev('SER-B', locked)] }));
+      await until(async () => (await fleet()).nodes.length === 1);
+      expect((await fleet()).nodes[0]).toMatchObject({ agentId: 'node-f', online: true, devices: [{ id: 'SER-A', state: 'idle' }, { id: 'SER-B', state: 'idle' }] });
+      locked = true;
+      await until(async () => (await fleet()).nodes[0]!.devices[1]!.state === 'untrusted', 4_000);
+      expect((await fleet()).nodes[0]!.devices[1]).toMatchObject({ state: 'untrusted', reason: '화면 잠김' });
+      aborter.abort();
+      await p;
+      expect(logs.some((l) => /fleet 보고: 기기 2대/.test(l))).toBe(true);
+      expect(logs.join('\n')).not.toMatch(/SER-A|SER-B/); // 로그에 시리얼을 쓰지 않는다
+    } finally { await srv.close(); cp = undefined; }
+  }, 15_000);
+
+  it('fake 엔진 데몬은 가짜 기기 하나를 보고하고, 보고가 실패해도 클레임은 계속된다', async () => {
+    await post('/cycles', { cycleId: 'cf2', build: 'b', targets: ['android'], suite: { tests: path.join(fixtures, 'only-login') } });
+    await post('/cycles/cf2/runs', { targetId: 'android' });
+    const r = await runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'node-g', pollMs: 10 }, deps({ maxRuns: 1 }));
+    expect(r.runs[0]!.exitCode).toBe(EXIT.ok);
+    expect((await fleet()).nodes.find((n) => n.agentId === 'node-g')!.devices).toMatchObject([{ id: 'fake', model: 'FakeEngine', state: 'idle' }]);
+    // 보고 경로만 깨진 서버: PUT 이 실패해도 run 은 돈다
+    logs.length = 0;
+    await post('/cycles', { cycleId: 'cf3', build: 'b', targets: ['android'], suite: { tests: path.join(fixtures, 'only-login') } });
+    await post('/cycles/cf3/runs', { targetId: 'android' });
+    const broken: typeof fetch = (input, init) => (String(input).includes('/fleet/') ? Promise.reject(new Error('보고 경로 차단')) : fetch(input, init));
+    const r2 = await runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'node-h', pollMs: 10 }, deps({ maxRuns: 1, fetch: broken }));
+    expect(r2.runs[0]!.exitCode).toBe(EXIT.ok);
+    expect(logs.some((l) => /fleet 보고 실패/.test(l))).toBe(true);
   });
 });

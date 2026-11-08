@@ -7,9 +7,10 @@ import { DatabaseSync } from 'node:sqlite';
 import type { RunEvent } from '@sinclair/protocol';
 import type { EventStore } from './store.ts';
 import { leaseExpired, newLease, type CycleRecord, type CycleStore, type RunRegistration } from './cycle-store.ts';
+import type { FleetStore, NodeRecord } from './fleet.ts';
 
 /** PRAGMA user_version. 스키마를 바꾸면 올리고 SQLITE_MIGRATIONS 에 단계를 더한다 */
-export const SQLITE_SCHEMA_VERSION = 2;
+export const SQLITE_SCHEMA_VERSION = 3;
 
 /** MIGRATIONS[v] 는 버전 v 에서 v+1 로 가는 SQL. 순서대로 적용된다 */
 export const SQLITE_MIGRATIONS: readonly string[] = [
@@ -34,6 +35,12 @@ export const SQLITE_MIGRATIONS: readonly string[] = [
      record     TEXT    NOT NULL                   -- RunRegistration JSON
    );
    CREATE INDEX cycle_runs_cycle ON cycle_runs(cycle_id, seq);`,
+  // 2 → 3: Fleet 노드 보고(device-fleet 01). 보고는 노드 단위로 통째 바뀌므로 기기를 따로 테이블로 나누지 않는다
+  `CREATE TABLE fleet_nodes (
+     seq        INTEGER PRIMARY KEY AUTOINCREMENT, -- 처음 보고한 순서
+     agent_id   TEXT    NOT NULL UNIQUE,
+     record     TEXT    NOT NULL                   -- NodeRecord JSON
+   );`,
 ];
 
 function migrate(db: DatabaseSync): void {
@@ -156,6 +163,25 @@ export function createSqliteCycleStore(source: string | DatabaseSync): CycleStor
         if (casRun.run(JSON.stringify(next), runId, row.record).changes === 1) return 'marked';
       }
       return 'already'; // CAS 가 계속 지면 다른 쪽이 먼저 표시한 것이다
+    },
+    async close() {
+      closeOnce(db);
+    },
+  };
+}
+
+export function createSqliteFleetStore(source: string | DatabaseSync): FleetStore {
+  const db = typeof source === 'string' ? openSqlite(source) : source;
+  // ON CONFLICT 로 갱신하면 seq(첫 보고 순서)가 유지된다
+  const upsert = db.prepare('INSERT INTO fleet_nodes (agent_id, record) VALUES (?, ?) ON CONFLICT(agent_id) DO UPDATE SET record = excluded.record');
+  const selectAll = db.prepare('SELECT record FROM fleet_nodes ORDER BY seq');
+  return {
+    async reportNode(agentId, report, nowMs) {
+      const record: NodeRecord = { agentId, reportedAt: new Date(nowMs).toISOString(), devices: report.devices };
+      upsert.run(agentId, JSON.stringify(record));
+    },
+    async listNodes() {
+      return (selectAll.all() as Array<{ record: string }>).map((r) => JSON.parse(r.record) as NodeRecord);
     },
     async close() {
       closeOnce(db);

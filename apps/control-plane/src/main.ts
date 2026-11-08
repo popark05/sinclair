@@ -3,7 +3,8 @@
 import { parseConfig, ConfigError, HELP, type ControlPlaneConfig } from './config.ts';
 import { createMemoryEventStore } from './store.ts';
 import { createMemoryCycleStore } from './cycle-store.ts';
-import { createSqliteCycleStore, createSqliteEventStore, openSqlite, SQLITE_SCHEMA_VERSION } from './sqlite-store.ts';
+import { createSqliteCycleStore, createSqliteEventStore, createSqliteFleetStore, openSqlite, SQLITE_SCHEMA_VERSION } from './sqlite-store.ts';
+import { createMemoryFleetStore } from './fleet.ts';
 import { serveControlPlane, type ControlPlaneServer } from './http.ts';
 
 export interface RunningControlPlane { server: ControlPlaneServer; config: ControlPlaneConfig; close(): Promise<void> }
@@ -13,7 +14,8 @@ export async function startControlPlane(config: ControlPlaneConfig): Promise<Run
   const db = config.store === 'sqlite' ? openSqlite(config.db) : undefined;
   const events = db ? createSqliteEventStore(db) : createMemoryEventStore();
   const cycles = db ? createSqliteCycleStore(db) : createMemoryCycleStore();
-  const server = await serveControlPlane(events, { host: config.host, port: config.port, cycles, ...(config.leaseTtlMs !== undefined ? { leaseTtlMs: config.leaseTtlMs } : {}) });
+  const fleet = db ? createSqliteFleetStore(db) : createMemoryFleetStore();
+  const server = await serveControlPlane(events, { host: config.host, port: config.port, cycles, fleet, ...(config.leaseTtlMs !== undefined ? { leaseTtlMs: config.leaseTtlMs } : {}) });
   let closed = false;
   return {
     server, config,

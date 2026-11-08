@@ -8,6 +8,8 @@
 //   POST /cycles/:id/runs    { targetId, runId? } → RunRegistration (201)
 //   POST /runs/claim         { targetId, agentId } → { run, leaseTtlMs } (200) | 없음 (204)
 //   POST /runs/:id/heartbeat { agentId } → { expiresAt } (200) | 409 not-owner·replaced | 404
+//   PUT  /fleet/nodes/:agentId { devices[] } → { ttlMs } (200) | 400 — 노드의 기기 보고(통째 교체)
+//   GET  /fleet              → FleetView(노드별 기기와 idle/untrusted/offline)
 //   GET  /health             200
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
@@ -16,6 +18,8 @@ import { projectRun, type RunView } from './projection.ts';
 import type { EventStore } from './store.ts';
 import { createMemoryCycleStore, type CycleStore } from './cycle-store.ts';
 import { MAX_RETRY_LIMIT } from './verdict.ts';
+import { parseNodeReport } from '@sinclair/protocol';
+import { buildFleetView, createMemoryFleetStore, type FleetStore } from './fleet.ts';
 import { buildCycleView, sweepAbandoned, sweepAllAbandoned } from './cycle-view.ts';
 
 export interface ControlPlaneOptions {
@@ -24,6 +28,8 @@ export interface ControlPlaneOptions {
   maxBodyBytes?: number;
   /** Cycle/Run 등록 저장소. 없으면 인메모리 */
   cycles?: CycleStore;
+  /** Fleet 노드 보고 저장소. 없으면 인메모리 */
+  fleet?: FleetStore;
   /** 클레임 lease 수명(기본 60초). 버려진 Run 판정 유예도 같은 값이다. 에이전트는 이 값의 1/3 마다 heartbeat 한다. 한 테스트가 1분 넘게 조용할 수 있어 짧게 잡지 않는다 */
   leaseTtlMs?: number;
   /** 테스트용 시계 */
@@ -56,6 +62,9 @@ const TERMINAL_CYCLE = new Set(['finished', 'expired', 'cancelled']);
 
 export async function serveControlPlane(store: EventStore, opts: ControlPlaneOptions = {}): Promise<ControlPlaneServer> {
   const cycles = opts.cycles ?? createMemoryCycleStore();
+  const fleet = opts.fleet ?? createMemoryFleetStore();
+  // 노드 보고 TTL 은 Run lease TTL 과 같다: 같은 노드의 heartbeat 와 보고가 같은 박자로 끊기고 살아난다(노드는 TTL/3 마다 보고)
+  const nodeTtlMs = (): number => opts.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS;
   const sweepOpts = () => ({ nowMs: (opts.now ?? Date.now)(), graceMs: opts.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS });
   const json = (res: http.ServerResponse, status: number, body: unknown): void => {
     res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
@@ -156,6 +165,17 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         if (result.outcome === 'replaced') return json(res, 409, { error: `버려진 Run 으로 정리돼 ${result.replacedBy} 로 대체됨`, code: 'replaced', replacedBy: result.replacedBy });
         return json(res, 200, { expiresAt: result.expiresAt });
       }
+      if (req.method === 'PUT' && parts[0] === 'fleet' && parts[1] === 'nodes' && parts.length === 3) {
+        const agentId = parts[2]!;
+        if (!agentId) return json(res, 400, { error: 'agentId 가 필요함' });
+        const read = await readJson(req, res);
+        if (!read) return;
+        const parsed = parseNodeReport(read.body);
+        if (!parsed.ok) return json(res, 400, { error: '노드 보고가 올바르지 않음', errors: parsed.errors });
+        await fleet.reportNode(agentId, parsed.value, (opts.now ?? Date.now)());
+        return json(res, 200, { ttlMs: nodeTtlMs() });
+      }
+      if (req.method === 'GET' && url.pathname === '/fleet') return json(res, 200, buildFleetView(await fleet.listNodes(), (opts.now ?? Date.now)(), nodeTtlMs()));
       if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true });
       if (req.method === 'GET' && parts[0] === 'runs' && parts.length === 1) {
         const ids = await store.runIds();

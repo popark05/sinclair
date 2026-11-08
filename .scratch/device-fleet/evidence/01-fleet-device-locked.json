@@ -1,0 +1,39 @@
+{
+  "at": "2026-11-08T06:33:58.802Z",
+  "nodeTtlMs": 6000,
+  "node": {
+    "agentId": "device-node",
+    "online": true,
+    "devices": [
+      {
+        "id": "…XLZW",
+        "platform": "android",
+        "model": "SM-N981N",
+        "osVersion": "13",
+        "connection": "device",
+        "helper": "ready",
+        "locked": true,
+        "state": "untrusted",
+        "reason": "화면 잠김"
+      }
+    ]
+  },
+  "run": {
+    "exitCode": 2,
+    "cycle": {
+      "state": "finished",
+      "verdict": "blocked"
+    }
+  },
+  "log": [
+    "데몬 시작: agent device-node, targets android, control-plane http://127.0.0.1:60060",
+    "헬퍼 APK: <repo>/packages/device-layer/android-helper/app/build/outputs/apk/debug/app-debug.apk (repo-build)",
+    "헬퍼 온보딩(…XLZW): 헬퍼 이미 설치됨",
+    "헬퍼 온보딩(…XLZW): 접근성 서비스 활성화됨",
+    "헬퍼 온보딩(…XLZW): 헬퍼 준비됨 v0.1.0",
+    "fleet 보고: 기기 1대",
+    "run 7ebad9a2-29a1-4aee-b3ed-28ee36f1f614 클레임 (cycle fleet-device, target android, tests <repo>/apps/runner-agent/test/fixtures/device)",
+    "기기 SM-N981N (…XLZW) Android 13, 헬퍼 ready",
+    "엔진 준비 실패(기기 불가): 기기 화면이 잠겨 있음(보안 잠금은 프로그램으로 풀 수 없음). 기기 잠금을 해제하고 화면 꺼짐 시간을 늘린 뒤 다시 실행"
+  ]
+}
