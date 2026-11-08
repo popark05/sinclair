@@ -57,7 +57,9 @@ export interface SpoolReporter extends Reporter {
 
 export const spoolFiles = (dir: string, runId: string) => ({ events: path.join(dir, `${runId}.jsonl`), ack: path.join(dir, `${runId}.ack`), meta: path.join(dir, `${runId}.meta.json`), lock: path.join(dir, `${runId}.lock`) });
 
-/** lock 파일의 pid 가 살아 있으면 다른 프로세스(같은 머신의 다른 데몬·run)가 이 스풀을 쓰고 있는 것이다 */
+/** lock 파일의 pid 가 살아 있으면 다른 프로세스(같은 머신의 다른 데몬·run)가 이 스풀을 쓰고 있는 것이다.
+ *  한계: `kill(pid, 0)` 은 Windows 에서 다른 사용자의 프로세스에 EPERM 을 내 "살아 있음" 으로 보이고, pid 가 재사용되면 다른 프로세스를 소유자로 오인한다.
+ *  그 스풀은 resume 이 건너뛰므로 lock 을 지우고 다시 돌리면 된다(에이전트는 한 사용자로 돈다는 전제) */
 export function spoolOwnerAlive(lockFile: string): boolean {
   let pid: number;
   try { pid = Number(fs.readFileSync(lockFile, 'utf8').trim()); } catch { return false; }

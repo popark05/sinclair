@@ -41,7 +41,7 @@ runner-agent 는 헬퍼 APK 를 `--helper-apk` → `SINCLAIR_AGENT_HELPER_APK` �
 3. 두 파일을 릴리스 저장소(GitLab Release 또는 사내 아티팩트 서버)의 한 디렉터리에 올린다. 에이전트의 `SINCLAIR_AGENT_HELPER_URL` 은 그 디렉터리 URL 이다(파일명은 에이전트가 붙인다).
 4. 에이전트의 고정 버전 `HELPER_APK_VERSION`(`apps/runner-agent/src/helper-apk.ts`)을 같은 값으로 올린다. 에이전트는 자기 버전의 파일만 찾는다.
 
-캐시: `OS 데이터 디렉터리/sinclair/cache/helper/sinclair-helper-<V>.apk` + `.sha256`. 둘이 맞으면 네트워크 없이 쓴다.
+캐시: `OS 데이터 디렉터리/sinclair/cache/helper/sinclair-helper-<V>.apk` + `.sha256`. 둘이 맞으면 네트워크 없이 쓴다. 같은 버전 문자열로 다시 릴리스하면 캐시가 갱신되지 않으니 반드시 버전을 올린다.
 
 ## 설치·활성화·확인 (수동; 에이전트가 자동으로 한다)
 

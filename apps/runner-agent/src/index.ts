@@ -6,4 +6,4 @@ export { registerRun, ControlPlaneError, type RegisteredRun } from './control-pl
 export { createEngine, type EngineHandle, type EngineOverrides } from './engines.ts';
 export { runOnce, executeRun, collectTestFiles, EXIT, type ExitCode, type RunOnceDeps } from './run-once.ts';
 export { createSpoolReporter, resumeSpool, drainSpool, spoolFiles, spoolOwnerAlive, readAck, writeAck, DEFAULT_MAX_RETRY_MS, type SpoolOptions, type SpoolReporter, type SpoolMeta, type IngestRetryOptions } from './spool.ts';
-export { resolveHelperApk, helperApkFileName, HelperApkError, HELPER_APK_VERSION, DEFAULT_BUNDLED_DIR, DEFAULT_REPO_BUILD, type HelperApkSource, type ResolveHelperApkOptions } from './helper-apk.ts';
+export { resolveHelperApk, helperApkFileName, HelperApkError, HELPER_APK_VERSION, DEFAULT_BUNDLED_DIR, DEFAULT_REPO_BUILD, type HelperApkSource, type ResolveHelperApkOptions, type ResolvedHelperApk } from './helper-apk.ts';

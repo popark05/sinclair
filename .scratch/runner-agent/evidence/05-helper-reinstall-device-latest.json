@@ -1,13 +1,19 @@
 {
-  "at": "2026-11-07T23:56:20.309Z",
+  "at": "2026-11-08T00:09:01.564Z",
   "exitCode": 0,
+  "uninstall": "Success",
   "cycle": {
     "state": "finished",
     "verdict": "verified"
   },
   "log": [
-    "run 9930c591-2cff-4d95-b0da-46eb45aaa0af 등록 (cycle reinstall, target android, 테스트 파일 1개)",
-    "헬퍼 APK: /Users/popark05/01.learning/10.development/sinclair/packages/device-layer/android-helper/app/build/outputs/apk/debug/app-debug.apk (repo-build)",
+    "run e8dd8660-fce9-4a0b-b32b-9654c43c34e4 등록 (cycle reinstall, target android, 테스트 파일 1개)",
+    "헬퍼 APK: <cache>/sinclair-helper-0.1.0.apk (download)",
+    "헬퍼 온보딩(…XLZW): 헬퍼 설치 중: <cache>/sinclair-helper-0.1.0.apk",
+    "헬퍼 온보딩(…XLZW): 헬퍼 설치됨",
+    "헬퍼 온보딩(…XLZW): 접근성 활성화 재시도 1/4",
+    "헬퍼 온보딩(…XLZW): 접근성 서비스 활성화됨",
+    "헬퍼 온보딩(…XLZW): 헬퍼 준비됨 v0.1.0",
     "기기 SM-N981N (…XLZW) Android 13, 헬퍼 ready",
     "결과: passed 1, failed 0, blocked 0, skipped 0 / 전송 5건(accepted 5, duplicate 0, rejected 0, retries 0)"
   ]

@@ -31,18 +31,17 @@ export interface RunArgs {
 }
 
 /** OS 데이터 디렉터리/sinclair/cache/helper */
-export function defaultHelperCacheDir(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): string {
-  return path.join(path.dirname(defaultSpoolDir(env, platform)), 'cache', 'helper');
-}
+export const defaultHelperCacheDir = (env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): string => path.join(defaultDataDir(env, platform), 'cache', 'helper');
 
-/** OS 관례의 사용자 데이터 디렉터리 아래 sinclair/spool (control-plane 의 defaultDataDir 와 같은 규칙) */
-export function defaultSpoolDir(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): string {
+/** OS 관례의 사용자 데이터 디렉터리 아래 sinclair/ (control-plane 의 defaultDataDir 와 같은 규칙; apps 끼리 import 하지 않아 따로 둔다) */
+export function defaultDataDir(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): string {
   const home = env.HOME ?? env.USERPROFILE ?? '.';
   const data = platform === 'darwin' ? path.join(home, 'Library', 'Application Support')
     : platform === 'win32' ? (env.APPDATA ?? path.join(home, 'AppData', 'Roaming'))
     : (env.XDG_DATA_HOME ?? path.join(home, '.local', 'share'));
-  return path.join(data, 'sinclair', 'spool');
+  return path.join(data, 'sinclair');
 }
+export const defaultSpoolDir = (env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): string => path.join(defaultDataDir(env, platform), 'spool');
 
 export class AgentConfigError extends Error {}
 

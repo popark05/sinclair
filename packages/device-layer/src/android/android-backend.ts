@@ -60,6 +60,10 @@ export interface AndroidBackendOptions {
   helperApkPath?: string;
   /** 온보딩 실패 뒤 재시도 간격(ms). 기본 10초. */
   helperRetryBackoffMs?: number;
+  /** 접근성 활성화 재시도(기본 5회, 1초 간격). 테스트에서 줄인다. */
+  helperActivate?: { retries?: number; intervalMs?: number };
+  /** 온보딩 단계 알림(설치·활성화 시도·준비). 에이전트가 로그·증거로 남긴다. */
+  onHelperStep?: (deviceId: string, step: string) => void;
   /** 진단용: 헬퍼가 준비돼 있어도 입력을 `adb shell input` 경로로 보낸다(두 경로 비교·헬퍼 없는 상황 재현). */
   preferShellInput?: boolean;
   /** 입력 한 건이 어느 경로로 갔는지 알린다(로그·테스트). */
@@ -243,18 +247,25 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
   async function onboardHelper(entry: TrackedDevice): Promise<void> {
     const sh = async (command: string) => (await entry.dadb.shell(command)).output;
     const fail = (state: HelperInfo['state'], detail: string) => { entry.helper = { state, detail }; };
+    const step = (text: string) => options.onHelperStep?.(entry.dadb.serial, text);
+    const retries = options.helperActivate?.retries ?? ACTIVATE_RETRIES;
+    const intervalMs = options.helperActivate?.intervalMs ?? ACTIVATE_RETRY_MS;
     try {
       if (!(await sh(`pm path ${shellQuote(HELPER_PACKAGE)}`)).includes('package:')) {
         const apk = options.helperApkPath ?? DEFAULT_HELPER_APK;
         if (!existsSync(apk)) return fail('not-installed', `헬퍼 APK 가 없음: ${apk} (android-helper 를 빌드하거나 helperApkPath 를 지정)`);
+        step(`헬퍼 설치 중: ${apk}`);
         const installed = await entry.dadb.install(apk, '-r');
         if (!installed.success) return fail('not-installed', `헬퍼 설치 실패: ${installed.reason}`);
+        step('헬퍼 설치됨');
+      } else {
+        step('헬퍼 이미 설치됨');
       }
 
       // Secure Folder 가 있는 Samsung 은 --user 0 이 없으면 다른 사용자에 쓰여 서비스가 켜지지 않는다.
       let activated = false;
-      for (let attempt = 0; attempt < ACTIVATE_RETRIES && !activated; attempt++) {
-        if (attempt > 0) await new Promise((r) => setTimeout(r, ACTIVATE_RETRY_MS));
+      for (let attempt = 0; attempt < retries && !activated; attempt++) {
+        if (attempt > 0) { step(`접근성 활성화 재시도 ${attempt}/${retries - 1}`); await new Promise((r) => setTimeout(r, intervalMs)); }
         const current = (await sh('settings get --user 0 secure enabled_accessibility_services')).trim();
         if (!current.includes(HELPER_SERVICE)) {
           const list = current && current !== 'null' ? `${current}:${HELPER_SERVICE}` : HELPER_SERVICE;
@@ -266,6 +277,7 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
       if (!activated) {
         return fail('disabled', '접근성 서비스 활성화 설정이 적용되지 않음(settings put --user 0 거부). 기기의 접근성 설정에서 Sinclair Helper 를 켜세요');
       }
+      step('접근성 서비스 활성화됨');
 
       entry.session ??= await HelperSession.open(entry.dadb);
       await entry.session.sendToken();
@@ -277,6 +289,7 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
         try {
           const ping = await entry.session.ping();
           entry.helper = { state: 'ready', version: ping.version };
+          step(`헬퍼 준비됨 v${ping.version}`);
           return;
         } catch (e) {
           last = e;

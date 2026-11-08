@@ -3,7 +3,7 @@ import { describe, it, expect, afterEach, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { createAndroidBackend } from '../src/android/android-backend.ts';
+import { createAndroidBackend, type AndroidBackendOptions } from '../src/android/android-backend.ts';
 import { createDeviceServer, RPC_ERRORS, type InputRouteEvent } from '../src/index.ts';
 import { FakeAndroid } from './adb/fake-android.ts';
 import { FakeUsbBackend, FakeUsbDevice } from './adb/fake-usb.ts';
@@ -264,7 +264,9 @@ describe('AndroidBackend 헬퍼 온보딩과 device.dump.ui', () => {
   beforeAll(() => fs.writeFileSync(apkPath, Buffer.concat([Buffer.from('PK'), Buffer.alloc(64, 1)])));
   afterAll(() => fs.rmSync(apkPath, { force: true }));
 
-  function helperSetup(prepare?: (phone: FakeAndroid, usb: FakeUsbDevice) => void, backoffMs = 0) {
+  function helperSetup(prepare?: (phone: FakeAndroid, usb: FakeUsbDevice) => void, extra: number | Partial<AndroidBackendOptions> = 0) {
+    const backoffMs = typeof extra === 'number' ? extra : 0;
+    const more = typeof extra === 'number' ? {} : extra;
     const phone = new FakeAndroid();
     phone.installPackageName = phone.helper.pkg;
     const usbDevice = new FakeUsbDevice(phone.services, 'PHONE1');
@@ -274,8 +276,10 @@ describe('AndroidBackend 헬퍼 온보딩과 device.dump.ui', () => {
       usbBackend: usb,
       helperApkPath: apkPath,
       helperRetryBackoffMs: backoffMs, // 복구 시나리오를 바로 보기 위해 기본 0. 백오프 테스트만 값을 준다
+      helperActivate: { retries: 1 }, // 활성화 재시도는 기본 끔(실기기 동작은 전용 테스트에서 켠다)
       probeWaitMs: 5_000, // 온보딩이 끝난 뒤의 상태를 보기 위해 첫 판정을 충분히 기다린다
       dadb: { keyPair: null, includeEmulators: false, usb: { idlePollMs: 20, claimRetries: 0 } },
+      ...more,
     });
     cleanups.push(() => backend.close());
     return { phone, usbDevice, backend };
@@ -352,8 +356,17 @@ describe('AndroidBackend 헬퍼 온보딩과 device.dump.ui', () => {
     expect(device?.helper?.detail).toContain('INSUFFICIENT_STORAGE');
   });
 
+  it('막 설치한 서비스의 첫 settings put 이 무시돼도 재시도로 켜지고, 단계가 onHelperStep 으로 알려진다', async () => {
+    const steps: string[] = [];
+    const { backend, phone } = helperSetup((p) => { p.ignoreFirstAccessibilityPuts = 2; }, { helperActivate: { retries: 4, intervalMs: 5 }, onHelperStep: (_, t) => steps.push(t) });
+    const [device] = await backend.listDevices();
+    expect(device?.helper?.state).toBe('ready');
+    expect(phone.secureSettings.get('enabled_accessibility_services')).toContain(phone.helper.service);
+    expect(steps).toEqual([expect.stringMatching(/^헬퍼 설치 중/), '헬퍼 설치됨', '접근성 활성화 재시도 1/3', '접근성 활성화 재시도 2/3', '접근성 서비스 활성화됨', expect.stringMatching(/^헬퍼 준비됨/)]);
+  });
+
   it('접근성 설정이 먹지 않으면(서비스 안 켜짐) helper 는 disabled 다', async () => {
-    const { backend } = helperSetup((p) => { p.ignoreSettingsPut = true; });
+    const { backend } = helperSetup((p) => { p.ignoreSettingsPut = true; }, { helperActivate: { retries: 2, intervalMs: 5 } });
     const [device] = await backend.listDevices();
     expect(device?.helper?.state).toBe('disabled');
     expect(device?.helper?.detail).toContain('접근성');

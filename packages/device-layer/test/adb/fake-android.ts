@@ -15,6 +15,8 @@ export class FakeAndroid {
   /** `settings put/get --user 0 secure` 저장소. */
   readonly secureSettings = new Map<string, string>();
   /** true 면 settings put 이 조용히 무시된다(Secure Folder 기기에서 --user 0 을 빠뜨린 상황 흉내). */
+  /** 처음 N 번의 `enabled_accessibility_services` put 을 무시한다(막 설치한 서비스를 접근성 관리자가 목록에서 지우는 실기기 동작 흉내). */
+  ignoreFirstAccessibilityPuts = 0;
   ignoreSettingsPut = false;
   /** install 이 성공하면 이 패키지가 설치된 것으로 기록한다. */
   installPackageName = 'com.example.app';
@@ -158,6 +160,7 @@ export class FakeAndroid {
     }
     if ((m = /^settings get --user 0 secure (\S+)$/.exec(command))) return { stdout: `${this.secureSettings.get(m[1]!) ?? 'null'}\n` };
     if ((m = /^settings put --user 0 secure (\S+) '?([^']*)'?$/.exec(command))) {
+      if (m[1] === 'enabled_accessibility_services' && this.ignoreFirstAccessibilityPuts > 0) { this.ignoreFirstAccessibilityPuts--; return {}; }
       if (!this.ignoreSettingsPut) this.secureSettings.set(m[1]!, m[2]!);
       return {};
     }

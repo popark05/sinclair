@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-07T05:16:37.944Z",
+  "at": "2026-11-08T00:05:35.822Z",
   "device": "SM-N981N (…XLZW) Android 13",
   "summary": {
     "passed": 1,
@@ -11,12 +11,12 @@
     {
       "name": "설정 앱 > 열면 \"설정\" 제목이 보인다",
       "result": "passed",
-      "durationMs": 860,
+      "durationMs": 847,
       "steps": [
         {
           "kind": "assert",
           "instruction": "expect { text=\"설정\", exact=true } toBeVisible",
-          "durationMs": 82
+          "durationMs": 39
         }
       ]
     }

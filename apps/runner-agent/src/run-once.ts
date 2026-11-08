@@ -7,6 +7,7 @@ import { runTests, type Reporter } from '@sinclair/runner';
 import { AgentConfigError, type RunArgs } from './args.ts';
 import { ControlPlaneError, registerRun, type RegisteredRun } from './control-plane-client.ts';
 import { createEngine, type EngineHandle } from './engines.ts';
+import { HelperApkError } from './helper-apk.ts';
 import { createSpoolReporter } from './spool.ts';
 
 /** 종료 코드. 셸 스크립트·CI 가 분기한다. incomplete 는 resume 전용(미완 run 이 남음) */
@@ -66,7 +67,7 @@ export async function executeRun(args: RunArgs, run: RegisteredRun, files: strin
   try {
     handle = await (deps.createEngine ?? createEngine)(args, log);
   } catch (err) {
-    log(`엔진 준비 실패(기기 불가): ${err instanceof Error ? err.message : String(err)}`);
+    log(`${err instanceof HelperApkError ? '헬퍼 APK 없음(기기 불가)' : '엔진 준비 실패(기기 불가)'}: ${err instanceof Error ? err.message : String(err)}`);
     const base = () => ({ schema: 1 as const, eventId: randomUUID(), runId: run.runId, at: new Date().toISOString() });
     await reporter.onEvent({ ...base(), type: 'run.started', cycleId: run.cycleId, targetId: run.targetId, agentId });
     await reporter.onEvent({ ...base(), type: 'run.finished', state: 'infra-failed' });
