@@ -299,11 +299,11 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
           const refOf = (input: unknown): string => { const v = (input as { ref?: unknown } | null)?.ref; return typeof v === 'string' && /^@[\w:.-]{1,40}$/.test(v) ? ` ${v}` : ''; };
           // 안전망 개입도 남긴다: 다시 찾은 대상(→ 새 ref), 실행하지 않은 이유(사라짐·애매함·덮임)
           const GUARD = { gone: '사라짐', ambiguous: '애매함', covered: '덮임' } as const;
-          const safeRef = (r?: string) => (r && /^@[\w:.-]{1,40}$/.test(r) ? r : '');
+          const safeRef = (ref?: string) => (ref && /^@[\w:.-]{1,40}$/.test(ref) ? ref : '');
           const tools = r.history.map((h) => {
             const head = h.call ? `${h.call.name}${refOf(h.call.input)}` : '(툴 없음)';
             if (h.guard) return `${head}(안전망: ${GUARD[h.guard]})`;
-            if (h.retargeted && safeRef(h.retargeted)) return `${head}→${safeRef(h.retargeted)}(다시 찾음)`;
+            if (h.retargeted) return `${head}→${safeRef(h.retargeted) || '?'}(다시 찾음)`;
             return `${head}${h.result === 'ok' ? '' : `(${h.result})`}`;
           }).join(', ');
           const instruction = `act ${JSON.stringify(goal)} → ${tools || '(툴 없음)'} (${r.turns}턴)`;

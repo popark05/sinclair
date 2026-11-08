@@ -47,11 +47,15 @@ describe('runAct', () => {
     expect(engine.sessionCalls).toEqual([]); // 거부된 호출은 엔진에 닿지 않았다
   });
 
-  it('엔진 오류(없는 ref)도 다음 턴에 알려 모델이 고칠 수 있다', async () => {
-    const exec = scriptedExecutor([{ name: 'tap', input: { ref: '@nope' } }, ...script]);
-    const r = await runAct(login(), '로그인', { executor: exec });
+  it('엔진 오류도 다음 턴에 알려 모델이 고칠 수 있다', async () => {
+    const engine = login();
+    const perform = engine.perform.bind(engine);
+    let first = true;
+    engine.perform = async (ref, a, arg) => { if (first) { first = false; throw new EngineError('not-actionable', '비활성'); } return perform(ref, a, arg); };
+    const exec = scriptedExecutor([{ name: 'tap', input: { ref: '@e4' } }, ...script]);
+    const r = await runAct(engine, '로그인', { executor: exec });
     expect(r.ok).toBe(true);
-    expect(exec.requests[1]!.history[0]).toMatchObject({ result: 'error', detail: expect.stringMatching(/not-found|없/) });
+    expect(exec.requests[1]!.history[0]).toMatchObject({ result: 'error', detail: expect.stringMatching(/not-actionable/) });
   });
 
   it('턴 한도·시간 한도에 닿으면 사유와 함께 실패한다', async () => {

@@ -63,3 +63,28 @@ describe('안전망 · 루프', () => {
     expect(engine.performed).toEqual([{ ref: '@f2', action: 'type', arg: '사과' }]);
   });
 });
+
+describe('안전망 · 리뷰 반영', () => {
+  it('scroll 도 다시 찾은 대상으로 실행한다', async () => {
+    const list = (ref: string, y: number): SemanticNode => ({ ref, role: 'list', name: '상품', rect: rect(y) });
+    const engine = new FakeEngine({ root: screen(list('@l', 0)) });
+    await runAct(engine, '내려', { executor: racing(engine, screen({ ref: '@n', role: 'text', text: '배너', rect: rect(0) }, list('@l2', 200)), { name: 'scroll', input: { ref: '@l', direction: 'down' } }) });
+    expect(engine.performed).toEqual([{ ref: '@l2', action: 'scroll', arg: 'down' }]);
+  });
+
+  it('모델이 본 화면에 없는 ref(지어낸 ref)는 실행하지 않는다', async () => {
+    const engine = new FakeEngine({ root: BEFORE });
+    const r = await runAct(engine, '결제', { executor: racing(engine, undefined, { name: 'tap', input: { ref: '@zz' } }) });
+    expect(engine.performed).toEqual([]);
+    expect(r.history[0]).toMatchObject({ result: 'rejected', detail: expect.stringMatching(/@zz.*화면에 없/) });
+  });
+
+  it('다시 찾은 뒤 실행이 실패해도 그 기록에 다시 찾은 ref 가 남는다', async () => {
+    const engine = new FakeEngine({ root: BEFORE });
+    const perform = engine.perform.bind(engine);
+    let first = true;
+    engine.perform = async (ref, a, arg) => { if (first) { first = false; throw new (await import('@sinclair/protocol')).EngineError('not-actionable', '가려짐'); } return perform(ref, a, arg); };
+    const r = await runAct(engine, '결제', { executor: racing(engine, screen(btn('@x', '결제', 0), btn('@y', '취소', 200))) });
+    expect(r.history[0]).toMatchObject({ result: 'error', retargeted: '@x' });
+  });
+});

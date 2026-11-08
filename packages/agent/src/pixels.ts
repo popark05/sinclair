@@ -28,9 +28,11 @@ export function decodePng(buf: Uint8Array): Bitmap | undefined {
       else if (type === 'IEND') break;
       off += 12 + len;
     }
-    if (!width || !height || !channels || width * height > 40_000_000) return undefined;
-    const raw = inflateSync(Buffer.concat(idat));
+    // 픽셀 수 상한: 큰 폰 화면(약 1440×3200 ≈ 4.6M)의 몇 배. 넘으면 비교를 건너뛴다(관찰마다 두 번 푸므로 메모리를 묶지 않게)
+    if (!width || !height || !channels || width * height > 16_000_000) return undefined;
     const stride = width * channels;
+    // 압축 폭탄 방지: 풀린 크기를 미리 알 수 있으니 그만큼만 푼다
+    const raw = inflateSync(Buffer.concat(idat), { maxOutputLength: (stride + 1) * height });
     if (raw.length < (stride + 1) * height) return undefined;
     const out = new Uint8Array(stride * height);
     for (let y = 0; y < height; y++) {
@@ -56,14 +58,26 @@ export function decodePng(buf: Uint8Array): Bitmap | undefined {
   }
 }
 
-/** 두 스크린샷의 rect 영역 평균 채널 차(0~1). 해상도가 다르거나 읽을 수 없으면 undefined */
-export function regionDiff(before: Uint8Array, after: Uint8Array, rect: { x: number; y: number; width: number; height: number }): number | undefined {
+type Box = { x: number; y: number; width: number; height: number };
+/** 옛 그림의 rectA 영역과 새 그림의 rectB 영역의 평균 채널 차(0~1). 대상이 옮겨 갔으면 각자의 자리를 비교한다(밀려난 것을 덮개로 보지 않게).
+ *  두 영역의 크기가 다르거나(대상 크기가 바뀜) 해상도가 다르거나 읽을 수 없으면 undefined — 비교하지 않는다 */
+export function regionDiff(before: Uint8Array, after: Uint8Array, rectA: Box, rectB: Box = rectA): number | undefined {
   const a = decodePng(before), b = decodePng(after);
   if (!a || !b || a.width !== b.width || a.height !== b.height || a.channels !== b.channels) return undefined;
-  const x0 = Math.max(0, Math.floor(rect.x)), y0 = Math.max(0, Math.floor(rect.y));
-  const x1 = Math.min(a.width, Math.ceil(rect.x + rect.width)), y1 = Math.min(a.height, Math.ceil(rect.y + rect.height));
-  if (x1 <= x0 || y1 <= y0) return undefined;
+  if (![rectA, rectB].every((r) => [r.x, r.y, r.width, r.height].every(Number.isFinite))) return undefined;
+  const w = Math.round(rectA.width), h = Math.round(rectA.height);
+  if (w !== Math.round(rectB.width) || h !== Math.round(rectB.height) || w <= 0 || h <= 0) return undefined;
+  const ax = Math.round(rectA.x), ay = Math.round(rectA.y), bx = Math.round(rectB.x), by = Math.round(rectB.y);
   let sum = 0, n = 0;
-  for (let y = y0; y < y1; y++) for (let i = (y * a.width + x0) * a.channels; i < (y * a.width + x1) * a.channels; i++) { sum += Math.abs(a.data[i]! - b.data[i]!); n++; }
-  return sum / (n * 255);
+  for (let dy = 0; dy < h; dy++) {
+    const ya = ay + dy, yb = by + dy;
+    if (ya < 0 || yb < 0 || ya >= a.height || yb >= b.height) continue;
+    for (let dx = 0; dx < w; dx++) {
+      const xa = ax + dx, xb = bx + dx;
+      if (xa < 0 || xb < 0 || xa >= a.width || xb >= b.width) continue;
+      const ia = (ya * a.width + xa) * a.channels, ib = (yb * b.width + xb) * b.channels;
+      for (let c = 0; c < a.channels; c++) { sum += Math.abs(a.data[ia + c]! - b.data[ib + c]!); n++; }
+    }
+  }
+  return n ? sum / (n * 255) : undefined;
 }

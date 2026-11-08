@@ -64,7 +64,8 @@ function renderTurn(turn: AgentTurn, i: number): string {
     const parts = Object.entries(input).map(([k, v]) => (k === 'ref' ? String(v) : k === 'text' ? `text=<입력함 ${typeof v === 'string' ? v.length : 0}자>` : `${k}=${JSON.stringify(v)}`));
     what = [c.name, ...parts].join(' ');
   }
-  return `${i + 1}. ${what} → ${turn.result}${turn.detail ? `: ${turn.detail}` : ''}`;
+  const moved = turn.retargeted ? ` (안전망이 같은 대상을 ${turn.retargeted} 에서 다시 찾아 실행)` : '';
+  return `${i + 1}. ${what} → ${turn.result}${moved}${turn.detail ? `: ${turn.detail}` : ''}`;
 }
 
 function renderPrompt(req: StepRequest): string {

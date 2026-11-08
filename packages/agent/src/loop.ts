@@ -96,7 +96,11 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
   try {
     for (let turn = 0; turn < maxTurns; turn++) {
       if (Date.now() >= deadline) return fail(`시간 한도 ${timeoutMs}ms 에 닿음`);
-      const observed = await engine.observe(pixels || guardPixels ? { pixels: true } : undefined);
+      let observed;
+      try { observed = await raceAbort(engine.observe(pixels || guardPixels ? { pixels: true } : undefined), aborter.signal); } catch (err) {
+        if (aborter.signal.aborted) return fail(`시간 한도 ${timeoutMs}ms 에 닿음`);
+        throw err;
+      }
       // 트리의 문자열 잎을 가린 뒤 그린다(그린 글에 가리면 JSON 이스케이프된 값을 놓친다)
       const observation = renderObservation(secrets ? secrets.redactTree(observed.root) : observed.root);
       // 관찰하는 사이 한도가 지났으면 묻지 않는다(abort 가 리스너보다 먼저 와서 영영 기다리는 일이 없게 raceAbort 도 같은 검사를 한다)
@@ -128,6 +132,7 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
       const input = { ...checked.call.input };
       const misplaced = Object.entries(input).find(([k, v]) => !(checked.call.name === 'type' && k === 'text') && /\{\{secret:/.test(v));
       if (misplaced) { history.push({ call, result: 'rejected', detail: `비밀값 자리표시는 type 의 text 에만 쓸 수 있음(${checked.call.name}.${misplaced[0]})` }); continue; }
+      let typed: string | undefined; // 비밀값을 치환했으면 그 글자(대상 재확인용)
       if (checked.call.name === 'type' && input.text !== undefined && /\{\{secret:/.test(input.text)) {
         // 목표에 주어진 이름만(같은 run 의 다른 테스트가 등록한 값, 화면에 심긴 자리표시로 값을 꺼내지 못하게), 입력 칸에만
         const revealed = secrets ? secrets.reveal(input.text, goalSecrets) : { ok: false as const, error: '이 테스트에는 비밀값이 없음' };
@@ -135,13 +140,19 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
         const target = findRef(observed.root, input.ref ?? '');
         if (target && !(target.role === 'textbox' || target.states?.secure)) { history.push({ call, result: 'rejected', detail: `비밀값은 입력 칸(textbox)에만 넣을 수 있음: ${input.ref} 는 ${target.role}` }); continue; }
         input.text = revealed.text;
+        typed = revealed.text;
       }
       // 액션 전 안전망: 모델이 본 화면에서 대상의 설명을 만들고, 실행 직전 화면에서 같은 대상을 다시 찾는다
       let retargeted: string | undefined;
       const target = input.ref !== undefined ? describeTarget(observed.root, input.ref) : undefined;
+      // 모델이 본 화면에 없는 ref(지어냈거나 옛 화면의 것)는 실행하지 않는다: 엔진이 옛 관찰의 기억으로 엉뚱한 노드를 고를 수 있다
+      if (input.ref !== undefined && !target) { history.push({ call, result: 'rejected', detail: `${hide(input.ref)} 는 지금 화면에 없는 ref — 지금 화면의 @ref 로 다시 골라라` }); continue; }
       if (target) {
-        const fresh = await engine.observe(guardPixels ? { pixels: true } : undefined);
-        if (aborter.signal.aborted) return fail(`시간 한도 ${timeoutMs}ms 에 닿음`);
+        let fresh;
+        try { fresh = await raceAbort(engine.observe(guardPixels ? { pixels: true } : undefined), aborter.signal); } catch (err) {
+          if (aborter.signal.aborted) return fail(`시간 한도 ${timeoutMs}ms 에 닿음`);
+          throw err;
+        }
         const where = relocate(target, fresh.root);
         const what = hide(`${target.ref} (${target.role}${target.label ? ` "${target.label}"` : ''})`);
         if (where.kind === 'gone' || where.kind === 'ambiguous') {
@@ -150,13 +161,17 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
           continue;
         }
         if (guardPixels && observed.pixels && fresh.pixels) {
-          const area = findRef(fresh.root, where.ref)?.rect ?? target.rect;
-          const diff = area ? regionDiff(observed.pixels, fresh.pixels, area) : undefined;
+          // 옛 자리의 옛 그림과 새 자리의 새 그림을 비교한다(옮겨 간 대상을 덮였다고 보지 않게)
+          const area = findRef(fresh.root, where.ref)?.rect;
+          const diff = area && target.rect ? regionDiff(observed.pixels, fresh.pixels, target.rect, area) : undefined;
           if (diff !== undefined && diff > COVER_DIFF_THRESHOLD) {
             history.push({ call, result: 'rejected', guard: 'covered', detail: `안전망: 대상 ${what} 영역의 화면이 바뀜(트리에 없는 덮개·팝업일 수 있음). 실행하지 않았다 — 지금 화면에서 다시 골라라` });
             continue;
           }
         }
+        // 비밀값을 넣는 대상은 실행 직전 화면에서도 입력 칸이어야 한다(옮겨 간 대상의 상태를 다시 본다)
+        const now = findRef(fresh.root, where.ref);
+        if (typed !== undefined && now && !(now.role === 'textbox' || now.states?.secure)) { history.push({ call, result: 'rejected', detail: `비밀값은 입력 칸(textbox)에만 넣을 수 있음: ${where.ref} 는 ${now.role}` }); continue; }
         if (where.kind === 'moved') { input.ref = where.ref; retargeted = where.ref; }
       }
       try {
@@ -165,7 +180,7 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
         // 인프라 오류는 모델이 고칠 수 없다: 그 코드 그대로 던져 러너가 blocked 등으로 다루게 한다
         if (err instanceof EngineError && !CORRECTABLE.has(err.code)) throw err;
         const raw = err instanceof EngineError ? `${err.code}: ${err.message}` : err instanceof Error ? err.message : String(err);
-        history.push({ call, result: 'error', detail: scrubDetail(raw, input, hide) });
+        history.push({ call, result: 'error', detail: scrubDetail(raw, input, hide), ...(retargeted ? { retargeted } : {}) });
         continue;
       }
       history.push({ call, result: 'ok', ...(retargeted ? { retargeted } : {}) });
