@@ -259,11 +259,31 @@ describe('runDaemon · 기기 lease', () => {
     expect(logs.join('\n')).not.toMatch(/SER-1/);
   });
 
+  it('--device 로 고정한 데몬은 그 기기만 후보로 낸다; lease 받은 기기를 못 찾으면 blocked 로 끝나고 기기가 풀려 다음 Run 이 받는다', async () => {
+    await post('/cycles', { cycleId: 'cp', build: 'b', targets: ['android'], suite: { tests: path.join(fixtures, 'only-login') } });
+    await post('/cycles/cp/runs', { targetId: 'android', runId: 'r-p1' });
+    await post('/cycles/cp/runs', { targetId: 'android', runId: 'r-p2' });
+    const dev = (id: string) => ({ id, platform: 'android' as const, model: 'SM-N981N', osVersion: '13', connection: 'device' as const, helper: 'ready' as const, locked: false });
+    const seen: Array<string | undefined> = [];
+    let first = true;
+    const engine = async (a: { device?: string }) => {
+      seen.push(a.device);
+      if (first) { first = false; throw new Error(`기기 ${a.device} 가 목록에 없음`); } // 클레임과 엔진 준비 사이에 뽑힘
+      return fakeEngine(a);
+    };
+    const r = await runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', device: 'SER-2', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'node-p', pollMs: 10 }, deps({ maxRuns: 2, inventory: async () => [dev('SER-1'), dev('SER-2')], createEngine: engine }));
+    expect(seen).toEqual(['SER-2', 'SER-2']); // SER-1 은 비어 있어도 쓰지 않는다
+    expect(r.runs.map((x) => [x.runId, x.exitCode])).toEqual([['r-p1', EXIT.blocked], ['r-p2', EXIT.ok]]);
+    const v = await view('cp');
+    expect(v.runs.map((x) => [x.runId, x.state, x.lease?.deviceId])).toEqual([['r-p1', 'infra-failed', 'SER-2'], ['r-p2', 'finished', 'SER-2']]);
+  });
+
   it('기기가 없는 노드는 Run 을 클레임하지 않는다(받아도 돌릴 기기가 없다)', async () => {
     await post('/cycles', { cycleId: 'ce', build: 'b', targets: ['android'], suite: { tests: path.join(fixtures, 'only-login') } });
     await post('/cycles/ce/runs', { targetId: 'android' });
     const r = await runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'node-e', pollMs: 10 }, deps({ signal: AbortSignal.timeout(300), inventory: async () => [] }));
     expect(r.runs).toEqual([]);
+    expect(logs.filter((l) => /후보 기기 없음/.test(l))).toHaveLength(1); // 조용히 기다리지 않되, 폴링마다 찍지는 않는다
     expect((await view('ce')).runs[0]!.lease).toBeUndefined();
   });
 });

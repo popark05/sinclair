@@ -3,7 +3,7 @@
  * 실기기(opt-in): mobile 데몬이 디바이스 백엔드를 소유해 꽂힌 기기를 Fleet 에 보고하고, 같은 백엔드로 Run 하나를 끝낸다.
  *   adb kill-server && SINCLAIR_TEST_USB=1 npx vitest run apps/runner-agent/test/fleet.device.test.ts
  * 전제: 기기 잠금 해제, 헬퍼 APK(리포 빌드 또는 SINCLAIR_AGENT_HELPER_APK), 설정 앱 제목이 "설정".
- * 증거: .scratch/device-fleet/evidence/01-fleet-device-latest.json (시리얼·경로 마스킹)
+ * 증거: .scratch/device-fleet/evidence/02-device-lease-device-latest.json (시리얼·경로 마스킹; 티켓 01 의 증거 01-fleet-device-*.json 은 그대로 둔다)
  */
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -36,7 +36,7 @@ describe.skipIf(!target)('실기기 Fleet 인벤토리', () => {
       const node = fleet.nodes.find((n) => n.agentId === 'device-node');
       const dir = path.join(REPO, '.scratch/device-fleet/evidence');
       await fs.mkdir(dir, { recursive: true });
-      await fs.writeFile(path.join(dir, '01-fleet-device-latest.json'), JSON.stringify({
+      await fs.writeFile(path.join(dir, '02-device-lease-device-latest.json'), JSON.stringify({
         at: new Date().toISOString(), nodeTtlMs: fleet.nodeTtlMs,
         node: node && { agentId: node.agentId, online: node.online, devices: node.devices.map((d) => ({ id: `…${d.id.slice(-4)}`, platform: d.platform, model: d.model, osVersion: d.osVersion, connection: d.connection, helper: d.helper, locked: d.locked, state: d.state, reason: d.reason })) },
         run: { exitCode: summary.runs[0]?.exitCode, cycle: { state: view.state, verdict: view.verdict, warnings: view.warnings }, leasedDevice: view.runs[0]?.lease?.deviceId && `…${view.runs[0].lease.deviceId.slice(-4)}`, startedOnLeasedDevice: !!runView.deviceId && runView.deviceId === view.runs[0]?.lease?.deviceId }, log: logs.map((l) => mask(l, node?.devices.map((d) => d.id) ?? [])),

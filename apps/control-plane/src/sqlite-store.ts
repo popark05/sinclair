@@ -63,7 +63,8 @@ function migrate(db: DatabaseSync): void {
  *  EventStore 와 CycleStore 가 한 핸들을 공유한다. close 는 둘 중 어느 쪽에서 해도 되고 한 번만 닫힌다 */
 export function openSqlite(file: string): DatabaseSync {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
-  const db = new DatabaseSync(file);
+  // 다른 프로세스가 같은 파일을 쓰는 중이면(BEGIN IMMEDIATE 등) 바로 SQLITE_BUSY 로 실패하지 않고 2초까지 기다린다
+  const db = new DatabaseSync(file, { timeout: 2_000 });
   db.exec('PRAGMA journal_mode = WAL'); // 읽기(조회)와 쓰기(ingest)가 서로 막지 않는다
   db.exec('PRAGMA foreign_keys = ON');
   migrate(db);
@@ -111,6 +112,8 @@ export function createSqliteCycleStore(source: string | DatabaseSync): CycleStor
   // 비교는 저장된 텍스트 그대로이고 새 값은 parse → spread → stringify 라 키 순서가 보존된다(ADR 0004 결과 절)
   const casRun = db.prepare('UPDATE cycle_runs SET record = ? WHERE run_id = ? AND record = ?');
   const selectAllRuns = db.prepare('SELECT record FROM cycle_runs ORDER BY seq');
+  // 기기 lease 판정에 필요한 Run 만: 기기를 가진 만료 전 lease(ISO 8601 은 문자열 비교가 시간 순서와 같다). 이력이 쌓여도 클레임·Fleet 조회가 전체를 읽지 않는다
+  const selectLeased = db.prepare("SELECT record FROM cycle_runs WHERE json_extract(record, '$.lease.deviceId') IS NOT NULL AND json_extract(record, '$.lease.expiresAt') > ?");
   const parse = <T>(rows: unknown[]): T[] => (rows as Array<{ record: string }>).map((r) => JSON.parse(r.record) as T);
   return {
     async createCycle(cycle) {
@@ -131,7 +134,7 @@ export function createSqliteCycleStore(source: string | DatabaseSync): CycleStor
       return parse<RunRegistration>(selectRuns.all(cycleId));
     },
     async claimRun(targetId, agentId, nowMs, ttlMs, hasEvents, opts) {
-      const all = (): RunRegistration[] => (selectAllRuns.all() as Array<{ record: string }>).map((row) => JSON.parse(row.record) as RunRegistration);
+      const all = (): RunRegistration[] => (selectLeased.all(new Date(nowMs).toISOString()) as Array<{ record: string }>).map((row) => JSON.parse(row.record) as RunRegistration);
       if (pickDevice(all(), nowMs, opts) === undefined) return undefined;
       for (const row of selectAllRuns.all() as Array<{ record: string }>) {
         const r = JSON.parse(row.record) as RunRegistration;
@@ -154,7 +157,7 @@ export function createSqliteCycleStore(source: string | DatabaseSync): CycleStor
       return undefined;
     },
     async deviceLeases(nowMs) {
-      return activeDeviceLeases((selectAllRuns.all() as Array<{ record: string }>).map((row) => JSON.parse(row.record) as RunRegistration), nowMs);
+      return activeDeviceLeases((selectLeased.all(new Date(nowMs).toISOString()) as Array<{ record: string }>).map((row) => JSON.parse(row.record) as RunRegistration), nowMs);
     },
     async heartbeat(runId, agentId, nowMs, ttlMs) {
       // CAS 가 계속 지면 다른 쓰기가 끼어드는 것이다(단일 프로세스에서는 거의 없음). 몇 번 뒤 not-owner 로 끝낸다

@@ -94,18 +94,34 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
   log(`데몬 시작: agent ${agentId}, targets ${args.targets.join(', ')}, control-plane ${args.controlPlane}`);
 
   // mobile 데몬은 디바이스 백엔드를 하나 소유해 인벤토리와 run 들이 같이 쓴다(직접 USB 는 한 프로세스만 잡을 수 있다).
-  // 열지 못하면(헬퍼 APK 없음 등) run 마다 여는 기존 경로로 돌아가고 인벤토리는 비어 있다
+  // 열지 못하면(헬퍼 APK 없음 등) 인벤토리가 비어 클레임하지 않고(기기 없는 노드), 보고 때마다 다시 연다
+  const ownsBackend = args.engine === 'mobile' && !deps.createEngine && !deps.inventory; // 테스트가 엔진·인벤토리를 끼우면 USB 를 열지 않는다
   let node: AndroidNode | undefined;
-  if (args.engine === 'mobile' && !deps.createEngine && !deps.inventory) { // 테스트가 엔진·인벤토리를 끼우면 USB 를 열지 않는다
-    node = await openAndroidNode(args, log).catch((err: unknown) => { log(`디바이스 백엔드를 열지 못함(run 마다 다시 시도): ${err instanceof Error ? err.message : String(err)}`); return undefined; });
-  }
-  const readInventory = deps.inventory ?? (node ? () => node.inventory() : args.engine === 'fake' ? async () => [fakeDevice(agentId)] : async () => []);
-  // 마지막으로 읽은 기기 목록이 클레임 후보다(클레임마다 USB 를 다시 훑지 않는다). 보고가 실패해도 읽기는 됐으면 갱신한다
+  let lastOpenError = '';
+  const ensureNode = async (): Promise<AndroidNode | undefined> => {
+    if (node || !ownsBackend) return node;
+    try {
+      node = await openAndroidNode(args, log);
+      if (lastOpenError) log('디바이스 백엔드를 열었음');
+      lastOpenError = '';
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg !== lastOpenError) log(`디바이스 백엔드를 열지 못함(기기 없는 노드로 보고하고 다음 보고 때 다시 시도): ${msg}`);
+      lastOpenError = msg;
+    }
+    return node;
+  };
+  await ensureNode();
+  const readInventory = deps.inventory ?? (ownsBackend ? async () => (await ensureNode())?.inventory() ?? [] : args.engine === 'fake' ? async () => [fakeDevice(agentId)] : async () => []);
+  // 마지막으로 읽은 기기 목록이 클레임 후보다(클레임마다 USB 를 다시 훑지 않는다, 최대 TTL/3 묵음). 보고가 실패해도 읽기는 됐으면 갱신한다
   let lastDevices: NodeDevice[] = [];
   const inventory = async (): Promise<NodeDevice[]> => (lastDevices = await readInventory());
-  const runDeps: RunOnceDeps = node ? { ...deps, createEngine: (a, l) => node.engineFor(a, l) } : deps;
+  // 운영자가 --device 로 기기를 고정했으면 그 기기만 후보로 낸다(다른 기기를 lease 받아 돌지 않게)
+  const candidates = (): string[] => lastDevices.map((d) => d.id).filter((id) => !args.device || id === args.device);
+  let announcedNoCandidates = false;
+  const runDeps: RunOnceDeps = ownsBackend ? { ...deps, createEngine: async (a, l) => { const n = await ensureNode(); if (!n) throw new Error('디바이스 백엔드를 열지 못함'); return n.engineFor(a, l); } } : deps;
 
-  // Fleet 보고: 시작할 때 한 번, 그 뒤 서버 TTL 의 1/3 마다. 실패해도 클레임은 계속한다(보고는 보이기 위한 것이고 아직 클레임 조건이 아니다)
+  // Fleet 보고: 시작할 때 한 번, 그 뒤 서버 TTL 의 1/3 마다. PUT 이 실패해도 클레임은 계속한다(클레임 후보는 보고가 아니라 읽은 인벤토리다)
   let reportTimer: NodeJS.Timeout | undefined;
   let lastReportError = '';
   let reportsStopped = false;
@@ -136,15 +152,23 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
       for (const targetId of args.targets) {
         if (deps.signal?.aborted) break;
         let claimed: ClaimedRun | undefined;
-        try { claimed = await claimRun(args.controlPlane, targetId, agentId, deps.fetch, lastDevices.map((d) => d.id)); }
+        const devices = candidates();
+        if (devices.length === 0) {
+          // 기기 없는 노드는 클레임하지 않는다(받아도 돌릴 기기가 없다). 조용히 기다리지 않도록 한 번 알린다
+          if (!announcedNoCandidates) log(`후보 기기 없음: 클레임하지 않고 기다림${args.device ? ` (--device …${args.device.slice(-4)} 가 목록에 없음)` : ''}`);
+          announcedNoCandidates = true;
+          continue;
+        }
+        announcedNoCandidates = false;
+        try { claimed = await claimRun(args.controlPlane, targetId, agentId, deps.fetch, devices); }
         catch (err) { log(`클레임 오류(${targetId}): ${err instanceof Error ? err.message : String(err)}`); continue; }
         if (!claimed) continue;
         worked = true;
         const { run, leaseTtlMs } = claimed;
         if (claimed.warning) log(`클레임 경고: ${claimed.warning}`);
-      // lease 받은 기기로 돈다. 그 기기를 못 찾으면 엔진 준비가 실패해 blocked(infra-failed)로 보고되고, run 이 끝나 기기 lease 도 풀린다
-      const leasedDevice = claimed.run.lease.deviceId;
-      const testsDir = path.resolve(claimed.suite?.tests ?? args.tests);
+        // lease 받은 기기로 돈다. 그 기기를 못 찾으면 엔진 준비가 실패해 blocked(infra-failed)로 보고되고, run 이 끝나 기기 lease 도 풀린다
+        const leasedDevice = claimed.run.lease.deviceId;
+        const testsDir = path.resolve(claimed.suite?.tests ?? args.tests);
         // Cycle 이 정한 재시도 횟수가 노드 설정보다 우선한다(QA 담당자가 Cycle 단위로 정책을 고른다)
         const retries = claimed.suite?.retries ?? args.retries;
         log(`run ${run.runId} 클레임 (cycle ${run.cycleId}, target ${targetId}${leasedDevice ? `, 기기 …${leasedDevice.slice(-4)}` : ''}, tests ${testsDir}${retries !== undefined ? `, retries ${retries}` : ''})`);

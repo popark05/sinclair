@@ -156,6 +156,8 @@ export function runClaimSuite(name: string, makeStore: () => Promise<CycleStore>
         } finally { await twin.close?.(); }
       });
 
+      // 두 핸들은 한 스레드의 동기 API 라 트랜잭션이 실제로 겹치지는 않는다: 이 테스트는 "await 뒤 다시 고르기" 와 CAS 로 같은 기기를 두 Run 에 싣지 않음을 본다.
+      // 프로세스 사이 경합(BEGIN IMMEDIATE + busy timeout)은 같은 파일을 연 두 서버가 생길 때 별도 프로세스 테스트로 다룬다
       it('두 핸들이 같은 기기 하나로 동시에 클레임해도 그 기기는 Run 하나에만 lease 된다', async () => {
         const twin = await makeTwin(store);
         try {
