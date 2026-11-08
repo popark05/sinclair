@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-08T01:27:30.485Z",
+  "at": "2026-11-08T02:18:00.403Z",
   "target": "mac-x64",
   "version": "0.1.0",
   "nodeVersion": "v24.13.0",
@@ -16,7 +16,7 @@
       "exitCode": 2,
       "reason": [
         "헬퍼 APK 없음(기기 불가): 헬퍼 APK 를 찾지 못함:",
-        "  download: sha256 사이드카(https://127.0.0.1:62142/sinclair-helper-0.1.0.apk.sha256) 실패: fetch failed (UNABLE_TO_VERIFY_LEAF_SIGNATURE)"
+        "  download: sha256 사이드카(https://127.0.0.1:63186/sinclair-helper-0.1.0.apk.sha256) 실패: fetch failed (UNABLE_TO_VERIFY_LEAF_SIGNATURE)"
       ]
     },
     "withCa": {
@@ -39,11 +39,20 @@
       "헬퍼 APK: <install>/resources/helper/sinclair-helper-0.1.0.apk (bundled)",
       "헬퍼 온보딩(…XLZW): 헬퍼 설치 중: <install>/resources/helper/sinclair-helper-0.1.0.apk",
       "헬퍼 온보딩(…XLZW): 헬퍼 설치됨",
-      "헬퍼 온보딩(…XLZW): 접근성 활성화 재시도 1/4",
       "헬퍼 온보딩(…XLZW): 접근성 서비스 활성화됨",
       "헬퍼 온보딩(…XLZW): 헬퍼 준비됨 v0.1.0",
       "기기 SM-N981N (…XLZW) Android 13, 헬퍼 ready",
+      "화면: 켜짐, 잠금 없음",
+      "헬퍼를 방금 켰으므로 대상 앱을 한 번 열어 트리를 예열함",
       "결과: passed 1, failed 0, blocked 0, skipped 0 / 전송 5건(accepted 5, duplicate 0, rejected 0, retries 0)"
     ]
+  },
+  "deviceLocked": {
+    "exitCode": 2,
+    "cycle": {
+      "state": "finished",
+      "verdict": "blocked"
+    },
+    "reason": "엔진 준비 실패(기기 불가): 기기 화면이 잠겨 있음(보안 잠금은 프로그램으로 풀 수 없음). 기기 잠금을 해제하고 화면 꺼짐 시간을 늘린 뒤 다시 실행"
   }
 }
