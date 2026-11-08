@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 (클레임 때 기기 lease)
 
-**Status:** ready-for-human
+**Status:** done
 
 - [x] 조건 형식: 플랫폼(필수), 모델(선택, 정확히 일치 또는 목록), OS 버전 범위(선택, 최소·최대). 잘못된 조건은 `POST /cycles` 400. 형식은 계약이므로 protocol 계약 테스트를 먼저 갱신(작업 중 계약 테스트를 먼저 써 실패를 본 뒤 구현했으나 한 커밋이라 이력으로는 보이지 않는다)
 - [x] 하위 호환: 문자열 타깃(`android`)은 "그 이름을 맡겠다고 선언한 노드" 규칙으로 계속 동작(데몬 `--targets`). 새 조건 타깃과 섞인 Cycle 도 허용할지 결정하고 명시
@@ -19,5 +19,5 @@
 - 저장소: `claimRun(targetId?, …, { eligible })` — eligible 은 비동기라 SQLite 트랜잭션 밖에서 부르고, 트랜잭션 안에서는 허용 기기 중 빈 기기를 고른다. 이 Run 에 맞는 빈 기기가 없으면 반환하지 않고 다음 Run 으로(예전에는 즉시 undefined).
 - 테스트: protocol 계약 8개, HTTP 5개(섞인 타깃·400, Android 13 이상 → 13 기기만·없으면 대기, 모델 지정·이름 타깃은 선언 시만·보고 안 한 기기 거부, 오래 쉰 기기 먼저·셀 deviceId, targetId 클레임도 조건 확인), 데몬(--targets 없이 조건 타깃만, 먼저 등록된 안 맞는 Run 은 건너뜀). `fleet.sh` 에 조건 타깃(FakeEngine 모델 → 선언 없이 노드가 받음, OS 99 이상 → 대기), `retry-e2e.sh` 재통과(10/10).
 - 실기기에서 발견: 백엔드를 연 직후 첫 기기 목록이 비어(앞 프로세스가 USB 를 막 놓음) "기기 0대" 로 보고되어 꽂힌 기기가 잠깐 offline 으로 보였다 → 첫 읽기에서만 engineFor 와 같은 재시도.
-- **남은 것(ready-for-human):** 실기기 조건 타깃 — 재실행 때 폰이 다시 잠겨 있어(게이트가 맞게 동작: 후보에서 뺌, 두 Run 모두 대기) 증명이 끝나지 않았다. 잠금 해제 뒤 `adb kill-server && SINCLAIR_TEST_USB=1 npx vitest run apps/runner-agent/test/selector.device.test.ts`.
+- 2026-11-08 실기기 완료(SM-N981N …XLZW, Android 13, 화면 켜짐 상태 유지): 기기의 모델·OS 로 만든 조건 타깃(`model SM-N981N, osVersion 13~13`) Run 은 `--targets` 선언 없이 그 기기로 클레임돼 끝남(exit 0), OS 99 이상 조건 Run 은 lease 없이 queued. 첫 보고부터 "기기 1대"(백엔드 연 직후 빈 목록 재시도 효과). 증거 `.scratch/device-fleet/evidence/03-selector-device-latest.json`(Cycle 은 대기 중인 Run 때문에 running/incomplete 가 맞다).
 - 리뷰 반영(Standards + Spec). (1) 클레임 순서: 전역 등록 순서(FIFO)라 이름 타깃 여럿을 선언한 노드는 앞 타깃의 밀린 Run 을 다 받은 뒤 다음 타깃을 받는다 — 의도한 트레이드오프로 spec·daemon.md 에 적고 테스트(`a1, a2, i1`). (2) SQLite 경로 테스트: eligible false/배열, 맞는 빈 기기 없는 Run 을 건너뛰고 다음 Run, 가장 오래전 클레임 기기 순서를 저장소 계약 스위트에(두 저장소). (3) 비용: 클레임이 끝난 Run 이력마다 이벤트를 다 읽던 것을 `EventStore.hasEvents`(SQLite 인덱스 `SELECT 1 … LIMIT 1`)로, 마지막 클레임 시각은 고를 기기가 둘 이상일 때만 클레임당 한 번. (4) 구버전 control-plane(400)이면 이름 타깃마다 청하는 예전 방식으로 바꿈 + 테스트. (5) 대체 사슬의 기기 테스트(조건 타깃 Run 이 버려져 다른 기기에서 대체, 두 행에 각자 기기). (6) 빈 `osVersion: {}` 거부(빈 `model: []` 은 이미 거부) + 테스트, 보고가 끊긴 노드의 속성은 매칭에 쓰지 않음, 첫 목록 재시도 플래그를 루프 전에 내림(동시 읽기가 또 기다리지 않게). (7) 문구: "가장 오래 쉰" 은 정확히 "가장 오래전에 클레임된"(끝난 시각 아님)으로 spec·용어집·fleet.md, http.ts 의 거짓 주석(중복 거부) 정정, daemon.md 의 `--targets` 설명. 보류: 첫 목록 재시도의 단위 테스트(실제 백엔드를 여는 경로라 가짜 백엔드 주입이 필요 — 실기기에서 확인됨).

@@ -1,0 +1,67 @@
+{
+  "at": "2026-11-08T08:13:02.015Z",
+  "device": {
+    "id": "…XLZW",
+    "model": "SM-N981N",
+    "osVersion": "13"
+  },
+  "targetSelectors": {
+    "impossible": {
+      "id": "impossible",
+      "platform": "android",
+      "osVersion": {
+        "min": "99"
+      }
+    },
+    "this-model": {
+      "id": "this-model",
+      "platform": "android",
+      "model": "SM-N981N",
+      "osVersion": {
+        "min": "13",
+        "max": "13"
+      }
+    }
+  },
+  "runs": [
+    {
+      "runId": "sel-impossible",
+      "targetId": "impossible",
+      "state": "queued",
+      "leasedThisDevice": false
+    },
+    {
+      "runId": "sel-model",
+      "targetId": "this-model",
+      "state": "finished",
+      "leasedThisDevice": true
+    }
+  ],
+  "cycle": {
+    "state": "running",
+    "verdict": "incomplete"
+  },
+  "exitCodes": [
+    0
+  ],
+  "log": [
+    "데몬 시작: agent sel-node, 이름 타깃 없음(조건 타깃만), control-plane http://127.0.0.1:57681",
+    "헬퍼 APK: <repo>/packages/device-layer/android-helper/app/build/outputs/apk/debug/app-debug.apk (repo-build)",
+    "헬퍼 온보딩(…XLZW): 헬퍼 이미 설치됨",
+    "헬퍼 온보딩(…XLZW): 접근성 서비스 활성화됨",
+    "헬퍼 온보딩(…XLZW): 헬퍼 준비됨 v0.1.0",
+    "fleet 보고: 기기 1대",
+    "데몬 종료",
+    "데몬 시작: agent sel-node, 이름 타깃 없음(조건 타깃만), control-plane http://127.0.0.1:57681",
+    "헬퍼 APK: <repo>/packages/device-layer/android-helper/app/build/outputs/apk/debug/app-debug.apk (repo-build)",
+    "헬퍼 온보딩(…XLZW): 헬퍼 이미 설치됨",
+    "헬퍼 온보딩(…XLZW): 접근성 서비스 활성화됨",
+    "헬퍼 온보딩(…XLZW): 헬퍼 준비됨 v0.1.0",
+    "fleet 보고: 기기 1대",
+    "run sel-model 클레임 (cycle sel, target this-model, 기기 …XLZW, tests <repo>/apps/runner-agent/test/fixtures/device)",
+    "기기 SM-N981N (…XLZW) Android 13, 헬퍼 ready",
+    "화면: 켜짐, 잠금 없음",
+    "헬퍼를 방금 켰으므로 대상 앱을 한 번 열어 트리를 예열함",
+    "결과: passed 1, failed 0, blocked 0, skipped 0 / 전송 5건(accepted 5, duplicate 0, rejected 0, retries 0)"
+  ]
+}
