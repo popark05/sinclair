@@ -12,7 +12,10 @@ describe('parseRunArgs', () => {
   it('환경변수가 기본값을 덮고 플래그가 환경변수를 덮는다', () => {
     const env = { SINCLAIR_AGENT_CONTROL_PLANE: 'http://cp:1', SINCLAIR_AGENT_ENGINE: 'fake', SINCLAIR_AGENT_DEVICE: 'SER', SINCLAIR_AGENT_APP: 'com.x' };
     expect(parseRunArgs(['--cycle', 'c1', '--target', 't', '--tests', 'd', '--spool', '/s', '--helper-apk', '/h.apk', '--helper-cache', '/hc'], env)).toEqual({ controlPlane: 'http://cp:1', cycle: 'c1', target: 't', tests: 'd', engine: 'fake', device: 'SER', app: 'com.x', spool: '/s', helperApk: '/h.apk', helperCache: '/hc' });
-    expect(parseRunArgs([...required, '--engine', 'mobile', '--run', 'r9', '--artifacts', '/tmp/a', '--timeout', '500', '--agent', 'node-1'], env)).toMatchObject({ engine: 'mobile', run: 'r9', artifacts: '/tmp/a', timeoutMs: 500, agent: 'node-1', controlPlane: 'http://127.0.0.1:4780' });
+    expect(parseRunArgs([...required, '--engine', 'mobile', '--run', 'r9', '--artifacts', '/tmp/a', '--timeout', '500', '--retries', '2', '--agent', 'node-1'], env)).toMatchObject({ engine: 'mobile', run: 'r9', artifacts: '/tmp/a', timeoutMs: 500, retries: 2, agent: 'node-1', controlPlane: 'http://127.0.0.1:4780' });
+    expect(parseRunArgs([...required], { ...env, SINCLAIR_AGENT_RETRIES: '1' })).toMatchObject({ retries: 1 });
+    expect(() => parseRunArgs([...required, '--retries', '6'], env)).toThrow(/retries/);
+    expect(() => parseRunArgs([...required, '--retries', '-1'], env)).toThrow(AgentConfigError);
   });
 
   it.each([

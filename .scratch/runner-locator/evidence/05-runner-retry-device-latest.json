@@ -1,0 +1,46 @@
+{
+  "at": "2026-11-08T04:41:25.936Z",
+  "device": "SM-N981N (…XLZW) Android 13",
+  "retries": 1,
+  "summary": {
+    "passed": 1,
+    "failed": 0,
+    "blocked": 0,
+    "skipped": 0
+  },
+  "tests": [
+    {
+      "name": "설정 앱 (재시도) > 첫 시도는 없는 문구로 실패, 재시도에 \"설정\" 제목이 보인다",
+      "result": "passed",
+      "attempts": 2,
+      "durationMs": 1139
+    }
+  ],
+  "attempts": [
+    {
+      "type": "attempt.started",
+      "attemptNo": 1,
+      "attemptId": "0e0ac13a-4b8c-4a3b-8c38-7976eb5d3d53"
+    },
+    {
+      "type": "attempt.finished",
+      "result": "failed",
+      "attemptId": "0e0ac13a-4b8c-4a3b-8c38-7976eb5d3d53",
+      "artifacts": [
+        "screen-tree",
+        "screenshot"
+      ]
+    },
+    {
+      "type": "attempt.started",
+      "attemptNo": 2,
+      "attemptId": "960d3fd1-dfc9-4928-ac90-8b578d67056f"
+    },
+    {
+      "type": "attempt.finished",
+      "result": "passed",
+      "attemptId": "960d3fd1-dfc9-4928-ac90-8b578d67056f",
+      "artifacts": []
+    }
+  ]
+}

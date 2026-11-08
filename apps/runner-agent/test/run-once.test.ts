@@ -49,6 +49,14 @@ describe('runOnce', () => {
     expect(v.verdict).toBe('blocked');
   });
 
+  it('--retries 로 첫 시도만 실패하는 테스트가 통과하고(0), 없으면 실패(1)', async () => {
+    await createCycle('c1');
+    expect(await runOnce({ controlPlane: url, cycle: 'c1', target: 'android', tests: path.join(fixtures, 'flaky'), engine: 'fake', timeoutMs: 200, spool, helperCache: path.join(spool, 'helper-cache') }, deps())).toBe(EXIT.testsFailed);
+    await createCycle('c2');
+    expect(await runOnce({ controlPlane: url, cycle: 'c2', target: 'android', tests: path.join(fixtures, 'flaky'), engine: 'fake', timeoutMs: 200, retries: 1, spool, helperCache: path.join(spool, 'helper-cache') }, deps())).toBe(EXIT.ok);
+    expect(await view('c2')).toMatchObject({ verdict: 'verified', matrix: { '첫 시도에만 실패한다': { android: { verdict: 'passed-flaky' } } } });
+  });
+
   it('--run 으로 지정한 Run 을 쓰고, 끝난 Cycle 이나 모르는 Cycle 은 설정 오류 3', async () => {
     await createCycle();
     await fetch(`${url}/cycles/c1/runs`, { method: 'POST', body: JSON.stringify({ targetId: 'android', runId: 'r-given' }) });

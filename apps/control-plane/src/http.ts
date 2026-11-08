@@ -2,7 +2,7 @@
 //   POST /ingest             RunEvent[] 배치 → IngestResponse
 //   GET  /runs               run 요약 목록
 //   GET  /runs/:id           RunView (projection.ts)
-//   POST /cycles             { cycleId?, build, targets[], requiredTags?, retryLimit? } → CycleRecord (201)
+//   POST /cycles             { cycleId?, build, targets[], requiredTags?, suite?{tests,tags?,retries?}, retryLimit? } → CycleRecord (201)
 //   GET  /cycles             CycleRecord 목록
 //   GET  /cycles/:id         CycleView (verdict.ts: 상태·Verdict·매트릭스)
 //   POST /cycles/:id/runs    { targetId, runId? } → RunRegistration (201)
@@ -31,6 +31,8 @@ export interface ControlPlaneOptions {
 }
 
 export const DEFAULT_LEASE_TTL_MS = 60_000;
+/** 러너 MAX_RETRIES 와 같은 값. apps 는 러너를 import 하지 않으므로 숫자를 따로 둔다(러너 쪽 테스트가 같음을 확인) */
+export const MAX_SUITE_RETRIES = 5;
 
 /** /ingest 본문 상한. 인증이 없으므로 같은 호스트의 다른 프로세스가 메모리를 채우지 못하게 막는다.
  *  Reporter 배치(03)는 수백 이벤트 × 수 KB 라 1 MB 안에 든다 */
@@ -93,13 +95,14 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         if (!isRecord(b) || typeof b.build !== 'string' || !b.build || !isStringArray(b.targets) || b.targets.length === 0) return json(res, 400, { error: 'build(문자열)와 targets(비어 있지 않은 문자열 배열)가 필요함' });
         if (b.requiredTags !== undefined && !isStringArray(b.requiredTags)) return json(res, 400, { error: 'requiredTags 는 문자열 배열이어야 함' });
         if (!optionalId(b.cycleId)) return json(res, 400, { error: 'cycleId 는 비어 있지 않은 문자열이어야 함' });
-        if (b.suite !== undefined && (!isRecord(b.suite) || typeof b.suite.tests !== 'string' || !b.suite.tests || (b.suite.tags !== undefined && !isStringArray(b.suite.tags)))) return json(res, 400, { error: 'suite 는 { tests: 문자열, tags?: 문자열 배열 } 이어야 함' });
+        if (b.suite !== undefined && (!isRecord(b.suite) || typeof b.suite.tests !== 'string' || !b.suite.tests || (b.suite.tags !== undefined && !isStringArray(b.suite.tags)))) return json(res, 400, { error: 'suite 는 { tests: 문자열, tags?: 문자열 배열, retries?: 정수 } 이어야 함' });
+        if (isRecord(b.suite) && b.suite.retries !== undefined && (typeof b.suite.retries !== 'number' || !Number.isInteger(b.suite.retries) || b.suite.retries < 0 || b.suite.retries > MAX_SUITE_RETRIES)) return json(res, 400, { error: `suite.retries 는 0~${MAX_SUITE_RETRIES} 의 정수여야 함` });
         if (b.retryLimit !== undefined && (typeof b.retryLimit !== 'number' || !Number.isInteger(b.retryLimit) || b.retryLimit < 0 || b.retryLimit > MAX_RETRY_LIMIT)) return json(res, 400, { error: `retryLimit 은 0~${MAX_RETRY_LIMIT} 의 정수여야 함` });
-        const suite = b.suite as { tests: string; tags?: string[] } | undefined;
+        const suite = b.suite as { tests: string; tags?: string[]; retries?: number } | undefined;
         const cycle = {
           ...(typeof b.retryLimit === 'number' ? { retryLimit: b.retryLimit } : {}),
           cycleId: b.cycleId ?? randomUUID(), build: b.build, targets: [...new Set(b.targets)], requiredTags: (b.requiredTags as string[] | undefined) ?? [],
-          ...(suite ? { suite: { tests: suite.tests, ...(suite.tags ? { tags: suite.tags } : {}) } } : {}), createdAt: new Date().toISOString(),
+          ...(suite ? { suite: { tests: suite.tests, ...(suite.tags ? { tags: suite.tags } : {}), ...(suite.retries !== undefined ? { retries: suite.retries } : {}) } } : {}), createdAt: new Date().toISOString(),
         };
         if ((await cycles.createCycle(cycle)) === 'duplicate') return json(res, 409, { error: `Cycle ${cycle.cycleId} 가 이미 있음`, code: 'cycle-exists' });
         return json(res, 201, cycle);

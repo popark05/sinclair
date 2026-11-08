@@ -15,7 +15,7 @@ export interface DaemonArgs extends Omit<RunArgs, 'cycle' | 'target' | 'run'> {
   pollMs?: number;
 }
 
-export interface ClaimedRun { run: RegisteredRun & { lease: { agentId: string; expiresAt: string } }; leaseTtlMs: number; suite?: { tests: string; tags?: string[] } }
+export interface ClaimedRun { run: RegisteredRun & { lease: { agentId: string; expiresAt: string } }; leaseTtlMs: number; suite?: { tests: string; tags?: string[]; retries?: number } }
 
 export interface DaemonDeps extends RunOnceDeps {
   /** 중단 신호. abort 되면 진행 중 run 을 마치고 루프를 나온다 */
@@ -78,7 +78,9 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
       worked = true;
       const { run, leaseTtlMs } = claimed;
       const testsDir = path.resolve(claimed.suite?.tests ?? args.tests);
-      log(`run ${run.runId} 클레임 (cycle ${run.cycleId}, target ${targetId}, tests ${testsDir})`);
+      // Cycle 이 정한 재시도 횟수가 노드 설정보다 우선한다(QA 담당자가 Cycle 단위로 정책을 고른다)
+      const retries = claimed.suite?.retries ?? args.retries;
+      log(`run ${run.runId} 클레임 (cycle ${run.cycleId}, target ${targetId}, tests ${testsDir}${retries !== undefined ? `, retries ${retries}` : ''})`);
 
       // lease 의 1/3 마다 heartbeat: 두 번 놓쳐도 만료 전에 한 번 더 기회가 있다.
       // lease 를 잃으면(not-owner: 만료 뒤 다른 에이전트가 가져감) heartbeat 를 멈추고 경고한다. 러너는 테스트 중간에 멈출 수 없어 run 은 끝까지 돌고,
@@ -96,7 +98,7 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
       try {
         const files = await collectTestFiles(testsDir);
         const { targets: _targets, pollMs: _poll, ...runArgs } = args; // RunArgs 에 데몬 전용 필드가 섞이지 않게
-        code = await executeRun({ ...runArgs, cycle: run.cycleId, target: targetId, run: run.runId, tests: testsDir }, run, files, deps);
+        code = await executeRun({ ...runArgs, cycle: run.cycleId, target: targetId, run: run.runId, tests: testsDir, ...(retries !== undefined ? { retries } : {}) }, run, files, deps);
       } catch (err) {
         log(`run ${run.runId} 준비 실패: ${err instanceof Error ? err.message : String(err)}`);
         code = EXIT.config;

@@ -8,6 +8,8 @@ export interface Fixtures {
   app: { open(target?: string): Promise<void>; back(): Promise<void>; restart(): Promise<void> };
   screen: Screen;
   expect: (locator: Locator, options?: ExpectOptions) => LocatorAssertions;
+  /** 이 테스트의 몇 번째 시도인지(1부터). 재시도 정책 검증용 샘플이 "첫 시도만 실패" 를 만들 때 쓴다; 제품 테스트가 분기하는 용도는 아니다 */
+  attemptNo: number;
 }
 
 export type TestFn = (fixtures: Fixtures) => Promise<void> | void;

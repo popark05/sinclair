@@ -20,6 +20,8 @@ export interface RunArgs {
   artifacts?: string;
   /** locator 액션 기한(ms). 없으면 러너 기본 10초 */
   timeoutMs?: number;
+  /** failed 테스트 재시도 횟수(0~5). 데몬은 Cycle 의 suite.retries 가 있으면 그것을 우선한다 */
+  retries?: number;
   /** 이 노드의 식별자(run.started.agentId). 기본 호스트명 */
   agent?: string;
   /** 스풀 디렉터리(이벤트를 먼저 쓰는 곳). 기본 OS 데이터 디렉터리/sinclair/spool */
@@ -77,11 +79,13 @@ function parseWithTable(options: readonly OptionSpec[], argv: string[], env: Nod
 
 const helpTable = (options: readonly OptionSpec[]): string => options.map((o) => `  --${o.name.padEnd(14)} <값>  ${o.required ? '(필수) ' : ''}${o.help} [${o.env}]`).join('\n');
 
-const positiveInt = (name: string, text: string | undefined, min = 0): number | undefined => {
+const positiveInt = (name: string, text: string | undefined, min = 0, max = Infinity): number | undefined => {
   if (text === undefined) return undefined;
-  if (!/^\d+$/.test(text) || Number(text) < min) throw new AgentConfigError(`--${name} 은 ${min} 이상의 정수여야 함: ${text}`);
+  if (!/^\d+$/.test(text) || Number(text) < min || Number(text) > max) throw new AgentConfigError(`--${name} 은 ${min} 이상${Number.isFinite(max) ? ` ${max} 이하` : ''}의 정수여야 함: ${text}`);
   return Number(text);
 };
+/** 러너 MAX_RETRIES 와 같은 값(러너 테스트가 같음을 확인한다) */
+export const MAX_RETRIES = 5;
 
 const OPTIONS = [
   { name: 'control-plane', key: 'controlPlane', env: 'SINCLAIR_AGENT_CONTROL_PLANE', required: true, help: 'control-plane 주소 (예: http://127.0.0.1:4780)' },
@@ -94,6 +98,7 @@ const OPTIONS = [
   { name: 'app', key: 'app', env: 'SINCLAIR_AGENT_APP', required: false, help: 'mobile: session.open 이 띄울 앱 id' },
   { name: 'artifacts', key: 'artifacts', env: 'SINCLAIR_AGENT_ARTIFACTS', required: false, help: '실패 스냅샷 디렉터리' },
   { name: 'timeout', key: 'timeoutMs', env: 'SINCLAIR_AGENT_TIMEOUT', required: false, help: 'locator 액션 기한 ms (기본 10000)' },
+  { name: 'retries', key: 'retries', env: 'SINCLAIR_AGENT_RETRIES', required: false, help: 'failed 테스트 재시도 횟수 0~5 (기본 0). daemon 은 Cycle 의 suite.retries 가 있으면 그것을 우선' },
   { name: 'agent', key: 'agent', env: 'SINCLAIR_AGENT_ID', required: false, help: '이 노드의 id (기본 호스트명; 한 머신에 에이전트를 여럿 띄우면 서로 다르게 줘야 lease 가 구분된다). run.started.agentId' },
   { name: 'spool', key: 'spool', env: 'SINCLAIR_AGENT_SPOOL', required: false, help: '스풀 디렉터리 (기본 OS 데이터 디렉터리/sinclair/spool). 서버가 없어도 이벤트가 여기 남는다' },
   { name: 'helper-apk', key: 'helperApk', env: 'SINCLAIR_AGENT_HELPER_APK', required: false, help: 'mobile: 헬퍼 APK 파일. 없으면 번들 → 리포 빌드 → SINCLAIR_AGENT_HELPER_URL 다운로드(sha256 검증) 순' },
@@ -142,9 +147,10 @@ export function parseRunArgs(argv: string[], env: NodeJS.ProcessEnv, platform: N
   try { new URL(out.controlPlane!); } catch { throw new AgentConfigError(`--control-plane 은 URL 이어야 함: ${out.controlPlane}`); }
   const engine = out.engine ?? 'mobile';
   if (!(ENGINES as readonly string[]).includes(engine)) throw new AgentConfigError(`--engine 은 ${ENGINES.join('|')} 중 하나여야 함: ${engine}`);
-  const { timeoutMs: timeoutText, ...rest } = out;
+  const { timeoutMs: timeoutText, retries: retriesText, ...rest } = out;
   const timeoutMs = positiveInt('timeout', timeoutText);
-  return { ...rest, engine, spool: out.spool ?? defaultSpoolDir(env, platform), helperCache: out.helperCache ?? defaultHelperCacheDir(env, platform), ...(timeoutMs !== undefined ? { timeoutMs } : {}) } as unknown as RunArgs;
+  const retries = positiveInt('retries', retriesText, 0, MAX_RETRIES);
+  return { ...rest, engine, spool: out.spool ?? defaultSpoolDir(env, platform), helperCache: out.helperCache ?? defaultHelperCacheDir(env, platform), ...(timeoutMs !== undefined ? { timeoutMs } : {}), ...(retries !== undefined ? { retries } : {}) } as unknown as RunArgs;
 }
 
 /** daemon 옵션: run 의 표에서 cycle/target/run 을 빼고 targets/poll 을 더한다 */
@@ -152,7 +158,7 @@ const DAEMON_OPTIONS: readonly OptionSpec[] = [
   OPTIONS.find((o) => o.name === 'control-plane')!,
   { name: 'targets', key: 'targets', env: 'SINCLAIR_AGENT_TARGETS', required: true, help: '이 노드가 맡는 타깃 id 들, 쉼표 구분' },
   { ...OPTIONS.find((o) => o.name === 'tests')!, help: 'Cycle 에 suite 가 없을 때 쓸 기본 테스트 디렉터리' },
-  ...OPTIONS.filter((o) => ['engine', 'device', 'app', 'artifacts', 'timeout', 'agent', 'spool', 'helper-apk', 'helper-cache'].includes(o.name)),
+  ...OPTIONS.filter((o) => ['engine', 'device', 'app', 'artifacts', 'timeout', 'retries', 'agent', 'spool', 'helper-apk', 'helper-cache'].includes(o.name)),
   { name: 'poll', key: 'pollMs', env: 'SINCLAIR_AGENT_POLL', required: false, help: '대기 중인 Run 이 없을 때 다시 묻는 간격 ms (기본 5000, 최소 100)' },
 ];
 
@@ -178,6 +184,7 @@ export function parseDaemonArgs(argv: string[], env: NodeJS.ProcessEnv, platform
   if (!(ENGINES as readonly string[]).includes(engine)) throw new AgentConfigError(`--engine 은 ${ENGINES.join('|')} 중 하나여야 함: ${engine}`);
   const timeoutMs = positiveInt('timeout', out.timeoutMs);
   const pollMs = positiveInt('poll', out.pollMs, 100); // 100ms 미만은 서버를 두드리기만 한다
-  const { targets: _t, pollMs: _p, timeoutMs: _m, ...rest } = out;
-  return { ...rest, targets, engine, spool: out.spool ?? defaultSpoolDir(env, platform), helperCache: out.helperCache ?? defaultHelperCacheDir(env, platform), ...(timeoutMs !== undefined ? { timeoutMs } : {}), ...(pollMs !== undefined ? { pollMs } : {}) } as unknown as DaemonCliArgs;
+  const retries = positiveInt('retries', out.retries, 0, MAX_RETRIES);
+  const { targets: _t, pollMs: _p, timeoutMs: _m, retries: _r, ...rest } = out;
+  return { ...rest, targets, engine, spool: out.spool ?? defaultSpoolDir(env, platform), helperCache: out.helperCache ?? defaultHelperCacheDir(env, platform), ...(timeoutMs !== undefined ? { timeoutMs } : {}), ...(retries !== undefined ? { retries } : {}), ...(pollMs !== undefined ? { pollMs } : {}) } as unknown as DaemonCliArgs;
 }

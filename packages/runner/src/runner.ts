@@ -29,6 +29,8 @@ export interface RunOptions {
   reporterFlushTimeoutMs?: number;
   /** 실패 시 스냅샷(PNG + 트리 JSON)을 쓰는 디렉터리. 없으면 아티팩트를 남기지 않는다 */
   artifactsDir?: string;
+  /** failed 테스트를 다시 돌리는 횟수(기본 0, 최대 5). 시도마다 새 Attempt(attemptNo 2, 3…)로 보고하고 재시도 전에 앱을 다시 띄운다. blocked·skipped 는 재시도하지 않는다 */
+  retries?: number;
   /** locator 액션 기한(ms, 기본 10초). 판정(expect) 기한은 그 절반: 판정은 화면이 이미 그 상태여야 하므로 액션보다 짧게 잡아 실패를 빨리 드러낸다 */
   timeoutMs?: number;
   /** 식별자(제어 평면의 Run/Cycle 과 맞출 때). runId 는 없으면 생성, cycleId/deviceId 는 모르면 이벤트에서 생략 */
@@ -42,7 +44,10 @@ export interface RunOptions {
 export interface TestResult {
   name: string;
   file: string;
+  /** 마지막 시도의 결과 */
   result: AttemptResult;
+  /** 실제로 돈 시도 수(1 이상). 재시도 끝에 통과했는지는 Verdict(passed-flaky)가 attemptNo 로 판단한다 */
+  attempts: number;
   durationMs: number;
   steps: StepRecorded[];
   artifacts: AttemptFinished['artifacts'];
@@ -65,6 +70,7 @@ export interface RunReport {
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+export const MAX_RETRIES = 5;
 /** Reporter 가 원격 전송일 때 마지막 이벤트들의 왕복을 기다릴 여유. 로컬 Reporter 는 즉시 끝난다 */
 const DEFAULT_FLUSH_TIMEOUT_MS = 10_000;
 
@@ -81,6 +87,8 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
   const { engine } = options;
   const runId = options.runId ?? randomUUID();
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const retries = options.retries ?? 0;
+  if (!Number.isInteger(retries) || retries < 0 || retries > MAX_RETRIES) throw new RangeError(`retries 는 0~${MAX_RETRIES} 의 정수여야 함: ${retries}`);
   const events: RunEvent[] = [];
   const warnings: string[] = [];
   const pending: Promise<void>[] = [];
@@ -142,18 +150,26 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
   }
 
   async function runOne(tc: TestCase, file: string): Promise<TestResult> {
+    // skip 은 시도 없이 한 번만 보고한다
+    let last = await runAttempt(tc, file, 1);
+    // failed 만 다시 돈다: blocked 는 기기 문제라 반복해도 같고, skipped 는 돌지 않았다
+    for (let no = 2; last.result === 'failed' && no <= retries + 1; no++) last = await runAttempt(tc, file, no);
+    return last;
+  }
+
+  async function runAttempt(tc: TestCase, file: string, attemptNo: number): Promise<TestResult> {
     const attemptId = randomUUID();
     const steps: StepRecorded[] = [];
     const artifacts: AttemptFinished['artifacts'] = [];
     const attemptWarnings: string[] = [];
     const started = Date.now();
-    emit({ ...base(), type: 'attempt.started', attemptId, testId: tc.name, attemptNo: 1 });
+    emit({ ...base(), type: 'attempt.started', attemptId, testId: tc.name, attemptNo });
 
     const finish = (result: AttemptResult, error?: Error): TestResult => {
       const errorCode = error instanceof EngineError ? error.code : error instanceof AssertionError ? 'assertion' : error ? 'error' : undefined;
       emit({ ...base(), type: 'attempt.finished', attemptId, result, ...(errorCode ? { errorCode } : {}), artifacts });
       return {
-        name: tc.name, file, result, durationMs: Date.now() - started, steps, artifacts,
+        name: tc.name, file, result, attempts: attemptNo, durationMs: Date.now() - started, steps, artifacts,
         ...(error ? { error: error.message } : {}), ...(errorCode ? { errorCode } : {}), ...(attemptWarnings.length ? { warnings: attemptWarnings } : {}),
       };
     };
@@ -177,10 +193,11 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
       },
       screen,
       expect: (locator, o) => makeExpect(locator, { timeoutMs: timeoutMs / 2, ...o, onStep }),
+      attemptNo,
     };
 
     try {
-      // 테스트마다 처음 화면에서 시작한다
+      // 시도마다 처음 화면에서 시작한다(실패 직후 restart 로 앱 상태는 이미 버렸다)
       await session('open');
       await tc.fn(fixtures);
       return finish('passed');
@@ -188,7 +205,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
       const error = e instanceof Error ? e : new Error(String(e));
       const blocked = error instanceof EngineError && error.code === 'device-unavailable';
       await capture(attemptId).catch((err: unknown) => attemptWarnings.push(`아티팩트 저장 실패: ${errorMessage(err)}`));
-      // 실패한 테스트가 남긴 앱 상태를 바로 버린다(마지막 테스트여도). 기기가 없으면 restart 도 안 되므로 건너뛴다
+      // 실패한 시도가 남긴 앱 상태를 바로 버린다(재시도·다음 테스트·마지막 테스트 모두). 기기가 없으면 restart 도 안 되므로 건너뛴다
       if (!blocked) await session('restart').catch((err: unknown) => attemptWarnings.push(`restart 실패: ${errorMessage(err)}`));
       return finish(blocked ? 'blocked' : 'failed', error);
     }

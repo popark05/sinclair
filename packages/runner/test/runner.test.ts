@@ -5,7 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { EngineError, RUN_EVENT_TYPES, parseRunEvent, type Engine, type RunEvent, type SemanticNode } from '@sinclair/protocol';
 import { FakeEngine, HOME_SCREEN, LOGIN_SCREEN, withDeviceUnavailable } from '@sinclair/protocol/testing';
-import { runTests, type Reporter } from '../src/index.ts';
+import { runTests, MAX_RETRIES, type Reporter } from '../src/index.ts';
 
 const SETTINGS_SCREEN: SemanticNode = {
   ref: '@s0', role: 'root', rect: { x: 0, y: 0, width: 1080, height: 2400 }, children: [
@@ -180,5 +180,49 @@ describe('Reporter', () => {
     const report = await runTests([fixture('sample.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 200, reporter, reporterFlushTimeoutMs: 50 });
     vexpect(closed).toBe(true);
     vexpect(report.warnings).toEqual([vexpect.stringContaining('flush'), '남은 2건 버림']);
+  });
+});
+
+describe('재시도 (retries)', () => {
+  it('failed 만 retries 만큼 새 Attempt 로 다시 돌린다: 1차 실패·2차 통과 → passed/attempts 2, 끝내 실패 → failed/attempts retries+1', async () => {
+    const engine = engineWithApps();
+    const report = await runTests([fixture('flaky.sinclair.ts')], { engine, artifactsDir, timeoutMs: 200, retries: 2 });
+    vexpect(report.tests.map((t) => [t.result, t.attempts])).toEqual([['passed', 2], ['failed', 3], ['passed', 1]]);
+    vexpect(report.summary).toEqual({ passed: 2, failed: 1, blocked: 0, skipped: 0 }); // 마지막 시도 기준
+    // 이벤트: 같은 testId 로 attemptNo 1,2 / 1,2,3 / 1, 각 attempt 는 started → finished 짝
+    const attempts = report.events.filter((e): e is Extract<RunEvent, { type: 'attempt.started' }> => e.type === 'attempt.started');
+    vexpect(attempts.map((a) => [a.testId, a.attemptNo])).toEqual([
+      ['첫 시도에만 없는 문구를 찾는다', 1], ['첫 시도에만 없는 문구를 찾는다', 2],
+      ['끝내 실패한다', 1], ['끝내 실패한다', 2], ['끝내 실패한다', 3],
+      ['로그인 버튼이 보인다', 1],
+    ]);
+    const finished = report.events.filter((e): e is Extract<RunEvent, { type: 'attempt.finished' }> => e.type === 'attempt.finished');
+    vexpect(finished.map((f) => f.result)).toEqual(['failed', 'passed', 'failed', 'failed', 'failed', 'passed']);
+    vexpect(new Set(finished.map((f) => f.attemptId)).size).toBe(6); // attemptId 는 시도마다 새로
+    // 실패한 시도마다 아티팩트가 그 attemptId 로 남는다
+    for (const f of finished.filter((x) => x.result === 'failed')) {
+      vexpect(f.artifacts.map((a) => a.kind).sort()).toEqual(['screen-tree', 'screenshot']);
+      for (const a of f.artifacts) { vexpect(a.key.startsWith(f.attemptId)).toBe(true); vexpect(fs.existsSync(path.join(artifactsDir, a.key))).toBe(true); }
+    }
+    vexpect(finished.filter((x) => x.result === 'passed').every((f) => f.artifacts.length === 0)).toBe(true);
+    // 세션: 테스트마다 open, 실패 뒤 restart, 재시도는 다시 open 으로 시작
+    vexpect(engine.sessionCalls).toEqual(['open', 'restart', 'open', 'open', 'restart', 'open', 'restart', 'open', 'restart', 'open']);
+    vexpect(report.events.map((e) => e.type).filter((t) => t.startsWith('run.'))).toEqual(['run.started', 'run.finished']);
+    for (const e of report.events) vexpect(parseRunEvent(e).ok).toBe(true);
+  });
+
+  it('retries 기본값은 0 이고 blocked 는 재시도하지 않는다', async () => {
+    const plain = await runTests([fixture('flaky.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 200 });
+    vexpect(plain.tests.map((t) => [t.result, t.attempts])).toEqual([['failed', 1], ['failed', 1], ['passed', 1]]);
+    const fake = withDeviceUnavailable(engineWithApps());
+    const blocked = await runTests([fixture('flaky.sinclair.ts')], { engine: fake, timeoutMs: 200, retries: 2 });
+    vexpect(blocked.tests.map((t) => [t.result, t.attempts])).toEqual([['blocked', 1], ['blocked', 1], ['blocked', 1]]);
+    vexpect(blocked.events.filter((e) => e.type === 'attempt.started')).toHaveLength(3);
+  });
+
+  it('retries 는 0~5 의 정수여야 한다', async () => {
+    vexpect(MAX_RETRIES).toBe(5); // control-plane MAX_SUITE_RETRIES, runner-agent MAX_RETRIES 와 같은 숫자(apps 는 러너를 import 하지 않아 따로 둔다)
+    await vexpect(runTests([fixture('sample.sinclair.ts')], { engine: engineWithApps(), retries: 6 })).rejects.toThrow(/retries/);
+    await vexpect(runTests([fixture('sample.sinclair.ts')], { engine: engineWithApps(), retries: 1.5 })).rejects.toThrow(/retries/);
   });
 });

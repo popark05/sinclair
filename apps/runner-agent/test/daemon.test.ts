@@ -43,6 +43,17 @@ describe('runDaemon', () => {
     expect(fs.readdirSync(spool)).toEqual([]); // 스풀은 다 보내고 치워졌다
   });
 
+  it('Cycle 의 suite.retries 가 노드의 --retries 보다 우선한다: 첫 시도만 실패하는 테스트가 재시도로 통과해 Cycle 매트릭스에 passed-flaky', async () => {
+    await post('/cycles', { cycleId: 'cf', build: 'b', targets: ['android'], suite: { tests: path.join(fixtures, 'flaky'), retries: 1 } });
+    await post('/cycles/cf/runs', { targetId: 'android' });
+    const r = await runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', retries: 0, timeoutMs: 100, spool, helperCache: path.join(spool, 'helper-cache'), agent: 'node-f', pollMs: 10 }, deps({ maxRuns: 1 }));
+    expect(r.runs[0]!.exitCode).toBe(EXIT.ok);
+    expect(logs.join('\n')).toMatch(/retries 1/);
+    const v = await view('cf');
+    expect(v).toMatchObject({ state: 'finished', verdict: 'verified' });
+    expect(v.matrix['첫 시도에만 실패한다']!.android).toMatchObject({ verdict: 'passed-flaky' });
+  });
+
   it('실패한 run 뒤에도 다음 Run 을 계속 가져가고, 대기 중인 Run 이 없으면 폴링하다가 신호에 멈춘다', async () => {
     await post('/cycles', { cycleId: 'c2', build: 'b', targets: ['android'], suite: { tests: fixtures } }); // 통과 1 + 실패 1
     await post('/cycles/c2/runs', { targetId: 'android', runId: 'r-first' });

@@ -82,7 +82,7 @@ export async function executeRun(args: RunArgs, run: RegisteredRun, files: strin
     const report = await runTests(files, {
       engine: handle.engine, reporter, runId: run.runId, cycleId: run.cycleId, targetId: run.targetId, agentId,
       ...(flushBudgetMs !== undefined ? { reporterFlushTimeoutMs: flushBudgetMs } : {}),
-      ...(handle.deviceId ? { deviceId: handle.deviceId } : {}), ...(args.artifacts ? { artifactsDir: args.artifacts } : {}), ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}),
+      ...(handle.deviceId ? { deviceId: handle.deviceId } : {}), ...(args.artifacts ? { artifactsDir: args.artifacts } : {}), ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}), ...(args.retries !== undefined ? { retries: args.retries } : {}),
     });
     const s = report.summary;
     const stats = (reporter as { stats?: { sent: number; accepted: number; duplicate: number; rejected: number; retries: number } }).stats;

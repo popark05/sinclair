@@ -5,6 +5,8 @@
 export interface SuiteFilter {
   tests: string;
   tags?: string[];
+  /** failed 테스트를 다시 돌리는 횟수(0~5). 에이전트의 --retries 보다 우선한다 */
+  retries?: number;
 }
 
 export interface CycleRecord {

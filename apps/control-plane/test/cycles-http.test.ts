@@ -121,6 +121,13 @@ describe('Cycle API', () => {
     expect((await (await fetch(url('/cycles/cs'))).json() as CycleView).suite).toEqual({ tests: 'tests/smoke', tags: ['smoke'] });
     expect((await post('/cycles', { build: 'b', targets: ['android'], suite: { tags: ['x'] } })).status).toBe(400);
     expect((await post('/cycles', { build: 'b', targets: ['android'], suite: 'tests' })).status).toBe(400);
+    // suite.retries: 0~5 정수, 저장되고 클레임 응답의 suite 에 실린다
+    expect((await post('/cycles', { cycleId: 'cr', build: 'b', targets: ['android'], suite: { tests: 'tests/smoke', retries: 2 } })).status).toBe(201);
+    expect((await (await fetch(url('/cycles/cr'))).json() as CycleView).suite).toEqual({ tests: 'tests/smoke', retries: 2 });
+    await post('/cycles/cr/runs', { targetId: 'android' });
+    expect(await (await post('/runs/claim', { targetId: 'android', agentId: 'a' })).json()).toMatchObject({ suite: { tests: 'tests/smoke', retries: 2 } });
+    expect((await post('/cycles', { build: 'b', targets: ['android'], suite: { tests: 't', retries: 6 } })).status).toBe(400);
+    expect((await post('/cycles', { build: 'b', targets: ['android'], suite: { tests: 't', retries: '1' } })).status).toBe(400);
   });
 
   it('POST /runs/claim 은 대기 중인 Run 을 lease 와 suite 와 함께 주고(200), 없으면 204; heartbeat 는 소유자만(409), 모르는 Run 은 404; lease 가 Cycle 뷰에 보인다', async () => {

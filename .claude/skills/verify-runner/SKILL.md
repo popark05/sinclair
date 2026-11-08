@@ -34,6 +34,7 @@ SINCLAIR_TEST_USB=1 npx vitest run packages/device-layer/test/android-backend.de
 ## Evidence
 
 - `.scratch/runner-locator/evidence/05-runner-device-latest.json`(리포에 남음): 기기(시리얼 마스킹), 요약, 테스트별 결과·스텝·소요 시간.
+- `.scratch/runner-locator/evidence/05-runner-retry-device-latest.json`: 재시도(`retries: 1`) 샘플 `fixtures/sample-flaky.sinclair.ts`(fixture `attemptNo` 가 1 이면 없는 문구를 기다려 실패) 의 attempt 시퀀스 — `started 1 → finished failed(아티팩트) → started 2 → finished passed`, `attempts: 2`. control-plane 에 보고되면 그 셀은 `passed-flaky` 다.
 - `.e2e/runner-artifacts/<attemptId>.screenshot.png` / `.screen-tree.json`: 실패한 테스트의 마지막 화면(git-ignore).
 - 증명 기준: 사용자 경로(`test()` 파일 → `runTests`)로만 돌리고, 리포트의 `steps` 가 locator/assert 호출을 `step.recorded` 모양으로 담고 있어야 한다. 페이크 엔진 결과는 실기기 증명이 아니다.
 
@@ -47,8 +48,10 @@ SINCLAIR_TEST_USB=1 npx vitest run packages/device-layer/test/android-backend.de
 | --- | --- |
 | `packages/runner/test/runner.device.test.ts` | 실기기 실행기(증거 기록 포함) |
 | `packages/runner/test/fixtures/sample.sinclair.ts` | 샘플 테스트 |
+| `packages/runner/test/fixtures/sample-flaky.sinclair.ts` | 재시도 샘플(첫 시도만 실패) |
 | `features/` | 기능별 레시피 |
 
 ## 검증 이력
 
 - 2026-11-07: 최초 시드. 실기기 실행 결과는 evidence 파일 참고.
+- 2026-11-08: 재시도 샘플 추가(retry-policy 티켓 01). SM-N981N 에서 passed/attempts 2 확인.

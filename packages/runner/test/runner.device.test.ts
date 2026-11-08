@@ -3,6 +3,7 @@
  * 실기기(opt-in): 샘플 테스트 파일을 engine-mobile 로 실제 Android 기기에서 돌린다.
  *   adb kill-server && SINCLAIR_TEST_USB=1 npx vitest run packages/runner/test/runner.device.test.ts
  * 전제: 기기 잠금 해제, 설정 앱(com.android.settings) 제목이 "설정"(한국어 UI).
+ * 두 번째 테스트는 재시도(retries 1): 첫 시도만 실패하는 샘플이 passed/attempts 2 로 끝나고 이벤트에 attemptNo 1·2 가 남는다(evidence 05-runner-retry-device-latest.json).
  */
 import { describe, it, expect as vexpect } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -37,6 +38,16 @@ describe.skipIf(!target)('실기기 runTests', () => {
         tests: report.tests.map((t) => ({ name: t.name, result: t.result, durationMs: t.durationMs, steps: t.steps.map((s) => ({ kind: s.kind, instruction: s.instruction, durationMs: s.durationMs })), error: t.error })),
       }, null, 2) + '\n');
       vexpect(report.summary).toEqual({ passed: 1, failed: 0, blocked: 0, skipped: 0 });
+
+      // 재시도: 첫 시도만 실패하는 샘플. 실패 시도 아티팩트는 그 attemptId 로 남고, 두 번째 시도가 통과한다
+      const retry = await runTests([path.resolve(import.meta.dirname, 'fixtures/sample-flaky.sinclair.ts')], { engine, artifactsDir, retries: 1, timeoutMs: 5_000, deviceId: `…${deviceId.slice(-4)}` });
+      const attempts = retry.events.filter((e) => e.type === 'attempt.started' || e.type === 'attempt.finished').map((e) => e.type === 'attempt.started' ? { type: e.type, attemptNo: e.attemptNo, attemptId: e.attemptId } : { type: e.type, result: e.result, attemptId: e.attemptId, artifacts: e.artifacts.map((a) => a.kind) });
+      await fs.writeFile(path.join(dir, '05-runner-retry-device-latest.json'), JSON.stringify({
+        at: new Date().toISOString(), device: `${info.model} (…${deviceId.slice(-4)}) Android ${info.osVersion}`, retries: 1, summary: retry.summary,
+        tests: retry.tests.map((t) => ({ name: t.name, result: t.result, attempts: t.attempts, durationMs: t.durationMs })), attempts,
+      }, null, 2) + '\n');
+      vexpect(retry.tests.map((t) => [t.result, t.attempts])).toEqual([['passed', 2]]);
+      vexpect(attempts.map((a) => ('attemptNo' in a ? `started ${a.attemptNo}` : `finished ${a.result}`))).toEqual(['started 1', 'finished failed', 'started 2', 'finished passed']);
       await engine.session!.restart().catch(() => undefined);
       await backend.terminateApp(deviceId, 'com.android.settings').catch(() => undefined);
       await backend.button(deviceId, 'home').catch(() => undefined);
