@@ -238,6 +238,10 @@ describe('버려진 Run 과 대체 Run (HTTP)', () => {
     expect(rep).toMatchObject({ targetId: 'android', state: 'queued', replaces: 'r1' });
     expect(view).toMatchObject({ state: 'running', verdict: 'incomplete', retriesUsed: { android: 1 } });
     expect(view.matrix['로그인']).toBeUndefined(); // 대체된 run 의 케이스는 판정에서 빠진다(blocked 가 아님)
+    // 원래 에이전트의 heartbeat 는 이제 409 replaced: 이걸 받아야 취소한다
+    const hb = await post('/runs/r1/heartbeat', { agentId: 'a1' });
+    expect(hb.status).toBe(409);
+    expect(await hb.json()).toMatchObject({ code: 'replaced', replacedBy: rep!.runId });
     const claimed = await claim('android');
     expect(claimed?.runId).toBe(rep!.runId);
     await post('/ingest', finishedOk(rep!.runId, 'c'));

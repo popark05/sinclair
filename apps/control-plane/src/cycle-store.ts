@@ -44,7 +44,8 @@ export interface RunRegistration {
   abandonedAt?: string;
 }
 
-export type HeartbeatResult = { outcome: 'ok'; expiresAt: string } | { outcome: 'not-owner' } | { outcome: 'no-run' };
+/** replaced: 버려진 Run 으로 정리돼 대체 Run 이 생겼다. lease 소유자가 그대로여도 연장하지 않는다 — 원래 에이전트가 이걸 받고 취소해야 두 Run 이 같은 몫을 계속 보고하지 않는다 */
+export type HeartbeatResult = { outcome: 'ok'; expiresAt: string } | { outcome: 'not-owner' } | { outcome: 'no-run' } | { outcome: 'replaced'; replacedBy: string };
 
 export interface CycleStore {
   /** 같은 cycleId 가 있으면 'duplicate' */
@@ -106,6 +107,7 @@ export function createMemoryCycleStore(): CycleStore {
     async heartbeat(runId, agentId, nowMs, ttlMs) {
       const r = runs.get(runId);
       if (!r) return { outcome: 'no-run' };
+      if (r.replacedBy) return { outcome: 'replaced', replacedBy: r.replacedBy };
       if (r.lease?.agentId !== agentId) return { outcome: 'not-owner' };
       r.lease = newLease(agentId, nowMs, ttlMs);
       return { outcome: 'ok', expiresAt: r.lease.expiresAt };

@@ -7,6 +7,7 @@
 //   GET  /cycles/:id         CycleView (verdict.ts: 상태·Verdict·매트릭스)
 //   POST /cycles/:id/runs    { targetId, runId? } → RunRegistration (201)
 //   POST /runs/claim         { targetId, agentId } → { run, leaseTtlMs } (200) | 없음 (204)
+//   POST /runs/:id/heartbeat { agentId } → { expiresAt } (200) | 409 not-owner·replaced | 404
 //   POST /runs/:id/heartbeat { agentId } → { expiresAt } (200) | 409 not-owner | 404
 //   GET  /health             200
 import http from 'node:http';
@@ -152,6 +153,8 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         const result = await cycles.heartbeat(parts[1]!, b.agentId, (opts.now ?? Date.now)(), opts.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS);
         if (result.outcome === 'no-run') return json(res, 404, { error: '모르는 Run', code: 'run-not-found' });
         if (result.outcome === 'not-owner') return json(res, 409, { error: '이 에이전트의 lease 가 아님', code: 'not-owner' });
+        // 에이전트는 409 를 lease 상실로 보고 러너를 취소한다(대체 Run 이 그 몫을 돌린다)
+        if (result.outcome === 'replaced') return json(res, 409, { error: `버려진 Run 으로 정리돼 ${result.replacedBy} 로 대체됨`, code: 'replaced', replacedBy: result.replacedBy });
         return json(res, 200, { expiresAt: result.expiresAt });
       }
       if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true });

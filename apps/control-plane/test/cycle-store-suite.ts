@@ -82,6 +82,14 @@ export function runClaimSuite(name: string, makeStore: () => Promise<CycleStore>
       expect(again).toMatchObject({ runId: 'r2', lease: { agentId: 'agent-2' } });
     });
 
+    it('대체된(replacedBy) Run 의 heartbeat 는 소유자여도 replaced 로 거절하고 lease 를 연장하지 않는다', async () => {
+      await store.claimRun('ios', 'agent-1', T0, TTL, noEvents);
+      await store.registerRun({ runId: 'r2b', cycleId: 'c1', targetId: 'ios', createdAt: 'x', replaces: 'r2' });
+      await store.markReplaced('r2', 'r2b', new Date(T0 + 2 * TTL).toISOString());
+      expect(await store.heartbeat('r2', 'agent-1', T0 + 2 * TTL, TTL)).toEqual({ outcome: 'replaced', replacedBy: 'r2b' });
+      expect((await store.runsForCycle('c1')).find((r) => r.runId === 'r2')!.lease!.expiresAt).toBe(new Date(T0 + TTL).toISOString());
+    });
+
     it('heartbeat 는 소유자만 lease 를 연장한다', async () => {
       await store.claimRun('ios', 'agent-1', T0, TTL, noEvents);
       expect(await store.heartbeat('r2', 'agent-1', T0 + 10_000, TTL)).toEqual({ outcome: 'ok', expiresAt: new Date(T0 + 10_000 + TTL).toISOString() });

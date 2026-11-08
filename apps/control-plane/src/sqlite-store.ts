@@ -139,6 +139,7 @@ export function createSqliteCycleStore(source: string | DatabaseSync): CycleStor
         const row = selectRun.get(runId) as { record: string } | undefined;
         if (!row) return { outcome: 'no-run' };
         const r = JSON.parse(row.record) as RunRegistration;
+        if (r.replacedBy) return { outcome: 'replaced', replacedBy: r.replacedBy };
         if (r.lease?.agentId !== agentId) return { outcome: 'not-owner' };
         const next = { ...r, lease: newLease(agentId, nowMs, ttlMs) };
         if (casRun.run(JSON.stringify(next), runId, row.record).changes === 1) return { outcome: 'ok', expiresAt: next.lease.expiresAt };
