@@ -76,6 +76,8 @@ export interface RunReport {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 export const MAX_RETRIES = 5;
+/** 취소로 시작하지 못한 테스트의 skipped attempt 에 붙는 errorCode. control-plane Verdict 가 이것만 blocked 로 본다(같은 문자열을 따로 둔다) */
+export const CANCELLED_CODE = 'cancelled';
 /** Reporter 가 원격 전송일 때 마지막 이벤트들의 왕복을 기다릴 여유. 로컬 Reporter 는 즉시 끝난다 */
 const DEFAULT_FLUSH_TIMEOUT_MS = 10_000;
 
@@ -93,6 +95,8 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
   const runId = options.runId ?? randomUUID();
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const retries = options.retries ?? 0;
+  /** 취소 때문에 시작하지 못한 테스트나 재시도가 있었는지 */
+  let cutShort = false;
   if (!Number.isInteger(retries) || retries < 0 || retries > MAX_RETRIES) throw new RangeError(`retries 는 0~${MAX_RETRIES} 의 정수여야 함: ${retries}`);
   const events: RunEvent[] = [];
   const warnings: string[] = [];
@@ -121,8 +125,9 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
 
   for (const file of files) {
     drainRegistry();
-    // ESM 모듈 캐시 때문에 같은 파일을 두 번째 run 에서 다시 평가하지 않으므로, run 마다 다른 질의 문자열로 불러들인다
-    await import(`${pathToFileURL(path.resolve(file)).href}?sinclair-run=${runId}`);
+    // ESM 모듈 캐시 때문에 같은 파일을 두 번째 run 에서 다시 평가하지 않으므로, 불러들일 때마다 다른 질의 문자열을 쓴다.
+    // runId 는 키가 될 수 없다: 같은 runId 로 다시 돌리면(재보고·테스트) 캐시된 모듈이 돌아와 테스트가 하나도 등록되지 않는다
+    await import(`${pathToFileURL(path.resolve(file)).href}?sinclair-load=${randomUUID()}`);
     for (const tc of drainRegistry()) {
       tests.push(await runOne(tc, file));
     }
@@ -130,7 +135,8 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
 
   const summary = { passed: 0, failed: 0, blocked: 0, skipped: 0 };
   for (const t of tests) summary[t.result]++;
-  const cancelled = options.signal?.aborted ? { reason: abortReason(options.signal) } : undefined;
+  // 실제로 무언가를 못 돌렸을 때만 cancelled: 마지막 테스트 도중 신호가 와서 전부 끝까지 돌았다면 완료된 run 이다(Cycle 을 blocked 로 만들지 않는다)
+  const cancelled = cutShort && options.signal ? { reason: abortReason(options.signal) } : undefined;
   // blocked(기기·헬퍼 불가)는 테스트 판정이 아니라 인프라 문제라 Run 은 infra-failed. 취소는 그보다 우선한다: 돌지 않은 케이스가 있다는 뜻이 같고, 사유가 더 구체적이다
   emit({ ...base(), type: 'run.finished', state: cancelled ? 'cancelled' : summary.blocked > 0 ? 'infra-failed' : 'finished' });
   await flushReporter();
@@ -156,11 +162,14 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
   }
 
   async function runOne(tc: TestCase, file: string): Promise<TestResult> {
-    // 취소된 뒤에는 시작하지 않는다: skip 처럼 attempt 하나로 기록해 Cycle 뷰에 "돌지 않음" 이 보이게 한다
-    let last = await runAttempt(options.signal?.aborted ? { ...tc, skip: true } : tc, file, 1);
-    // failed 만 다시 돈다: blocked 는 기기 문제라 반복해도 같고, skipped 는 attempt 하나(attemptNo 1)로 보고하고 끝난다. 취소되면 남은 재시도도 시작하지 않는다
+    // 취소된 뒤에는 시작하지 않는다: skipped(errorCode cancelled) attempt 하나로 기록해, 작성자가 건너뛴 test.skip 과 Verdict 가 구분할 수 있게 한다
+    if (options.signal?.aborted && !tc.skip) { cutShort = true; return runAttempt(tc, file, 1, true); }
+    let last = await runAttempt(tc, file, 1);
+    // failed 만 다시 돈다: blocked 는 기기 문제라 반복해도 같고, skipped 는 attempt 하나(attemptNo 1)로 보고하고 끝난다
     const earlierWarnings: string[] = [];
-    for (let no = 2; last.result === 'failed' && no <= retries + 1 && !options.signal?.aborted; no++) {
+    for (let no = 2; last.result === 'failed' && no <= retries + 1; no++) {
+      // 취소되면 남은 재시도를 시작하지 않는다. 결과는 마지막 시도의 failed 그대로 두고, 못 돈 재시도가 있으니 run 은 cancelled
+      if (options.signal?.aborted) { cutShort = true; break; }
       // 앞선 시도의 경고(아티팩트·restart 실패)는 재시도가 통과해도 버리지 않는다
       earlierWarnings.push(...(last.warnings ?? []).map((w) => `시도 ${last.attempts}: ${w}`));
       last = await runAttempt(tc, file, no);
@@ -169,7 +178,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
     return warnings.length ? { ...last, warnings } : last;
   }
 
-  async function runAttempt(tc: TestCase, file: string, attemptNo: number): Promise<TestResult> {
+  async function runAttempt(tc: TestCase, file: string, attemptNo: number, cancelledSkip = false): Promise<TestResult> {
     const attemptId = randomUUID();
     const steps: StepRecorded[] = [];
     const artifacts: AttemptFinished['artifacts'] = [];
@@ -178,7 +187,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
     emit({ ...base(), type: 'attempt.started', attemptId, testId: tc.name, attemptNo });
 
     const finish = (result: AttemptResult, error?: Error): TestResult => {
-      const errorCode = error instanceof EngineError ? error.code : error instanceof AssertionError ? 'assertion' : error ? 'error' : undefined;
+      const errorCode = cancelledSkip ? CANCELLED_CODE : error instanceof EngineError ? error.code : error instanceof AssertionError ? 'assertion' : error ? 'error' : undefined;
       emit({ ...base(), type: 'attempt.finished', attemptId, result, ...(errorCode ? { errorCode } : {}), artifacts });
       return {
         name: tc.name, file, result, attempts: attemptNo, durationMs: Date.now() - started, steps, artifacts,
@@ -186,7 +195,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
       };
     };
 
-    if (tc.skip) return finish('skipped');
+    if (tc.skip || cancelledSkip) return finish('skipped');
 
     const onStep = (step: StepEvent): void => {
       const ev: StepRecorded = {

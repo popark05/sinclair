@@ -50,7 +50,7 @@ $S/daemon.sh $RUN            # DAEMON … state=finished verdict=verified leases
 증명 기준:
 
 - 에이전트가 실제 bin 으로 실행돼 control-plane 의 실제 HTTP 로 등록·전송했다(인프로세스 호출은 단위 테스트지 증명이 아니다).
-- `exitCode` 와 Cycle 의 `state/verdict/matrix` 를 함께 인용한다. 종료 코드 계약: 0 통과, 1 실패 있음, 2 기기 불가, 3 설정·등록 오류, 5 중단(cancelled: lease 상실·종료 신호).
+- `exitCode` 와 Cycle 의 `state/verdict/matrix` 를 함께 인용한다. 종료 코드 계약(`run`): 0 통과, 1 실패 있음, 2 기기 불가, 3 설정·등록 오류. 데몬 안의 run 별 코드에는 5 중단(cancelled: lease 상실·종료 신호)이 더 있고, 데몬 프로세스는 cancelled run 을 실패로 세지 않는다.
 - FakeEngine 증명은 Reporter → Ingest → Verdict 경로만 증명한다. 기기 동작은 실기기 evidence 로만 주장한다.
 
 ## Cleanup

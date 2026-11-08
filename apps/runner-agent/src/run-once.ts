@@ -11,7 +11,8 @@ import { HelperApkError } from './helper-apk.ts';
 import { createSpoolReporter } from './spool.ts';
 
 /** 종료 코드. 셸 스크립트·CI 가 분기한다. incomplete 는 resume 전용(미완 run 이 남음) */
-/** 5 cancelled: lease 상실·종료 신호로 run 이 중단돼 남은 테스트가 돌지 않음(blocked 와 달리 기기 문제가 아니다) */
+/** 5 cancelled: lease 상실·종료 신호로 run 이 중단돼 남은 테스트가 돌지 않음(blocked 와 달리 기기 문제가 아니다). 데몬 안에서만 생긴다(`run` 명령은 취소 신호를 받지 않는다).
+ *  실패(1)·blocked(2)보다 우선한다: 보고가 불완전하다는 뜻이 먼저이고 케이스별 결과는 Cycle 뷰에 있다 */
 export const EXIT = { ok: 0, testsFailed: 1, blocked: 2, config: 3, incomplete: 4, cancelled: 5 } as const;
 export type ExitCode = (typeof EXIT)[keyof typeof EXIT];
 

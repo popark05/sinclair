@@ -107,6 +107,12 @@ describe('runTests', () => {
     vexpect(b.tests).toHaveLength(4);
   });
 
+  it('같은 runId 로 한 프로세스에서 다시 돌려도 테스트가 다시 등록된다(모듈 캐시 키가 runId 가 아니다)', async () => {
+    const first = await runTests([fixture('three.sinclair.ts')], { engine: engineWithApps(), runId: 'same-run' });
+    const again = await runTests([fixture('three.sinclair.ts')], { engine: engineWithApps(), runId: 'same-run' });
+    vexpect([first.tests.length, again.tests.length]).toEqual([3, 3]);
+  });
+
   it('run.started 는 모르는 cycleId/deviceId 를 빈 문자열로 채우지 않는다', async () => {
     const report = await runTests([fixture('sample.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 200 });
     const started = report.events[0] as Extract<RunEvent, { type: 'run.started' }>;
@@ -273,6 +279,34 @@ describe('취소 (signal)', () => {
     vexpect(already.tests.map((t) => t.result)).toEqual(['skipped', 'skipped', 'skipped']);
     vexpect(already).toMatchObject({ cancelled: { reason: '미리 중단' } });
     vexpect(already.events.at(-1)).toMatchObject({ type: 'run.finished', state: 'cancelled' });
+  });
+
+  it('마지막 테스트 도중 abort 되어 전부 돌았다면 run 은 finished 이고 cancelled 가 없다; 취소 skipped 에는 errorCode cancelled, 작성자 test.skip 에는 없다', async () => {
+    const aborter = new AbortController();
+    let opens = 0;
+    const engine = engineWithApps();
+    const origOpen = engine.session!.open;
+    engine.session!.open = async (t) => { await origOpen(t); if (++opens === 3) aborter.abort('늦은 신호'); };
+    const done = await runTests([fixture('three.sinclair.ts')], { engine, timeoutMs: 200, signal: aborter.signal });
+    vexpect(done.tests.map((t) => t.result)).toEqual(['passed', 'passed', 'passed']);
+    vexpect(done.cancelled).toBeUndefined();
+    vexpect(done.events.at(-1)).toMatchObject({ state: 'finished' });
+    // 첫 테스트 시작 직후 abort: mixed 의 test.skip 은 작성자 skip(errorCode 없음), 나머지는 취소 skip(errorCode cancelled)
+    const a2 = new AbortController();
+    const e2 = engineWithApps();
+    const o2 = e2.session!.open;
+    e2.session!.open = async (t) => { await o2(t); a2.abort('lease 를 잃음'); };
+    const r2 = await runTests([fixture('mixed.sinclair.ts')], { engine: e2, timeoutMs: 200, signal: a2.signal });
+    vexpect(r2.tests.map((t) => [t.result, t.errorCode])).toEqual([['passed', undefined], ['skipped', 'cancelled'], ['skipped', undefined], ['skipped', 'cancelled']]);
+  });
+
+  it('blocked 테스트 뒤에 취소되면 infra-failed 보다 cancelled 가 우선한다', async () => {
+    const aborter = new AbortController();
+    const engine = engineWithApps();
+    engine.session!.open = async () => { aborter.abort('종료 신호'); throw new EngineError('device-unavailable', '기기 없음'); };
+    const report = await runTests([fixture('three.sinclair.ts')], { engine, timeoutMs: 200, signal: aborter.signal });
+    vexpect(report.tests.map((t) => t.result)).toEqual(['blocked', 'skipped', 'skipped']);
+    vexpect(report.events.at(-1)).toMatchObject({ type: 'run.finished', state: 'cancelled' });
   });
 
   it('신호가 abort 되지 않으면 cancelled 가 없다', async () => {

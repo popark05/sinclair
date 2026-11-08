@@ -33,7 +33,8 @@ export async function main(argv = process.argv.slice(2), env = process.env): Pro
       process.once('SIGINT', () => stop('SIGINT'));
       const summary = await runDaemon(args, { signal: aborter.signal });
       console.log(`데몬 요약: run ${summary.runs.length}개 (${summary.runs.map((r) => `${r.targetId}:${r.exitCode}`).join(', ')}), resume ${summary.resumed}`);
-      return summary.runs.every((r) => r.exitCode === EXIT.ok) ? EXIT.ok : EXIT.testsFailed;
+      // 중단(cancelled)된 run 은 이 노드의 실패가 아니다: 계획된 종료·lease 상실이고, 케이스 결과는 Cycle 뷰가 blocked·대체로 드러낸다
+      return summary.runs.every((r) => r.exitCode === EXIT.ok || r.exitCode === EXIT.cancelled) ? EXIT.ok : EXIT.testsFailed;
     }
     const args = parseResumeArgs(rest, env);
     if ('help' in args) { process.stdout.write(RESUME_HELP); return EXIT.ok; }

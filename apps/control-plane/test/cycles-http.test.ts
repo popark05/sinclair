@@ -135,7 +135,10 @@ describe('Cycle API', () => {
       { ...base('i1', 1, 'ri'), type: 'attempt.started', attemptId: 'ia1', testId: T, attemptNo: 1 },
       { ...base('i2', 2, 'ri'), type: 'attempt.finished', attemptId: 'ia1', result: 'passed', artifacts: [] },
       { ...base('i3', 3, 'ri'), type: 'attempt.started', attemptId: 'ia2', testId: '결제', attemptNo: 1 },
-      { ...base('i4', 4, 'ri'), type: 'attempt.finished', attemptId: 'ia2', result: 'skipped', artifacts: [] },
+      { ...base('i4', 4, 'ri'), type: 'attempt.finished', attemptId: 'ia2', result: 'skipped', errorCode: 'cancelled', artifacts: [] },
+      // 작성자가 건너뛴 test.skip(errorCode 없음)은 취소된 run 안이어도 skipped 그대로
+      { ...base('i6', 1, 'ri'), type: 'attempt.started', attemptId: 'ia3', testId: '보류', attemptNo: 1 },
+      { ...base('i7', 1, 'ri'), type: 'attempt.finished', attemptId: 'ia3', result: 'skipped', artifacts: [] },
       { ...base('i5', 5, 'ri'), type: 'run.finished', state: 'cancelled' },
     ];
     await post('/ingest', [...full('ra', 'android', 'a'), ...cancelled]);
@@ -144,6 +147,7 @@ describe('Cycle API', () => {
     expect(v.runs.map((r) => r.state)).toEqual(['finished', 'cancelled']);
     expect(v.matrix['결제']!.ios).toMatchObject({ verdict: 'blocked' }); // 취소로 돌지 못한 케이스는 skipped 가 아니라 blocked
     expect(v.matrix[T]!.ios).toMatchObject({ verdict: 'passed' });
+    expect(v.matrix['보류']!.ios).toMatchObject({ verdict: 'skipped' });
   });
 
   it('POST /cycles 는 suite 필터를 받아 저장하고 GET /cycles/:id 에 돌려준다; 잘못된 suite 는 400', async () => {

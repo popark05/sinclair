@@ -1,8 +1,8 @@
 // Verdict 계산: Cycle 의 run 투영들에서 TestCase × 타깃 매트릭스와 Cycle 판정을 만든다. 순수 함수.
 // 규칙(specs/0001 "Verdict 규칙"): 케이스의 최종 상태는 마지막(attemptNo 최대, 끝난) Attempt. 재시도로 통과하면 passed-flaky.
 // 필수 케이스(requiredTags 가 비면 전부, 아니면 그 태그를 가진 테스트)가 전부 passed/passed-flaky 면 verified, 아니면 blocked.
-// 끝나지 않은 run 이 있으면 incomplete. `waived` 는 Issue/waive 티켓이 만들기 전까지 생성 경로가 없고(통과로 집계), CYCLE_STATES 의 expired/cancelled 는
-// Scheduler 가 생기기 전까지 도달하지 않는다. 판정은 저장하지 않고 조회마다 다시 계산한다(늦게 온 이벤트가 반영된다).
+// 끝나지 않은 run 이 있으면 incomplete. `waived` 는 Issue/waive 티켓이 만들기 전까지 생성 경로가 없고(통과로 집계), Cycle 상태(CYCLE_STATES)의 expired/cancelled 는
+// Scheduler 가 생기기 전까지 도달하지 않는다(Run 상태 cancelled 는 러너 취소 신호가 만든다). 판정은 저장하지 않고 조회마다 다시 계산한다(늦게 온 이벤트가 반영된다).
 import type { CaseVerdict, CycleState, CycleVerdict, RunState } from '@sinclair/protocol';
 import type { CycleRecord, RunLease, RunRegistration, SuiteFilter } from './cycle-store.ts';
 import type { AttemptView, RunView } from './projection.ts';
@@ -10,6 +10,8 @@ import type { AttemptView, RunView } from './projection.ts';
 /** 버려진 Run 의 기본 대체 한도. 한 번은 인프라 흔들림으로 보고, 두 번째도 버려지면 사람이 본다 */
 export const DEFAULT_RETRY_LIMIT = 1;
 export const MAX_RETRY_LIMIT = 5;
+/** 러너 CANCELLED_CODE 와 같은 문자열(apps 는 러너를 import 하지 않는다; runner-agent 테스트가 같음을 확인) */
+export const CANCELLED_CODE = 'cancelled';
 
 export interface CaseCell { verdict: CaseVerdict; attemptId?: string }
 
@@ -81,8 +83,8 @@ export function computeCycle(cycle: CycleRecord, registrations: RunRegistration[
         if (reg.targetId !== targetId) continue;
         const attempts = (view?.attempts ?? []).filter((a) => a.testId === testId);
         const cell = caseVerdict(attempts);
-        // 취소된 run 이 skipped 로 기록한 케이스는 "안 돌기로 한 것" 이 아니라 "돌지 못한 것" 이라 blocked 로 본다
-        if (cell) row[targetId] = view?.state === 'cancelled' && cell.verdict === 'skipped' ? { ...cell, verdict: 'blocked' } : cell;
+        // 러너가 취소로 시작하지 못한 케이스(errorCode cancelled 인 skipped)는 "안 돌기로 한 것" 이 아니라 "돌지 못한 것" 이라 blocked. 작성자의 test.skip 은 그대로 skipped
+        if (cell) row[targetId] = cell.verdict === 'skipped' && lastFinished(attempts)?.errorCode === CANCELLED_CODE ? { ...cell, verdict: 'blocked' } : cell;
         else if (view && view.state === 'finished' && !row[targetId]) row[targetId] = { verdict: 'skipped' };
         else if (view && (view.state === 'infra-failed' || view.state === 'cancelled') && !row[targetId]) row[targetId] = { verdict: 'blocked' };
       }

@@ -110,7 +110,7 @@ export const RUN_HELP = `사용법: sinclair-agent run [옵션]
 ${helpTable(OPTIONS)}
   --help
 
-종료 코드: 0 전부 통과, 1 실패 있음, 2 기기 불가(blocked), 3 설정·등록 오류, 5 중단(cancelled)
+종료 코드: 0 전부 통과, 1 실패 있음, 2 기기 불가(blocked), 3 설정·등록 오류
 테스트 파일(*.sinclair.ts)은 Node 의 타입 스트리핑으로 그대로 로드한다(Node 22.18+ 또는 24).
 `;
 
@@ -168,7 +168,7 @@ ${helpTable(DAEMON_OPTIONS)}
   --help
 
 시작할 때 스풀을 이어 보내고, 타깃마다 Run 을 클레임해 실행·보고를 반복한다. SIGTERM/SIGINT 는 진행 중 테스트 하나만 마치고 나머지를 skipped 로 보고(run cancelled)한 뒤 멈춘다. heartbeat 가 not-owner 면 같은 방식으로 run 을 중단한다.
-종료 코드: 0 모든 run 통과, 1 실패·blocked·오류가 있던 run 있음, 3 설정 오류
+종료 코드: 0 모든 run 통과(lease 상실·종료 신호로 중단된 run 은 실패로 세지 않는다), 1 실패·blocked·오류가 있던 run 있음, 3 설정 오류
 `;
 
 export interface DaemonCliArgs extends Omit<RunArgs, 'cycle' | 'target' | 'run'> { targets: string[]; pollMs?: number }
