@@ -87,8 +87,9 @@ export async function openAndroidNode(args: Pick<RunArgs, 'helperApk' | 'helperC
       let devices = await backend.listDevices();
       // 백엔드를 연 직후 첫 목록은 비어 있을 수 있다(다른 프로세스가 USB 를 막 놓았을 때 — engineFor 의 LIST_RETRIES 와 같은 이유).
       // 그대로 보고하면 꽂힌 기기가 Fleet 에 잠깐 offline 으로 보이므로 첫 읽기에서만 잠깐 다시 본다
-      for (let i = 0; firstList && devices.length === 0 && i < LIST_RETRIES; i++) { await new Promise((r) => setTimeout(r, LIST_RETRY_MS)); devices = await backend.listDevices(); }
-      firstList = false;
+      const retryEmpty = firstList;
+      firstList = false; // 동시에 들어온 다른 읽기(보고 + 클레임 직전 읽기)가 또 기다리지 않게 먼저 내린다
+      for (let i = 0; retryEmpty && devices.length === 0 && i < LIST_RETRIES; i++) { await new Promise((r) => setTimeout(r, LIST_RETRY_MS)); devices = await backend.listDevices(); }
       for (const id of lastLocked.keys()) if (!devices.some((d) => d.id === id)) { unlocker.forget(id); lastLocked.delete(id); } // 빠진 기기는 다시 꽂히면 처음부터
       return Promise.all(devices.map(async (d): Promise<NodeDevice> => {
         let screen = d.state !== 'device' ? undefined

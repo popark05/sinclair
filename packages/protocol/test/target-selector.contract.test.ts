@@ -27,6 +27,8 @@ describe('parseCycleTargets', () => {
     expect(parseCycleTargets([{ id: 'a', platform: 'android' }, 'a']).ok).toBe(false);
     expect(parseCycleTargets([{ id: 'r', platform: 'android', osVersion: { min: '14', max: '13' } }]).ok).toBe(false);
     expect(parseCycleTargets('android').ok).toBe(false);
+    expect(parseCycleTargets([{ id: 'e', platform: 'android', osVersion: {} }]).ok).toBe(false); // 빈 범위
+    expect(parseCycleTargets([{ id: 'm', platform: 'android', model: [] }]).ok).toBe(false); // 빈 모델 목록
   });
 });
 

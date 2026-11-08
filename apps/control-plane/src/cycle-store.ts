@@ -60,7 +60,8 @@ export function activeDeviceLeases(regs: Iterable<RunRegistration>, nowMs: numbe
   return out;
 }
 
-/** 기기마다 마지막으로 클레임된 시각(만료·종료와 무관하게 lease 에 남은 claimedAt 중 가장 늦은 것) */
+/** 기기마다 마지막으로 클레임된 시각(만료·종료와 무관하게 lease 에 남은 claimedAt 중 가장 늦은 것).
+ *  "가장 오래 쉰" 은 정확히는 "가장 오래전에 클레임된" 이다(끝난 시각이 아니다). Run 이 만료 뒤 다른 기기로 다시 클레임되면 앞 기기의 기록은 lease 와 함께 사라진다 — 순서에만 쓰는 값이라 허용한다 */
 export function lastClaimedByDevice(regs: Iterable<RunRegistration>): Map<string, string> {
   const out = new Map<string, string>();
   for (const r of regs) {
@@ -158,7 +159,7 @@ export function createMemoryCycleStore(): CycleStore {
         if (ok === false) continue;
         if (!leaseExpired(r.lease, nowMs)) continue; // 위 await 사이에 다른 호출이 잡았으면 넘어간다
         // 기기도 await 뒤에 다시 고른다(같은 프로세스의 다른 클레임이 그 사이 가져갔을 수 있다). 여기부터 반환까지는 동기라 끼어들 수 없다
-        const device = pickDevice(runs.values(), nowMs, opts, ok === true ? undefined : ok, lastClaimedByDevice(runs.values()));
+        const device = pickDevice(runs.values(), nowMs, opts, ok === true ? undefined : ok, opts?.devices && opts.devices.length > 1 ? lastClaimedByDevice(runs.values()) : undefined);
         if (device === undefined) continue; // 이 Run 에 맞는 빈 기기가 없다: 다른 타깃의 Run 은 다른 기기로 받을 수 있다
         r.lease = newLease(agentId, nowMs, ttlMs, device ?? undefined, device ? new Date(nowMs).toISOString() : undefined);
         return structuredClone(r);

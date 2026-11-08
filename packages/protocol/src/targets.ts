@@ -54,6 +54,7 @@ export function parseCycleTargets(input: unknown): CycleTargetsParse {
         if (!isRecord(t.osVersion)) errors.push(`${at}.osVersion: { min?, max? } 이어야 함`);
         else {
           for (const k of Object.keys(t.osVersion)) if (k !== 'min' && k !== 'max') errors.push(`${at}.osVersion.${k}: 모르는 필드`);
+          if (t.osVersion.min === undefined && t.osVersion.max === undefined) errors.push(`${at}.osVersion: min 이나 max 중 하나는 있어야 함(빈 범위는 숫자로 읽을 수 없는 버전의 기기만 막는다)`);
           for (const k of ['min', 'max'] as const) {
             const v = t.osVersion[k];
             if (v !== undefined && !(typeof v === 'string' && VERSION.test(v))) errors.push(`${at}.osVersion.${k}: "13" 이나 "13.1" 같은 버전 문자열이어야 함`);

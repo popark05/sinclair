@@ -159,6 +159,8 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
     updateCandidates();
   };
   let announcedNoCandidates = false;
+  /** 구버전 control-plane(targetId 없는 클레임을 모름)이면 타깃마다 청한다 */
+  let legacyClaims = false;
   const runDeps: RunOnceDeps = ownsBackend ? { ...deps, createEngine: async (a, l) => { const n = await ensureNode(); if (!n) throw new Error('디바이스 백엔드를 열지 못함'); return n.engineFor(a, l); } } : deps;
 
   // Fleet 보고: 시작할 때 한 번, 그 뒤 서버 TTL 의 1/3 마다. PUT 이 실패해도 클레임은 계속한다(클레임 후보는 보고가 아니라 읽은 인벤토리다)
@@ -203,8 +205,22 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
           break claim;
         }
         announcedNoCandidates = false;
-        try { claimed = await claimRun(args.controlPlane, undefined, agentId, deps.fetch, devices, args.targets); }
-        catch (err) { log(`클레임 오류: ${err instanceof Error ? err.message : String(err)}`); break claim; }
+        try {
+          if (!legacyClaims) claimed = await claimRun(args.controlPlane, undefined, agentId, deps.fetch, devices, args.targets);
+        } catch (err) {
+          // 구버전 control-plane 은 targetId 없는 클레임을 400 으로 거절한다: 이름 타깃이 있으면 예전처럼 타깃마다 청하는 방식으로 바꾼다(조건 타깃은 그 서버에 없다)
+          if (err instanceof ControlPlaneError && err.status === 400 && args.targets.length > 0) {
+            legacyClaims = true;
+            log(`control-plane 이 targetId 없는 클레임을 모름(구버전으로 보임): 이름 타깃(${args.targets.join(', ')})마다 클레임한다`);
+          } else { log(`클레임 오류: ${err instanceof Error ? err.message : String(err)}`); break claim; }
+        }
+        if (legacyClaims) {
+          for (const t of args.targets) {
+            try { claimed = await claimRun(args.controlPlane, t, agentId, deps.fetch, devices); }
+            catch (err) { log(`클레임 오류(${t}): ${err instanceof Error ? err.message : String(err)}`); }
+            if (claimed) break;
+          }
+        }
         if (!claimed) break claim;
         worked = true;
         const { run, leaseTtlMs } = claimed;

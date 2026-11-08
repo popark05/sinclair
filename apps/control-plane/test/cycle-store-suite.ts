@@ -139,6 +139,29 @@ export function runClaimSuite(name: string, makeStore: () => Promise<CycleStore>
       expect((await store.claimRun('android', 'n', T0 + 2 * TTL, TTL, doneOrReplaced, { devices: ['D1'], finishedRuns: new Set(['r1']) }))?.runId).toBe('r3b');
     });
 
+    // ---- 조건 타깃(device-fleet 03): targetId 없는 클레임, eligible, 가장 오래 쉰 기기 먼저 — 두 저장소 모두
+    it('targetId 없이 클레임하면 eligible 로 거르고, 맞는 빈 기기가 없는 Run 은 건너뛰어 다음 Run 을 준다', async () => {
+      // r1(android): D1 만 허용 → D1 이 바쁘면 건너뜀 / r2(ios): 아무 기기 / r3(android): 못 줌
+      await store.claimRun('android', 'x', T0, TTL, noEvents, { devices: ['D1'] }); // r1 이 D1 을 잡는다
+      const eligible = async (reg: { runId: string }) => (reg.runId === 'r1' ? ['D1'] : reg.runId === 'r2' ? true : false);
+      const got = await store.claimRun(undefined, 'n', T0, TTL, noEvents, { devices: ['D1', 'D2'], eligible });
+      expect([got?.runId, got?.lease?.deviceId]).toEqual(['r2', 'D2']);
+      expect(await store.claimRun(undefined, 'n', T0, TTL, noEvents, { devices: ['D1', 'D2'], eligible })).toBeUndefined(); // r3 는 eligible false
+    });
+
+    it('맞는 빈 기기가 여럿이면 가장 오래전에 클레임된 기기(한 번도 안 쓴 기기가 먼저), 같으면 후보 순서', async () => {
+      const done = new Set<string>();
+      const hasEv = async (id: string) => done.has(id);
+      const a = await store.claimRun(undefined, 'n', T0, TTL, hasEv, { devices: ['D1', 'D2'], eligible: async () => true, finishedRuns: done });
+      expect(a?.lease?.deviceId).toBe('D1'); // 둘 다 처음: 후보 순서
+      done.add(a!.runId);
+      const b = await store.claimRun(undefined, 'n', T0 + 1_000, TTL, hasEv, { devices: ['D1', 'D2'], eligible: async () => true, finishedRuns: done });
+      expect(b?.lease?.deviceId).toBe('D2'); // D2 는 한 번도 안 씀
+      done.add(b!.runId);
+      const c = await store.claimRun(undefined, 'n', T0 + 2_000, TTL, hasEv, { devices: ['D2', 'D1'], eligible: async () => true, finishedRuns: done });
+      expect(c?.lease?.deviceId).toBe('D1'); // 후보 순서와 무관하게 D1 이 더 오래전에 클레임됨
+    });
+
     it('기기 없이 클레임하는 구버전 에이전트는 지금처럼 기기 없는 lease 를 받는다(바쁜 기기와 무관)', async () => {
       await store.claimRun('android', 'n', T0, TTL, noEvents, { devices: ['D1'] });
       const legacy = await store.claimRun('android', 'old', T0, TTL, noEvents);

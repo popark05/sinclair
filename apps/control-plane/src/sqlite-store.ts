@@ -138,6 +138,7 @@ export function createSqliteCycleStore(source: string | DatabaseSync): CycleStor
     async claimRun(targetId, agentId, nowMs, ttlMs, hasEvents, opts) {
       const all = (): RunRegistration[] => (selectLeased.all(new Date(nowMs).toISOString()) as Array<{ record: string }>).map((row) => JSON.parse(row.record) as RunRegistration);
       if (pickDevice(all(), nowMs, opts) === undefined) return undefined;
+      let lastClaimed: Map<string, string> | undefined;
       for (const row of selectAllRuns.all() as Array<{ record: string }>) {
         const r = JSON.parse(row.record) as RunRegistration;
         if ((targetId !== undefined && r.targetId !== targetId) || !leaseExpired(r.lease, nowMs)) continue;
@@ -147,7 +148,8 @@ export function createSqliteCycleStore(source: string | DatabaseSync): CycleStor
         // 빈 기기 고르기와 Run 갱신을 한 트랜잭션으로: 다른 핸들이 같은 기기를 다른 Run 에 싣는 사이에 끼어들 수 없다(BEGIN IMMEDIATE 가 쓰기 잠금을 먼저 잡는다)
         db.exec('BEGIN IMMEDIATE');
         try {
-          const lastClaimed = lastClaimedByDevice((selectWithDevice.all() as Array<{ record: string }>).map((row) => JSON.parse(row.record) as RunRegistration));
+          // 기기마다 마지막 클레임 시각: 고를 기기가 둘 이상일 때만 필요하고, 클레임 한 번에 한 번만 읽는다(기기를 가졌던 Run 전체를 훑으므로)
+          if (!lastClaimed && opts?.devices && opts.devices.length > 1) lastClaimed = lastClaimedByDevice((selectWithDevice.all() as Array<{ record: string }>).map((row) => JSON.parse(row.record) as RunRegistration));
           const device = pickDevice(all(), nowMs, opts, ok === true ? undefined : ok, lastClaimed);
           if (device === undefined) { db.exec('COMMIT'); continue; } // 이 Run 에 맞는 빈 기기가 없다: 다음 Run 을 본다
           const next = { ...r, lease: newLease(agentId, nowMs, ttlMs, device ?? undefined, device ? new Date(nowMs).toISOString() : undefined) };

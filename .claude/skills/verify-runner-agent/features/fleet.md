@@ -9,7 +9,7 @@
 - `fleet-offline` 데몬이 죽으면 TTL 뒤 그 노드의 기기가 `offline`, 다른 노드는 그대로.
 - `fleet-lease` 클레임 때 노드의 기기가 Run 에 lease 된다: 도는 동안 `leased`(+ `runId`), 끝나면(run.finished) 바로 `idle`. Cycle 뷰 run 행의 `lease.deviceId` 가 그 기기.
 - `fleet-health-gate` 잠김·헬퍼 미준비·미승인 기기는 클레임 후보에서 빠진다(데몬 로그 "후보에서 뺌: <사유>" 한 번). Run 은 대기하고, 쓸 수 있게 되면 다음 클레임에 다시 후보로. 잠긴 mobile 기기는 한 번 깨우고 위로 스와이프해 본다(비보안 잠금은 풀린다). 보안 잠금이면 화면을 다시 끄고("보안 잠금: 풀기 시도를 멈추고 화면을 끔" 한 번) 사람이 풀 때까지 다시 깨우지 않는다.
-- `fleet-selector` 조건 타깃(플랫폼·모델·OS 범위)은 `--targets` 선언 없이 조건에 맞는 빈 기기가 받는다(가장 오래 쉰 기기 먼저). 맞는 기기가 없는 조건의 Run 은 대기. 셀에 돈 기기가 보인다.
+- `fleet-selector` 조건 타깃(플랫폼·모델·OS 범위)은 `--targets` 선언 없이 조건에 맞는 빈 기기가 받는다(가장 오래전에 클레임된 기기 먼저 — 끝난 시각이 아니라 클레임 시각). 맞는 기기가 없는 조건의 Run 은 대기. 셀에 돈 기기가 보인다.
 - `fleet-shared-backend` mobile 데몬은 백엔드를 하나 열어 두고 인벤토리와 run 이 같이 쓴다(run 이 USB 를 다시 잡지 않는다).
 
 ## How to get to it (user POV)

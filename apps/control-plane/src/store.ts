@@ -11,6 +11,8 @@ export interface EventStore {
   eventsForRun(runId: string): Promise<RunEvent[]>;
   /** 처음 본 순서 */
   runIds(): Promise<string[]>;
+  /** 이 Run 에 이벤트가 하나라도 있는지(클레임 거르기용). 이벤트를 다 읽지 않는다 — 클레임은 폴링마다 끝난 Run 이력 전체를 훑는다 */
+  hasEvents?(runId: string): Promise<boolean>;
   close?(): Promise<void>;
 }
 
@@ -19,6 +21,9 @@ export function createMemoryEventStore(): EventStore {
   const byRun = new Map<string, RunEvent[]>();
   const copy = (e: RunEvent): RunEvent => structuredClone(e);
   return {
+    async hasEvents(runId) {
+      return (byRun.get(runId)?.length ?? 0) > 0;
+    },
     async append(event) {
       if (byId.has(event.eventId)) return 'duplicate';
       const stored = copy(event);

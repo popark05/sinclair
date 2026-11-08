@@ -374,3 +374,18 @@ describe('runDaemon · 조건 타깃', () => {
     expect(logs.join('\n')).toMatch(/target a13, 기기 …W-14/);
   });
 });
+
+describe('runDaemon · 구버전 control-plane', () => {
+  it('targetId 없는 클레임을 400 으로 거절하는 구버전 서버면 이름 타깃마다 청하는 방식으로 바꿔 Run 을 받는다', async () => {
+    await post('/cycles', { cycleId: 'cv', build: 'b', targets: ['android'], suite: { tests: path.join(fixtures, 'only-login') } });
+    await post('/cycles/cv/runs', { targetId: 'android', runId: 'r-old' });
+    // 구버전 흉내: 본문에 targetId 가 없는 클레임은 400
+    const oldServer: typeof fetch = async (input, init) => {
+      if (String(input).endsWith('/runs/claim') && !String(init?.body ?? '').includes('"targetId"')) return new Response(JSON.stringify({ error: 'targetId 와 agentId(문자열)가 필요함' }), { status: 400 });
+      return fetch(input, init);
+    };
+    const r = await runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'node-v', pollMs: 10 }, deps({ maxRuns: 1, fetch: oldServer }));
+    expect(r.runs).toEqual([{ runId: 'r-old', targetId: 'android', exitCode: EXIT.ok }]);
+    expect(logs.filter((l) => /구버전으로 보임/.test(l))).toHaveLength(1);
+  });
+});

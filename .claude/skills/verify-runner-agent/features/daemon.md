@@ -1,10 +1,11 @@
 # 데몬: 사람 개입 없이 Cycle 매트릭스가 채워진다
 
-`sinclair-agent daemon --targets <a,b>` 가 control-plane 에서 자기 타깃의 대기 중인 Run 을 클레임해 Cycle 의 suite 로 실행·보고하고 다음을 가져온다. 같은 Run 은 하나의 에이전트만 잡고(lease), 에이전트가 죽으면 lease 만료 뒤 다른 에이전트가 가져간다.
+`sinclair-agent daemon [--targets <a,b>]` 가 control-plane 에서 이 노드가 맡을 수 있는 대기 중인 Run 을 클레임해(이름 타깃은 `--targets` 로 선언, 조건 타깃은 기기가 맞으면 선언 없이 — device-fleet 03) Cycle 의 suite 로 실행·보고하고 다음을 가져온다. 같은 Run 은 하나의 에이전트만 잡고(lease), 에이전트가 죽으면 lease 만료 뒤 다른 에이전트가 가져간다.
 
 ## Sub-features
 
 - `daemon-claim` 데몬 2개(각 타깃)가 Run 을 하나씩 잡아 Cycle 이 `finished/verified`, run 행의 `lease.agentId` 가 서로 다르다.
+- `daemon-claim-order` 폴링마다 클레임 한 번, 서버가 등록 순서(FIFO)로 고른다. 이름 타깃 여럿을 선언해도 타깃별로 번갈아 받지 않는다.
 - `daemon-suite` Cycle 의 `suite.tests` 디렉터리를 쓴다(데몬의 `--tests` 는 suite 가 없을 때의 기본값).
 - `daemon-stop` SIGTERM 에 "진행 중 테스트를 마치고 멈춤": 진행 중 run 이 있으면 남은 테스트는 skipped, run 은 cancelled(코드 5), 데몬은 exit 0.
 - `daemon-lease-expiry` 만료된 lease 재클레임(단위 테스트 `daemon.test.ts`). 실행 중 죽은 데몬의 대체는 `retry-policy.md`.

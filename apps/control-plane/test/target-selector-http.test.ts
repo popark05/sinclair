@@ -80,4 +80,28 @@ describe('조건 타깃 (HTTP)', () => {
     expect(await claim({ agentId: 'n', targetId: 'a14', devices: ['D13'] })).toBeUndefined();
     expect(await claim({ agentId: 'n', targetId: 'a14', devices: ['D13', 'D14'] })).toMatchObject({ run: { lease: { deviceId: 'D14' } } });
   });
+
+  it('이름 타깃을 여럿 선언한 노드는 등록 순서(오래된 Run 먼저)로 받는다 — 타깃별로 번갈아 주지 않는다(의도된 FIFO)', async () => {
+    await post('/cycles', { cycleId: 'c', build: 'b', targets: ['android', 'ios'] });
+    await post('/cycles/c/runs', { targetId: 'android', runId: 'a1' });
+    await post('/cycles/c/runs', { targetId: 'android', runId: 'a2' });
+    await post('/cycles/c/runs', { targetId: 'ios', runId: 'i1' });
+    const order: string[] = [];
+    for (const d of ['D1', 'D2', 'D3']) order.push((await claim({ agentId: 'n', devices: [d], targets: ['android', 'ios'] }))!.run.runId);
+    expect(order).toEqual(['a1', 'a2', 'i1']);
+  });
+
+  it('조건 타깃의 버려진 Run 은 같은 조건으로 다른 기기에서 대체되고, 대체 사슬의 두 행에 각자의 기기가 보인다', async () => {
+    await post('/cycles', { cycleId: 'c', build: 'b', targets: [{ id: 'any', platform: 'android' }] });
+    await post('/cycles/c/runs', { targetId: 'any', runId: 'r1' });
+    await put('n', [dev('D1', '13'), dev('D2', '13')]);
+    expect((await claim({ agentId: 'n', devices: ['D1'] }))!.run.lease.deviceId).toBe('D1');
+    await post('/ingest', [{ ...base('r1-0', 0, 'r1'), type: 'run.started', cycleId: 'c', targetId: 'any', deviceId: 'D1' }] satisfies RunEvent[]); // 시작했다가 죽음
+    now += 2 * 60_000 + 1; // lease 만료 + 유예
+    await put('n', [dev('D1', '13'), dev('D2', '13')]);
+    const rep = await claim({ agentId: 'n', devices: ['D1', 'D2'] });
+    expect(rep).toMatchObject({ run: { runId: 'retry:r1', targetId: 'any', lease: { deviceId: 'D2' } } }); // D2 는 한 번도 안 씀
+    const v = (await (await fetch(url('/cycles/c'))).json()) as CycleView;
+    expect(v.runs.map((r) => [r.runId, r.state, r.lease?.deviceId, r.replaces ?? r.replacedBy])).toEqual([['r1', 'infra-failed', 'D1', 'retry:r1'], ['retry:r1', 'queued', 'D2', 'r1']]);
+  });
 });

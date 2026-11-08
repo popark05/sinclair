@@ -113,7 +113,7 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         if (!read) return;
         const b = read.body;
         if (!isRecord(b) || typeof b.build !== 'string' || !b.build) return json(res, 400, { error: 'build(문자열)와 targets 가 필요함' });
-        // 타깃은 이름 문자열(노드가 선언) 또는 기기 선택 조건(device-fleet 03). 같은 id 가 두 번이면 거부한다(예전처럼 조용히 합치지 않는다)
+        // 타깃은 이름 문자열(노드가 선언) 또는 기기 선택 조건(device-fleet 03). 같은 이름 문자열은 예전처럼 합치고, 조건이 낀 같은 id 만 거부한다
         const targets = parseCycleTargets(b.targets);
         if (!targets.ok) return json(res, 400, { error: 'targets 가 올바르지 않음', errors: targets.errors });
         if (b.requiredTags !== undefined && !isStringArray(b.requiredTags)) return json(res, 400, { error: 'requiredTags 는 문자열 배열이어야 함' });
@@ -174,7 +174,11 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         const { finished } = devices ? await busyDevices(nowMs) : { finished: new Set<string>() };
         // 조건 타깃에 맞출 기기 속성은 Fleet 보고에서 안다(플랫폼·모델·OS 는 거의 바뀌지 않는다). 보고하지 않은 기기는 조건 타깃을 받지 못한다
         const known = new Map<string, NodeDevice>();
-        if (devices) for (const n of await fleet.listNodes()) for (const d of n.devices) if (!known.has(d.id) || n.agentId === b.agentId) known.set(d.id, d);
+        // 보고가 끊긴(offline) 노드의 기록은 쓰지 않는다: 오래된 속성으로 맞추지 않게. 클레임하는 노드 자신의 기록이 있으면 그것이 우선
+        if (devices) for (const n of await fleet.listNodes()) {
+          if (n.agentId !== b.agentId && nowMs - Date.parse(n.reportedAt) >= nodeTtlMs()) continue;
+          for (const d of n.devices) if (!known.has(d.id) || n.agentId === b.agentId) known.set(d.id, d);
+        }
         const cycleCache = new Map<string, Awaited<ReturnType<typeof cycles.getCycle>>>();
         const eligible = async (reg: RunRegistration): Promise<boolean | readonly string[]> => {
           if (!cycleCache.has(reg.cycleId)) cycleCache.set(reg.cycleId, await cycles.getCycle(reg.cycleId));
@@ -187,7 +191,7 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
           // 이름 타깃: targetId 로 직접 청했거나(기존 방식) 노드가 그 이름을 맡겠다고 선언했을 때
           return targetId !== undefined || declared.has(reg.targetId);
         };
-        const run = await cycles.claimRun(targetId, b.agentId, nowMs, ttl, async (runId) => (await store.eventsForRun(runId)).length > 0, { ...(devices ? { devices, finishedRuns: finished } : {}), eligible });
+        const run = await cycles.claimRun(targetId, b.agentId, nowMs, ttl, async (runId) => (store.hasEvents ? store.hasEvents(runId) : (await store.eventsForRun(runId)).length > 0), { ...(devices ? { devices, finishedRuns: finished } : {}), eligible });
         if (!run) { res.writeHead(204).end(); return; }
         const cycle = await cycles.getCycle(run.cycleId);
         // 구버전 에이전트(devices 없음)도 지금처럼 Run 을 받는다. 다만 기기 lease 가 없어 같은 기기를 다른 Run 이 동시에 쓸 수 있음을 알린다
