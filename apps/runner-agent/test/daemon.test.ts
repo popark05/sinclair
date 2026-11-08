@@ -322,3 +322,38 @@ describe('runDaemon · 기기 상태로 클레임 거르기', () => {
     expect((await view('cl2')).runs[0]).toMatchObject({ state: 'infra-failed' });
   });
 });
+
+describe('runDaemon · 보고 사슬', () => {
+  it('run 이 끝나 바로 보고할 때 주기 보고가 진행 중이어도 보고 사슬은 하나다(타이머가 둘로 늘지 않는다)', async () => {
+    await cp!.close();
+    const srv = await serveControlPlane(createMemoryEventStore(), { leaseTtlMs: 3_000 }); // 보고 간격 1초
+    url = `http://127.0.0.1:${srv.port}`;
+    try {
+      await post('/cycles', { cycleId: 'cr', build: 'b', targets: ['android'], suite: { tests: path.join(fixtures, 'only-login') } });
+      await post('/cycles/cr/runs', { targetId: 'android' });
+      const puts: number[] = [];
+      const counting: typeof fetch = (input, init) => { if (String(input).includes('/fleet/nodes/') && init?.method === 'PUT') puts.push(Date.now()); return fetch(input, init); };
+      const device = { id: 'SER-R', platform: 'android' as const, model: 'm', osVersion: '13', connection: 'device' as const, helper: 'ready' as const, locked: false };
+      // 읽기가 느리다(700ms): run 이 끝나는 순간 주기 보고가 아직 읽는 중이게 만든다
+      let reading = 0;
+      const inventory = async () => { reading++; try { await new Promise((r) => setTimeout(r, 700)); return [device]; } finally { reading--; } };
+      const aborter = new AbortController();
+      // run 은 blocked 로 끝난다(옛 코드는 이때만 바로 보고했다 — 사슬이 둘로 늘던 경로)
+      // 엔진 준비를 주기 보고의 읽기가 진행 중일 때까지 미룬다: run 이 끝나는 순간 그 보고가 아직 끝나지 않았음을 보장한다(타이밍에 맡기지 않는다)
+      const blockedEngine = async (a: { device?: string }) => {
+        await until(() => reading > 0, 5_000);
+        const h = await fakeEngine(a); h.engine.session!.open = async () => { throw new EngineError('device-unavailable', '기기 없음'); }; return h;
+      };
+      const p = runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'node-r', pollMs: 50 }, deps({ signal: aborter.signal, inventory, fetch: counting, createEngine: blockedEngine }));
+      await until(async () => (await view('cr')).state === 'finished', 8_000);
+      const from = Date.now();
+      await new Promise((r) => setTimeout(r, 5_100));
+      aborter.abort();
+      await p;
+      const inWindow = puts.filter((t) => t >= from).length;
+      // 사슬 하나면 주기는 1초 + 읽기 0.7초 ≈ 1.7초라 5.1초에 3~4번, 둘로 늘면 6번 이상
+      expect(inWindow).toBeGreaterThanOrEqual(2);
+      expect(inWindow).toBeLessThanOrEqual(4);
+    } finally { await srv.close(); cp = undefined; }
+  }, 20_000);
+});

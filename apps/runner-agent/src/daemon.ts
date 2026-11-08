@@ -112,17 +112,28 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
     return node;
   };
   await ensureNode();
-  const readInventory = deps.inventory ?? (ownsBackend ? async () => (await ensureNode())?.inventory() ?? [] : args.engine === 'fake' ? async () => [fakeDevice(agentId)] : async () => []);
-  // 마지막으로 읽은 기기 목록이 클레임 후보다(클레임마다 USB 를 다시 훑지 않는다, 최대 TTL/3 묵음). 보고가 실패해도 읽기는 됐으면 갱신한다
+  // 기기 목록 읽기는 한 길로: 주기 보고(풀기 시도 없음)와 클레임 직전 새로 읽기(잠긴 기기 풀기 시도)가 같은 함수를 쓴다
+  const readInventory = async (opts: { tryUnlock?: boolean }): Promise<NodeDevice[]> => {
+    if (deps.inventory) return deps.inventory();
+    if (ownsBackend) return (await ensureNode())?.inventory(opts) ?? [];
+    return args.engine === 'fake' ? [fakeDevice(agentId)] : [];
+  };
+  // 마지막으로 읽은 기기 목록이 클레임 후보의 바탕이다. 두 길이 겹쳐 읽을 수 있으므로 시작 순서로 번호를 매겨, 나중에 시작한 읽기의 결과만 남긴다
+  // (풀기 시도 뒤의 새 결과를 그보다 먼저 시작한 보고의 묵은 결과가 덮지 않게)
   let lastDevices: NodeDevice[] = [];
-  const inventory = async (): Promise<NodeDevice[]> => (lastDevices = await readInventory());
-  const refreshCandidates = async (): Promise<void> => {
-    if (ownsBackend) { const n = await ensureNode(); lastDevices = n ? await n.inventory({ tryUnlock: true }) : []; } else await inventory();
+  let readSeq = 0;
+  let appliedSeq = 0;
+  const inventory = async (opts: { tryUnlock?: boolean } = {}): Promise<NodeDevice[]> => {
+    const seq = ++readSeq;
+    const devices = await readInventory(opts);
+    if (seq > appliedSeq) { appliedSeq = seq; lastDevices = devices; }
+    return devices;
   };
   // 후보: 운영자가 --device 로 고정했으면 그 기기만, 그리고 지금 쓸 수 있는 기기만(잠김·헬퍼 미준비·미승인은 Run 을 받아도 blocked 로 끝난다 — 받지 않고 기다린다).
-  // 뺀 기기는 사유가 바뀔 때만 한 줄 남긴다(폴링마다 찍지 않게)
+  // 뺀 기기는 사유가 바뀔 때만 한 줄, 다시 쓸 수 있게 되거나 빠지면 한 줄
   const excludedReason = new Map<string, string>();
-  const candidates = (): string[] => {
+  let candidateIds: string[] = [];
+  const updateCandidates = (): void => {
     const out: string[] = [];
     for (const d of lastDevices) {
       if (args.device && d.id !== args.device) continue;
@@ -135,7 +146,17 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
       if (excludedReason.delete(d.id)) log(`기기 …${d.id.slice(-4)} 를 다시 후보로: 쓸 수 있음`);
       out.push(d.id);
     }
-    return out;
+    for (const id of excludedReason.keys()) if (!lastDevices.some((d) => d.id === id)) { excludedReason.delete(id); log(`기기 …${id.slice(-4)} 가 목록에서 빠짐`); }
+    candidateIds = out;
+  };
+  /** 클레임 직전에 기기 상태를 새로 읽는다(주기 보고는 TTL/3 만큼 묵을 수 있다). 비용: mobile 은 기기 목록(2초 캐시) + 기기마다 잠금 확인(dumpsys) 한 번.
+   *  읽기가 실패하면 후보를 비운다(빠진 기기에 Run 을 받아 infra-failed 로 태우지 않게) */
+  const refreshCandidates = async (): Promise<void> => {
+    try { await inventory({ tryUnlock: true }); } catch (err) {
+      log(`인벤토리 읽기 실패(이번엔 클레임하지 않음): ${err instanceof Error ? err.message : String(err)}`);
+      lastDevices = []; appliedSeq = readSeq;
+    }
+    updateCandidates();
   };
   let announcedNoCandidates = false;
   const runDeps: RunOnceDeps = ownsBackend ? { ...deps, createEngine: async (a, l) => { const n = await ensureNode(); if (!n) throw new Error('디바이스 백엔드를 열지 못함'); return n.engineFor(a, l); } } : deps;
@@ -146,6 +167,8 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
   let reportsStopped = false;
   let inFlight: Promise<void> = Promise.resolve();
   const report = (): Promise<void> => (inFlight = reportOnce());
+  /** 지금 바로 보고: 진행 중인 보고가 있으면 끝나기를 기다린 뒤 그 보고가 건 타이머를 지우고 새로 보고한다 — 보고 사슬이 언제나 하나다 */
+  const reportNow = async (): Promise<void> => { await inFlight; clearTimeout(reportTimer); if (!reportsStopped) await report(); };
   const reportOnce = async (): Promise<void> => {
     let nextMs = DEFAULT_REPORT_MS;
     try {
@@ -168,12 +191,11 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
   try {
     while (!deps.signal?.aborted) {
       let worked = false;
-      // 클레임 직전에 기기 상태를 다시 읽는다(주기 보고는 TTL/3 만큼 묵을 수 있다). 잠긴 mobile 기기는 여기서 한 번 풀어 본다(비보안 잠금)
-      await refreshCandidates().catch((err: unknown) => log(`인벤토리 읽기 실패: ${err instanceof Error ? err.message : String(err)}`));
       for (const targetId of args.targets) {
         if (deps.signal?.aborted) break;
         let claimed: ClaimedRun | undefined;
-        const devices = candidates();
+        await refreshCandidates(); // 타깃마다: 앞 타깃의 run 이 길었으면 그 사이 상태가 바뀌었을 수 있다
+        const devices = candidateIds;
         if (devices.length === 0) {
           // 기기 없는 노드는 클레임하지 않는다(받아도 돌릴 기기가 없다). 조용히 기다리지 않도록 한 번 알린다
           if (!announcedNoCandidates) log(`후보 기기 없음: 클레임하지 않고 기다림${args.device ? ` (--device …${args.device.slice(-4)} 가 목록에 없음)` : ''}`);
@@ -225,8 +247,8 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
         // 신호가 왔다는 것이 아니라 run 이 실제로 중단됐을 때만 사유를 남긴다(마지막 테스트 도중 신호면 run 은 finished)
         const cancelled = code === EXIT.cancelled ? (canceller.signal.reason instanceof Error ? canceller.signal.reason.message : String(canceller.signal.reason)) : undefined;
         if (leaseLost) log(cancelled ? `run ${run.runId}: lease 를 잃어 중단 — 진행 중이던 테스트까지만 보고됐고 나머지는 skipped(cancelled)` : `경고: run ${run.runId} 의 lease 를 잃었지만 남은 테스트 없이 끝남`);
-        // 기기 문제로 끝났으면(기기 빠짐·잠김) 주기 보고를 기다리지 않고 바로 다시 보고해 Fleet 에 지금 상태가 보이게 한다. lease 는 run.finished 로 이미 풀렸다
-        if (code === EXIT.blocked && !reportsStopped) { clearTimeout(reportTimer); await report(); }
+        // run 이 끝나면 주기 보고를 기다리지 않고 바로 다시 보고한다: 기기가 빠지거나(blocked) run 도중 잠겼으면(run 중에는 잠금을 다시 보지 않는다) Fleet 에 지금 상태가 곧 보인다. lease 는 run.finished 로 이미 풀렸다
+        await reportNow();
         summary.runs.push({ runId: run.runId, targetId, exitCode: code, ...(leaseLost ? { leaseLost: true } : {}), ...(cancelled ? { cancelled } : {}) });
         if (deps.maxRuns !== undefined && summary.runs.length >= deps.maxRuns) { summary.stoppedBy = 'maxRuns'; return summary; }
       }

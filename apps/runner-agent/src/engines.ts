@@ -8,6 +8,7 @@ import { createAndroidBackend, createDeviceServer, type ScreenState } from '@sin
 import { createMobileEngine, rpcOverDispatcher } from '@sinclair/engine-mobile';
 import type { RunArgs } from './args.ts';
 import { resolveHelperApk } from './helper-apk.ts';
+import { createUnlocker } from './unlock.ts';
 // 기기 준비(깨우기)·정리(앱 종료, 홈) 시퀀스는 packages/runner/test/runner.device.test.ts 와 같다. device-layer 에 prepare/cleanup 헬퍼로 올리는 것은 05(헬퍼 APK) 에서.
 
 export interface EngineHandle {
@@ -34,8 +35,6 @@ const TREE_READY_POLLS = 10;
 const WARMUP_POLL_MS = 500;
 const WARMUP_POLLS = 20;
 const WARMUP_MIN_NODES = 5;
-/** 잠긴 기기 풀기 시도 간격: 클레임 폴링(기본 5초)마다 화면을 켜지 않도록. 보안 잠금 기기는 이 간격으로 한 번씩만 깨운다 */
-const UNLOCK_RETRY_MS = 30_000;
 const countNodes = (n: { children?: unknown[] }): number => 1 + ((n.children ?? []) as Array<{ children?: unknown[] }>).reduce((a, c) => a + countNodes(c), 0);
 
 /** 테스트용: APK 해석 단계의 번들·리포 빌드 위치를 바꿔 끼운다 */
@@ -49,7 +48,7 @@ export const fakeDevice = (agentId: string): NodeDevice => ({ id: `fake-${agentI
  *  `run` 명령은 run 하나 동안만 연다(createEngine) */
 export interface AndroidNode {
   /** 꽂힌 기기와 연결·헬퍼·화면 잠금 상태(Fleet 보고·클레임 후보용). 잠금 확인이 실패하면 locked 를 비운다(모름).
-   *  tryUnlock: 잠긴 기기(쓰는 중이 아닌)를 한 번 깨우고 위로 스와이프해 본다 — 비보안 잠금은 이것으로 풀린다. 같은 기기는 UNLOCK_RETRY_MS 에 한 번까지만 */
+   *  tryUnlock: 잠긴 기기(쓰는 중이 아닌)를 한 번 깨우고 위로 스와이프해 본다 — 비보안 잠금은 이것으로 풀린다. 못 풀면 보안 잠금으로 보고 화면을 끈 뒤 풀린 것이 보일 때까지 다시 깨우지 않는다(unlock.ts) */
   inventory(opts?: { tryUnlock?: boolean }): Promise<NodeDevice[]>;
   /** 이 노드의 백엔드 위에 run 하나용 엔진을 만든다. dispose 는 앱을 정리할 뿐 백엔드를 닫지 않는다 */
   engineFor(args: RunArgs, log: (line: string) => void): Promise<EngineHandle>;
@@ -65,28 +64,33 @@ export async function openAndroidNode(args: Pick<RunArgs, 'helperApk' | 'helperC
   // run 이 쓰는 중인 기기와 그 기기의 마지막 잠금 상태: 인벤토리가 run 도중 그 기기에 dumpsys 를 보내지 않게 한다(쓰는 중이면 잠금 해제 상태다)
   const inUse = new Set<string>();
   const lastLocked = new Map<string, boolean>();
-  const lastUnlockTry = new Map<string, number>();
-  /** 깨우고(WAKEUP·MENU) 위로 스와이프한 뒤 잠금을 다시 본다. engineFor 의 잠금 처리와 같은 동작 */
-  const tryUnlock = async (id: string): Promise<boolean | undefined> => {
-    await backend.keys(id, ['KEYCODE_WAKEUP', 'KEYCODE_MENU']).catch(() => undefined);
-    await backend.swipe(id, { x: 540, y: 1900 }, { x: 540, y: 700 }, 300).catch(() => undefined);
-    await new Promise((r) => setTimeout(r, 500));
-    return (await backend.screenState?.(id).catch(() => undefined))?.locked;
-  };
   const backend = createAndroidBackend({
     dadb: { includeEmulators: false, authTimeoutMs: APPROVAL_WAIT_MS }, probeWaitMs: APPROVAL_WAIT_MS, helperApkPath: helperApk.path,
     onHelperStep: (serial, text) => { if (/(?<!이미 )설치됨|활성화됨/.test(text)) needsWarmup.add(serial); log(`헬퍼 온보딩(…${serial.slice(-4)}): ${text}`); },
   });
+  /** 화면 아래(80%)에서 위(30%)로 스와이프. 화면 크기는 UI 트리 루트의 크기로 안다(모르면 1080×2400 기준) */
+  const swipeUp = async (id: string): Promise<void> => {
+    const rect = (await backend.dumpUi(id).catch(() => undefined))?.rect;
+    const w = rect && rect.width > 0 ? rect.width : 1080;
+    const h = rect && rect.height > 0 ? rect.height : 2400;
+    await backend.swipe(id, { x: Math.round(w / 2), y: Math.round(h * 0.8) }, { x: Math.round(w / 2), y: Math.round(h * 0.3) }, 300);
+  };
+  const unlocker = createUnlocker({
+    wake: (id) => backend.keys(id, ['KEYCODE_WAKEUP', 'KEYCODE_MENU']),
+    swipeUp,
+    sleep: (id) => backend.keys(id, ['KEYCODE_SLEEP']),
+    lockedNow: async (id) => (await backend.screenState?.(id))?.locked,
+  }, { log });
   return {
     async inventory(opts = {}) {
       const devices = await backend.listDevices();
+      for (const id of lastLocked.keys()) if (!devices.some((d) => d.id === id)) { unlocker.forget(id); lastLocked.delete(id); } // 빠진 기기는 다시 꽂히면 처음부터
       return Promise.all(devices.map(async (d): Promise<NodeDevice> => {
         let screen = d.state !== 'device' ? undefined
           : inUse.has(d.id) ? (lastLocked.has(d.id) ? { locked: lastLocked.get(d.id)! } : undefined)
           : await backend.screenState?.(d.id).catch(() => undefined);
-        if (opts.tryUnlock && screen?.locked && !inUse.has(d.id) && Date.now() - (lastUnlockTry.get(d.id) ?? 0) >= UNLOCK_RETRY_MS) {
-          lastUnlockTry.set(d.id, Date.now());
-          const after = await tryUnlock(d.id);
+        if (opts.tryUnlock && screen) {
+          const after = await unlocker.maybeUnlock(d.id, screen.locked, inUse.has(d.id));
           if (after !== undefined) screen = { ...screen, locked: after };
         }
         if (screen?.locked !== undefined) lastLocked.set(d.id, screen.locked);
@@ -112,7 +116,7 @@ export async function openAndroidNode(args: Pick<RunArgs, 'helperApk' | 'helperC
       // 잠금화면도 노드를 가지므로 트리가 비었는지로는 못 가른다. dumpsys 로 직접 본다(비보안 잠금은 위로 스와이프로 풀어 본다)
       let screen: ScreenState = (await backend.screenState?.(deviceId).catch(() => ({}))) ?? {};
       if (screen.locked) {
-        await backend.swipe(deviceId, { x: 540, y: 1900 }, { x: 540, y: 700 }, 300).catch(() => undefined); // 화면 아래→위(1080×2400 기준, 다른 해상도도 비율상 화면 안)
+        await swipeUp(deviceId).catch(() => undefined); // 화면 아래→위(화면 크기에 맞춰)
         await new Promise((r) => setTimeout(r, 500));
         screen = (await backend.screenState?.(deviceId).catch(() => ({}))) ?? {};
         if (screen.locked) throw new Error('기기 화면이 잠겨 있음(보안 잠금은 프로그램으로 풀 수 없음). 기기 잠금을 해제하고 화면 꺼짐 시간을 늘린 뒤 다시 실행');

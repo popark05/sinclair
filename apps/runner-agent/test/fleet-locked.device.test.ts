@@ -4,6 +4,10 @@
  *   adb kill-server && SINCLAIR_TEST_USB=1 npx vitest run apps/runner-agent/test/fleet-locked.device.test.ts
  * 전제: 기기가 **잠긴 상태**(화면 꺼짐 + PIN/패턴 등 보안 잠금). 잠금이 풀려 있으면 실패로 알린다(그 경로는 fleet.device.test.ts).
  * 증거: .scratch/device-fleet/evidence/05-locked-device-latest.json (시리얼·경로 마스킹)
+ *
+ * 2단계(사람이 함께, 선택): SINCLAIR_TEST_UNLOCK_WAIT_MS=90000 을 주면, 기기가 후보에서 빠진 것을 본 뒤 "잠금을 풀어 주세요" 를 찍고
+ * 그 시간 안에 사람이 풀면 같은 데몬이 기기를 다시 후보로 내 Run 을 받아 끝내는 것(제외 → 다시 후보 → lease → verified)까지 확인한다.
+ *   ! adb kill-server && SINCLAIR_TEST_USB=1 SINCLAIR_TEST_UNLOCK_WAIT_MS=90000 npx vitest run apps/runner-agent/test/fleet-locked.device.test.ts
  */
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -16,6 +20,9 @@ const target = process.env.SINCLAIR_TEST_USB;
 const REPO = path.resolve(import.meta.dirname, '../../..');
 /** 데몬이 클레임을 몇 번 돌 시간(폴링 200ms) + 잠긴 기기 풀기 시도 1회(약 1초) */
 const WATCH_MS = 12_000;
+const UNLOCK_WAIT_MS = Number(process.env.SINCLAIR_TEST_UNLOCK_WAIT_MS ?? 0);
+/** 대문자+숫자 토큰(시리얼 모양)을 보조로 지운다: Fleet 에 노드가 없어 실제 시리얼을 모를 때도 증거에 시리얼이 남지 않게 */
+const SERIALISH = /\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{8,}\b/g;
 
 describe.skipIf(!target)('실기기 · 잠긴 기기는 Run 을 받지 않는다', () => {
   it('보안 잠금 기기는 후보에서 빠지고 Fleet 에 untrusted(화면 잠김), Run 은 lease 없이 대기한다', async () => {
@@ -25,31 +32,52 @@ describe.skipIf(!target)('실기기 · 잠긴 기기는 Run 을 받지 않는다
     try {
       await fetch(`${url}/cycles`, { method: 'POST', body: JSON.stringify({ cycleId: 'locked', build: 'b', targets: ['android'], suite: { tests: path.join(REPO, 'apps/runner-agent/test/fixtures/device') } }) });
       await fetch(`${url}/cycles/locked/runs`, { method: 'POST', body: JSON.stringify({ targetId: 'android', runId: 'locked-run' }) });
-      const summary = await runDaemon(
+      const aborter = new AbortController();
+      const daemon = runDaemon(
         { controlPlane: url, targets: ['android'], tests: path.join(REPO, 'apps/runner-agent/test/fixtures/device'), engine: 'mobile', app: 'com.android.settings', spool: path.join(REPO, '.e2e/agent-spool-locked'), helperCache: path.join(REPO, '.e2e/helper-cache'), agent: 'locked-node', pollMs: 200, ...(target !== '1' ? { device: target! } : {}) },
-        { log: (l) => logs.push(l), signal: AbortSignal.timeout(WATCH_MS) },
+        { log: (l) => logs.push(l), signal: aborter.signal, ...(UNLOCK_WAIT_MS ? { maxRuns: 1 } : {}) },
       );
-      const fleet = (await (await fetch(`${url}/fleet`)).json()) as FleetView;
+      // 1단계: 잠긴 동안 지켜본다
+      await new Promise((r) => setTimeout(r, WATCH_MS));
+      const lockedFleet = (await (await fetch(`${url}/fleet`)).json()) as FleetView;
+      const lockedView = (await (await fetch(`${url}/cycles/locked`)).json()) as CycleView;
+      // 2단계(선택): 사람이 풀면 같은 데몬이 다시 후보로 내 Run 을 받는다
+      if (UNLOCK_WAIT_MS) {
+        process.stderr.write(`\n>>> 지금 기기 잠금을 풀어 주세요 (${Math.round(UNLOCK_WAIT_MS / 1000)}초 안에)\n`);
+        const deadline = setTimeout(() => aborter.abort(), UNLOCK_WAIT_MS);
+        await daemon.finally(() => clearTimeout(deadline));
+      } else aborter.abort();
+      const summary = await daemon;
       const view = (await (await fetch(`${url}/cycles/locked`)).json()) as CycleView;
-      const node = fleet.nodes.find((n) => n.agentId === 'locked-node');
+      const node = lockedFleet.nodes.find((n) => n.agentId === 'locked-node');
       const serials = node?.devices.map((d) => d.id) ?? [];
-      const mask = (l: string): string => serials.reduce((x, id) => x.split(id).join(`…${id.slice(-4)}`), l.split(REPO).join('<repo>').split(os.homedir()).join('<home>'));
+      const mask = (l: string): string => serials.reduce((x, id) => x.split(id).join(`…${id.slice(-4)}`), l.split(REPO).join('<repo>').split(os.homedir()).join('<home>')).replace(SERIALISH, (t) => `…${t.slice(-4)}`);
+      // --device 를 주었으면 그 기기, 아니면 첫 기기
+      const dev = node?.devices.find((d) => (target !== '1' ? d.id === target : true));
       const dir = path.join(REPO, '.scratch/device-fleet/evidence');
       await fs.mkdir(dir, { recursive: true });
       await fs.writeFile(path.join(dir, '05-locked-device-latest.json'), JSON.stringify({
         at: new Date().toISOString(), watchedMs: WATCH_MS,
         node: node && { agentId: node.agentId, devices: node.devices.map((d) => ({ id: `…${d.id.slice(-4)}`, model: d.model, connection: d.connection, helper: d.helper, locked: d.locked, state: d.state, reason: d.reason })) },
-        runsTaken: summary.runs.length, cycleRun: { state: view.runs[0]?.state, leased: !!view.runs[0]?.lease }, log: logs.map(mask),
+        whileLocked: { cycleRun: { state: lockedView.runs[0]?.state, leased: !!lockedView.runs[0]?.lease } },
+        ...(UNLOCK_WAIT_MS ? { afterUnlock: { runsTaken: summary.runs.length, exitCodes: summary.runs.map((r) => r.exitCode), cycle: { state: view.state, verdict: view.verdict }, leasedSameDevice: !!dev && view.runs[0]?.lease?.deviceId === dev.id } } : { runsTaken: summary.runs.length }),
+        log: logs.map(mask),
       }, null, 2) + '\n');
-      expect(node?.devices[0]?.locked, '기기가 잠긴 상태여야 한다(잠금이 풀려 있으면 fleet.device.test.ts 로 확인)').toBe(true);
-      const { id: _id, ...first } = node!.devices[0]!;
+      expect(dev?.locked, '기기가 잠긴 상태여야 한다(잠금이 풀려 있으면 fleet.device.test.ts 로 확인)').toBe(true);
+      const { id: _id, ...first } = dev!;
       expect(first).toMatchObject({ state: 'untrusted', reason: '화면 잠김' });
-      expect(summary.runs).toEqual([]); // Run 을 받지 않았다
-      expect(view.runs[0]).toMatchObject({ runId: 'locked-run', state: 'queued' });
-      expect(view.runs[0]!.lease).toBeUndefined();
+      expect(lockedView.runs[0]).toMatchObject({ runId: 'locked-run', state: 'queued' }); // 잠긴 동안 Run 을 받지 않았다
+      expect(lockedView.runs[0]!.lease).toBeUndefined();
       expect(logs.filter((l) => /후보에서 뺌: 화면 잠김/.test(l))).toHaveLength(1);
+      expect(logs.filter((l) => /보안 잠금: 풀기 시도를 멈추고 화면을 끔/.test(l))).toHaveLength(1); // 한 번만 깨웠다
+      if (!UNLOCK_WAIT_MS) { expect(summary.runs).toEqual([]); return; }
+      // 2단계: 풀린 뒤 같은 데몬이 다시 후보로 내고 Run 을 받아 끝냈다
+      expect(logs.some((l) => /다시 후보로/.test(l))).toBe(true);
+      expect(summary.runs.map((r) => r.exitCode)).toEqual([0]);
+      expect(view).toMatchObject({ state: 'finished', verdict: 'verified' });
+      expect(view.runs[0]?.lease?.deviceId === dev!.id).toBe(true);
     } finally {
       await cp.close();
     }
-  }, 120_000);
+  }, 240_000);
 });

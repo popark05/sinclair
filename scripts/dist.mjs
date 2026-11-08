@@ -119,6 +119,7 @@ function readme(version, target, sizeMb) {
 - 서버: \`bin/sinclair-control-plane --port 4780 --db <경로>\` (기본 저장소 SQLite, 데이터는 OS 데이터 디렉터리/sinclair)
 - 에이전트: \`bin/sinclair-agent run --control-plane http://<서버>:4780 --cycle <id> --target <id> --tests <디렉터리> --device <시리얼>\`
 - 데몬: \`bin/sinclair-agent daemon --control-plane … --targets android --tests <디렉터리>\`
+  - 데몬은 꽂힌 기기를 control-plane 에 보고하고 쓸 수 있는 기기만 Run 을 받는다. 잠긴 폰은 한 번 깨우고 위로 스와이프해 보고, 보안 잠금이면 화면을 끄고 사람이 풀 때까지 기다린다(폰은 잠금 없음 또는 개발자 옵션 '화면 켜짐 상태 유지' 권장).
 - 도움말: 각 명령에 \`--help\`
 
 ## 구성

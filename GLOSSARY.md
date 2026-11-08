@@ -31,5 +31,5 @@
 
 - **노드(Node)**: 기기가 꽂혀 있고 데몬(runner-agent)이 도는 머신 하나. agentId 로 식별한다.
 - **Fleet**: control-plane 이 노드들의 보고로 아는 기기 전체와 그 상태.
-- **기기 상태(Device state)**: `idle`(Run 을 받을 수 있음), `leased`(Run 하나가 쓰는 중), `untrusted`(꽂혀 있지만 잠김·헬퍼 미준비·미승인이라 못 씀), `offline`(보고에서 빠짐).
+- **기기 상태(Device state)**: `idle`(Run 을 받을 수 있음), `leased`(Run 하나가 쓰는 중), `untrusted`(꽂혀 있지만 잠김·헬퍼 미준비·미승인이라 못 씀 — 클레임 후보에서 빠진다), `offline`(보고에서 빠짐).
 - **기기 lease**: Run 하나가 기기 하나를 독점해 쓰는 시한부 권리. Run lease 와 수명이 묶여 함께 연장되고 함께 풀린다. _피할 말_: 기기 예약.
