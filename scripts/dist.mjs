@@ -10,17 +10,18 @@
  *   VERSION, README.md
  *
  * 사용: node scripts/dist.mjs [--targets mac-arm64,mac-x64,win-x64,win-arm64 | all] [--out release] [--node-binary <path>] [--no-zip]
- *   --node-binary: 다운로드 대신 주어진 Node 실행 파일을 쓴다(호스트 타깃 테스트·오프라인용). LICENSE 는 리포의 node LICENSE 캐시가 없으면 생략 경고.
+ *   --node-binary: 다운로드 대신 주어진 Node 실행 파일을 쓴다(호스트 타깃 하나, 테스트·오프라인용). LICENSE 는 <prefix>/LICENSE 에서 찾고 없으면 --node-license 로 준다.
  * 사내망이면 NODE_EXTRA_CA_CERTS 로 nodejs.org 다운로드가 된다. EverMock fetch-node 와 같은 설계(코드 공유 없음).
  */
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync, readdirSync, mkdtempSync, copyFileSync } from 'node:fs';
-import * as os from 'node:os';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync, readdirSync, copyFileSync, statSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildBundles } from './build-bundles.mjs';
 import { ensureUsbPackage, USB_PACKAGE_DIR, USB_PLATFORM_PACKAGES } from './fetch-usb-binaries.mjs';
+// 헬퍼 버전·파일명·리포 빌드 경로는 에이전트 소스가 단일 출처다(Node 22.18+ 타입 스트리핑으로 .ts 를 그대로 읽는다)
+import { HELPER_APK_VERSION, helperApkFileName, DEFAULT_REPO_BUILD } from '../apps/runner-agent/src/helper-apk.ts';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -34,9 +35,11 @@ export const TARGETS = {
   'win-x64': { node: 'win-x64', archive: 'zip', exe: 'node.exe', win: true },
   'win-arm64': { node: 'win-arm64', archive: 'zip', exe: 'node.exe', win: true },
 };
-export const HELPER_APK_VERSION = '0.1.0'; // apps/runner-agent/src/helper-apk.ts 와 같이 올린다
-const HELPER_REPO_BUILD = path.join(root, 'packages/device-layer/android-helper/app/build/outputs/apk/debug/app-debug.apk');
+export { HELPER_APK_VERSION };
+const HELPER_REPO_BUILD = DEFAULT_REPO_BUILD;
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
+/** nodejs.org 다운로드 상한. Node 배포 파일은 30~50 MB 라 사내 회선에서도 2분이면 넉넉하고, 끊긴 프록시에서 영영 매달리지 않는다 */
+const NODE_FETCH_TIMEOUT_MS = 120_000;
 
 export function defaultCacheDir(env = process.env, platform = process.platform) {
   const home = env.HOME ?? env.USERPROFILE ?? '.';
@@ -46,7 +49,7 @@ export function defaultCacheDir(env = process.env, platform = process.platform) 
 
 /**
  * 고정 버전 Node 를 받아(SHASUMS256.txt 로 검증) 캐시에 풀고 { exe, license } 경로를 돌려준다. 캐시에 있으면 네트워크 없음.
- * 테스트는 base/fetch 를 바꿔 끼운다.
+ * 무결성은 HTTPS 로 받은 SHASUMS256.txt 를 신뢰한다(.sig 서명 검증은 하지 않는다 — 사내 빌드 머신 전제). 테스트는 base/fetch 를 바꿔 끼운다.
  */
 export async function fetchNode(target, { version = NODE_VERSION, base = NODE_DIST_BASE, cacheDir = defaultCacheDir(), fetch: doFetch = fetch } = {}) {
   const spec = TARGETS[target];
@@ -58,11 +61,17 @@ export async function fetchNode(target, { version = NODE_VERSION, base = NODE_DI
   if (existsSync(exe) && existsSync(license)) return { exe, license, fromCache: true };
 
   const file = `${dirName}.${spec.archive}`;
-  const get = async (url) => { const res = await doFetch(url, { signal: AbortSignal.timeout(120_000) }); if (res.status !== 200) throw new Error(`${url}: HTTP ${res.status}`); return res; };
-  const sums = await (await get(`${base}/v${version}/SHASUMS256.txt`)).text();
+  const getOk = async (url) => {
+    let res;
+    try { res = await doFetch(url, { signal: AbortSignal.timeout(NODE_FETCH_TIMEOUT_MS) }); }
+    catch (err) { throw new Error(`${url}: ${err instanceof Error ? err.message : String(err)}${err?.cause?.message ? ` (${err.cause.message})` : ''}`); }
+    if (res.status !== 200) throw new Error(`${url}: HTTP ${res.status}`);
+    return res;
+  };
+  const sums = await (await getOk(`${base}/v${version}/SHASUMS256.txt`)).text();
   const expected = sums.split('\n').map((l) => l.trim().split(/\s+/)).find(([, name]) => name === file)?.[0];
   if (!expected) throw new Error(`SHASUMS256.txt 에 ${file} 이 없음`);
-  const bytes = Buffer.from(await (await get(`${base}/v${version}/${file}`)).arrayBuffer());
+  const bytes = Buffer.from(await (await getOk(`${base}/v${version}/${file}`)).arrayBuffer());
   const actual = sha256(bytes);
   if (actual !== expected) throw new Error(`Node 배포 파일 sha256 불일치(${file}): 기대 ${expected}, 실제 ${actual}`);
   mkdirSync(cacheDir, { recursive: true });
@@ -86,8 +95,10 @@ function launcherCmd(app) {
   return `@echo off\r\nrem Sinclair ${app} 런처. 이 디렉터리 구조(bin\\, node\\, dist\\)를 전제한다.\r\nset "DIR=%~dp0.."\r\n"%DIR%\\node\\node.exe" --no-warnings=ExperimentalWarning "%DIR%\\dist\\${app}.mjs" %*\r\nexit /b %ERRORLEVEL%\r\n`;
 }
 
-function readme(version, target) {
+function readme(version, target, sizeMb) {
   return `# Sinclair ${version} (${target})
+
+설치 크기 약 ${sizeMb} MB(압축 전).
 
 사내 QA 용 E2E 검증 플랫폼의 control-plane(API 서버)과 runner-agent(기기 노드 에이전트) 설치본. Node ${NODE_VERSION} 을 동봉하므로 따로 설치할 것이 없다.
 
@@ -115,10 +126,10 @@ USB 디버깅을 켜고 처음 연결 시 기기에서 "USB 디버깅 허용" �
  * 타깃 하나의 배포본을 조립한다. 돌려주는 값: { stageDir, zipPath? , files }
  * nodeBinary 를 주면 다운로드 없이 그 실행 파일을 쓴다(호스트 타깃 테스트). license 는 있으면 함께.
  */
-export async function assembleDistributable({ target, outDir = path.join(root, 'release'), version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version, nodeBinary, nodeLicense, zip = true, log = console.log, bundlesDir, nodeFetchOptions = {} }) {
+export async function assembleDistributable({ target, outDir = path.join(root, 'release'), version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version, nodeBinary, nodeLicense, zip = true, log = console.log, bundlesDir, nodeFetchOptions = {}, helperApk = HELPER_REPO_BUILD }) {
   const spec = TARGETS[target];
   if (!spec) throw new Error(`알 수 없는 대상: ${target} (${Object.keys(TARGETS).join(', ')})`);
-  if (!existsSync(HELPER_REPO_BUILD)) throw new Error(`헬퍼 APK 가 없음: ${HELPER_REPO_BUILD}\n  packages/device-layer/android-helper 의 README 대로 ./gradlew assembleDebug 로 빌드한 뒤 다시 실행`);
+  if (!helperApk || !existsSync(helperApk)) throw new Error(`헬퍼 APK 가 없음: ${helperApk ?? '(경로 없음)'}\n  packages/device-layer/android-helper 의 README 대로 ./gradlew assembleDebug 로 빌드한 뒤 다시 실행`);
 
   const name = `sinclair-${version}-${target}`;
   const stage = path.join(outDir, 'stage', name);
@@ -134,7 +145,11 @@ export async function assembleDistributable({ target, outDir = path.join(root, '
   // 2) Node
   let node;
   if (nodeBinary) {
-    node = { exe: nodeBinary, license: nodeLicense };
+    // 설치된 Node(nvm 등)는 <prefix>/bin/node 옆 <prefix>/LICENSE 를 가진다. 재배포에 LICENSE 는 필수라 못 찾으면 실패
+    const derived = path.resolve(path.dirname(nodeBinary), '..', 'LICENSE');
+    const license = nodeLicense ?? (existsSync(derived) ? derived : undefined);
+    if (!license) throw new Error(`Node LICENSE 를 찾지 못함(${derived}). nodeLicense/--node-license 로 지정`);
+    node = { exe: nodeBinary, license };
     log(`[node] 주어진 실행 파일 사용: ${nodeBinary}`);
   } else {
     node = await fetchNode(target, nodeFetchOptions);
@@ -142,8 +157,7 @@ export async function assembleDistributable({ target, outDir = path.join(root, '
   }
   copyFileSync(node.exe, path.join(stage, 'node', spec.exe));
   if (!spec.win) chmodSync(path.join(stage, 'node', spec.exe), 0o755);
-  if (node.license && existsSync(node.license)) copyFileSync(node.license, path.join(stage, 'node', 'LICENSE'));
-  else log('[node] 경고: LICENSE 파일 없음(--node-binary 사용 시 nodeLicense 를 주면 포함)');
+  copyFileSync(node.license, path.join(stage, 'node', 'LICENSE'));
 
   // 3) usb + 플랫폼 패키지
   const usbPkg = USB_PLATFORM_PACKAGES[target];
@@ -152,8 +166,8 @@ export async function assembleDistributable({ target, outDir = path.join(root, '
   cpSync(platformDir, path.join(stage, 'node_modules', '@node-usb', usbPkg), { recursive: true, dereference: true });
 
   // 4) 헬퍼 APK + 사이드카
-  const apkName = `sinclair-helper-${HELPER_APK_VERSION}.apk`;
-  const apk = readFileSync(HELPER_REPO_BUILD);
+  const apkName = helperApkFileName();
+  const apk = readFileSync(helperApk);
   writeFileSync(path.join(stage, 'resources', 'helper', apkName), apk);
   writeFileSync(path.join(stage, 'resources', 'helper', `${apkName}.sha256`), `${sha256(apk)}  ${apkName}\n`);
 
@@ -164,7 +178,7 @@ export async function assembleDistributable({ target, outDir = path.join(root, '
     else { const p = path.join(stage, 'bin', binName); writeFileSync(p, launcherSh(app)); chmodSync(p, 0o755); }
   }
   writeFileSync(path.join(stage, 'VERSION'), `${version}\nnode ${NODE_VERSION}\nhelper ${HELPER_APK_VERSION}\ntarget ${target}\n`);
-  writeFileSync(path.join(stage, 'README.md'), readme(version, target));
+  writeFileSync(path.join(stage, 'README.md'), readme(version, target, (dirSize(stage) / 1024 / 1024).toFixed(0)));
 
   // 6) zip (-y: 심링크 보존, -q: 조용히). Windows 타깃도 mac 에서 zip 으로 만든다
   let zipPath;
@@ -177,6 +191,13 @@ export async function assembleDistributable({ target, outDir = path.join(root, '
   return { stageDir: stage, zipPath, files: listFiles(stage) };
 }
 
+function dirSize(dir) {
+  let total = 0;
+  for (const e of readdirSync(dir, { withFileTypes: true })) { const p = path.join(dir, e.name); total += e.isDirectory() ? dirSize(p) : statSync(p).size; }
+  return total;
+}
+
+/** 구성 목록. node_modules 아래는 수천 파일이라 패키지 디렉터리 한 줄로 접는다 */
 function listFiles(dir, prefix = '') {
   const out = [];
   for (const e of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
@@ -196,9 +217,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (targets.length === 0) throw new Error('--targets 를 지정하세요');
   const outDir = path.resolve(root, opt('--out') ?? 'release');
   const nodeBinary = opt('--node-binary');
+  const nodeLicense = opt('--node-license');
+  if (nodeBinary && targets.length !== 1) throw new Error('--node-binary 는 타깃이 하나일 때만 쓸 수 있다(실행 파일은 플랫폼마다 다르다)');
   const bundles = await buildBundles(path.join(outDir, 'stage', 'dist'));
   for (const target of targets) {
-    const r = await assembleDistributable({ target, outDir, zip: !argv.includes('--no-zip'), bundlesDir: bundles.outdir, ...(nodeBinary && targets.length === 1 ? { nodeBinary } : {}) });
-    console.log(`[ok] ${target}: ${r.files.length}개 파일 → ${path.relative(root, r.stageDir)}`);
+    const result = await assembleDistributable({ target, outDir, zip: !argv.includes('--no-zip'), bundlesDir: bundles.outdir, ...(nodeBinary ? { nodeBinary } : {}), ...(nodeLicense ? { nodeLicense } : {}) });
+    console.log(`[ok] ${target}: ${result.files.length}개 파일 → ${path.relative(root, result.stageDir)}`);
   }
 }

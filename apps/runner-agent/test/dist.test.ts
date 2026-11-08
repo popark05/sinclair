@@ -8,6 +8,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fetchNode, assembleDistributable, NODE_VERSION, TARGETS } from '../../../scripts/dist.mjs';
+import { helperApkFileName } from '../src/index.ts';
 
 const repo = path.resolve(import.meta.dirname, '../../..');
 const HELPER_APK = path.join(repo, 'packages/device-layer/android-helper/app/build/outputs/apk/debug/app-debug.apk');
@@ -98,10 +99,12 @@ describe.skipIf(!canRun)('호스트 배포본 (동봉 Node 대신 현재 Node �
     expect(fs.existsSync(path.join(install, 'node_modules', 'usb', 'package.json'))).toBe(true);
     expect(fs.readdirSync(path.join(install, 'node_modules', '@node-usb'))).toHaveLength(1);
     const apk = fs.readdirSync(path.join(install, 'resources', 'helper')).sort();
-    expect(apk).toEqual(['sinclair-helper-0.1.0.apk', 'sinclair-helper-0.1.0.apk.sha256']);
+    expect(apk).toEqual([helperApkFileName(), `${helperApkFileName()}.sha256`]); // 에이전트가 찾는 이름과 같다(단일 출처)
+    expect(fs.existsSync(path.join(install, 'node', 'LICENSE'))).toBe(true);
     const sum = fs.readFileSync(path.join(install, 'resources', 'helper', apk[1]!), 'utf8').slice(0, 64);
     expect(createHash('sha256').update(fs.readFileSync(path.join(install, 'resources', 'helper', apk[0]!))).digest('hex')).toBe(sum);
     expect(fs.readFileSync(path.join(install, 'VERSION'), 'utf8')).toContain(`node ${NODE_VERSION}`);
+    expect(fs.readFileSync(path.join(install, 'README.md'), 'utf8')).toMatch(/설치 크기 약 \d+ MB/);
     expect(fs.readFileSync(path.join(install, 'README.md'), 'utf8')).toContain('quarantine');
   });
 
@@ -122,7 +125,8 @@ describe.skipIf(!canRun)('호스트 배포본 (동봉 Node 대신 현재 Node �
     await fetch(`${url}/cycles`, { method: 'POST', body: JSON.stringify({ cycleId: 'd', build: 'b', targets: ['android'] }) });
     const tests = path.join(out, 'tests'); fs.mkdirSync(tests, { recursive: true });
     fs.writeFileSync(path.join(tests, 'login.sinclair.ts'), `import { test } from '@sinclair/runner';\ntest('로그인', async ({ screen, expect }) => { await screen.getByRole('button', { name: '로그인' }).tap(); await expect(screen.getByText('환영합니다')).toBeVisible(); });\n`);
-    const fake = launch('sinclair-agent', ['run', '--control-plane', url, '--cycle', 'd', '--target', 'android', '--tests', tests, '--engine', 'fake', '--spool', path.join(out, 'spool')]);
+    // 엔진·스풀은 환경변수로 넘겨 SINCLAIR_AGENT_* 가 런처를 통과함을 본다
+    const fake = launch('sinclair-agent', ['run', '--control-plane', url, '--cycle', 'd', '--target', 'android', '--tests', tests], { SINCLAIR_AGENT_ENGINE: 'fake', SINCLAIR_AGENT_SPOOL: path.join(out, 'spool') });
     expect(await fake.exited).toBe(0);
     expect(((await (await fetch(`${url}/cycles/d`)).json()) as { verdict: string }).verdict).toBe('verified');
 
@@ -130,10 +134,19 @@ describe.skipIf(!canRun)('호스트 배포본 (동봉 Node 대신 현재 Node �
     const mobile = launch('sinclair-agent', ['run', '--control-plane', url, '--cycle', 'm', '--target', 'android', '--tests', tests, '--engine', 'mobile', '--device', 'NO-SUCH-DEVICE', '--spool', path.join(out, 'spool'), '--helper-cache', path.join(out, 'cache')],
       { SINCLAIR_AGENT_HELPER_APK: '', SINCLAIR_AGENT_HELPER_URL: '' });
     expect(await mobile.exited).toBe(2);
-    expect(mobile.output()).toMatch(/헬퍼 APK: .*resources\/helper\/sinclair-helper-0\.1\.0\.apk \(bundled\)/); // 번들 APK 가 해석됐다
+    expect(mobile.output()).toContain(`resources/helper/${helperApkFileName()} (bundled)`); // 번들 APK 가 해석됐다
     expect(mobile.output()).toMatch(/기기 NO-SUCH-DEVICE 가 목록에 없음|꽂힌 Android 기기가 없음/); // usb 모듈이 로드돼 목록 조회까지 갔다
     await cp.stop();
   }, 120_000); // USB 열거 + 승인 대기 상한(기기 지정이라 목록 재시도 3초) 여유
+});
+
+describe('조립 실패 경로', () => {
+  it('헬퍼 APK 가 없으면 빌드 안내와 함께 실패한다', async () => {
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'sinclair-dist-noapk-'));
+    try {
+      await expect(assembleDistributable({ target: 'mac-x64', outDir: out, nodeBinary: process.execPath, zip: false, log: () => {}, helperApk: path.join(out, 'missing.apk') })).rejects.toThrow(/헬퍼 APK 가 없음[\s\S]*gradlew assembleDebug/);
+    } finally { fs.rmSync(out, { recursive: true, force: true }); }
+  });
 });
 
 describe.skipIf(!fs.existsSync(HELPER_APK))('Windows 타깃 조립(mac 에서 교차)', () => {
@@ -141,8 +154,9 @@ describe.skipIf(!fs.existsSync(HELPER_APK))('Windows 타깃 조립(mac 에서 �
     const out = fs.mkdtempSync(path.join(os.tmpdir(), 'sinclair-dist-win-'));
     try {
       const fakeExe = path.join(out, 'fake-node.exe'); fs.writeFileSync(fakeExe, 'MZ');
-      const r = await assembleDistributable({ target: 'win-x64', outDir: out, version: '0.0.0-test', nodeBinary: fakeExe, zip: false, log: () => {} });
-      expect(r.files).toEqual(expect.arrayContaining(['bin/sinclair-agent.cmd', 'bin/sinclair-control-plane.cmd', 'node/node.exe', 'node_modules/@node-usb/', 'node_modules/usb/', 'resources/helper/sinclair-helper-0.1.0.apk']));
+      const fakeLicense = path.join(out, 'LICENSE'); fs.writeFileSync(fakeLicense, 'fake');
+      const r = await assembleDistributable({ target: 'win-x64', outDir: out, version: '0.0.0-test', nodeBinary: fakeExe, nodeLicense: fakeLicense, zip: false, log: () => {} });
+      expect(r.files).toEqual(expect.arrayContaining(['bin/sinclair-agent.cmd', 'bin/sinclair-control-plane.cmd', 'node/node.exe', 'node/LICENSE', 'node_modules/@node-usb/', 'node_modules/usb/', `resources/helper/${helperApkFileName()}`]));
       expect(fs.existsSync(path.join(r.stageDir, 'node_modules', '@node-usb', 'usb-win32-x64-msvc', 'package.json'))).toBe(true);
       expect(r.files.some((f) => f === 'bin/sinclair-agent')).toBe(false);
       expect(fs.readFileSync(path.join(r.stageDir, 'bin', 'sinclair-agent.cmd'), 'utf8')).toMatch(/node\\node\.exe.*dist\\runner-agent\.mjs.*%\*/);
