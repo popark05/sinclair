@@ -4,6 +4,8 @@ import type { DeviceButton, DeviceInfo, Point, SemanticNode, SnapshotResult } fr
 // DeviceInfo/Point 는 와이어 계약이라 @sinclair/protocol 에 있다. 기존 import 호환을 위해 다시 내보낸다.
 export type { DeviceInfo, Point } from '@sinclair/protocol';
 
+export interface ScreenState { awake?: boolean; locked?: boolean }
+
 export interface DeviceBackend {
   readonly platform: 'android' | 'ios';
   listDevices(): Promise<DeviceInfo[]>;
@@ -19,6 +21,8 @@ export interface DeviceBackend {
   text(deviceId: string, text: string): Promise<void>;
   keys(deviceId: string, keys: string[]): Promise<void>;
   button(deviceId: string, name: DeviceButton): Promise<void>;
+  /** 화면 상태(선택). 알 수 없으면 필드가 비어 있다. 잠금화면 위에서는 앱 창이 안 보여 모든 locator 가 실패하므로 러너가 미리 확인한다 */
+  screenState?(deviceId: string): Promise<ScreenState>;
   launchApp(deviceId: string, appId: string): Promise<void>;
   terminateApp(deviceId: string, appId: string): Promise<void>;
   openUrl(deviceId: string, url: string): Promise<void>;

@@ -2,7 +2,7 @@
 # 우리가 띄운 서버만 종료한다(SIGTERM → 3초 후 SIGKILL). 증거는 남긴다.
 set -uo pipefail
 RUN_DIR=${1:?RUN_DIR 필요}
-RUN_DIR=$(mkdir -p "$RUN_DIR" && cd "$RUN_DIR" && pwd)  # 런처는 /tmp 에서 실행하므로 절대 경로로
+. "$(dirname "$0")/lib.sh"; RUN_DIR=$(resolve_run_dir "$RUN_DIR")
 [ -f "$RUN_DIR/server.pid" ] || { echo "server.pid 없음"; exit 0; }
 PID=$(cat "$RUN_DIR/server.pid")
 if kill -0 "$PID" 2>/dev/null; then kill "$PID"; for _ in $(seq 1 30); do kill -0 "$PID" 2>/dev/null || break; sleep 0.1; done; fi

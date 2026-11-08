@@ -60,7 +60,13 @@ export async function resolveHelperApk(opts: ResolveHelperApkOptions): Promise<R
 
   const doFetch = opts.fetch ?? fetch;
   const get = async (url: string): Promise<Response> => {
-    const res = await doFetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    let res: Response;
+    try { res = await doFetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }); }
+    catch (err) {
+      // undici 는 "fetch failed" 만 주고 원인(인증서·DNS·연결 거부)은 cause 에 있다. 사내망 CA 문제를 사유에서 바로 알 수 있게 붙인다
+      const cause = (err as { cause?: { code?: string; message?: string } }).cause;
+      throw new Error(`${err instanceof Error ? err.message : String(err)}${cause ? ` (${cause.code ?? cause.message})` : ''}`);
+    }
     if (res.status !== 200) throw new Error(`HTTP ${res.status}`);
     return res;
   };

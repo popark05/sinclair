@@ -3,7 +3,7 @@ import { describe, it, expect, afterEach, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { createAndroidBackend, type AndroidBackendOptions } from '../src/android/android-backend.ts';
+import { createAndroidBackend, parseScreenState, type AndroidBackendOptions } from '../src/android/android-backend.ts';
 import { createDeviceServer, RPC_ERRORS, type InputRouteEvent } from '../src/index.ts';
 import { FakeAndroid } from './adb/fake-android.ts';
 import { FakeUsbBackend, FakeUsbDevice } from './adb/fake-usb.ts';
@@ -584,5 +584,12 @@ describe('AndroidBackend 입력: 두 경로 모두 실패', () => {
     await backend.listDevices();
     await expect(backend.text('PHONE1', '안녕')).rejects.toMatchObject({ code: RPC_ERRORS.invalidParams, message: expect.stringMatching(/포커스.*ASCII|ASCII.*포커스/s) });
     expect(events).toEqual([{ deviceId: 'PHONE1', action: 'text', route: 'shell', fallback: { kind: 'refused', detail: expect.stringContaining('포커스') }, failed: expect.any(String) }]);
+  });
+
+  it('parseScreenState 는 dumpsys 출력에서 깨어 있음·잠금 여부를 읽고, 못 읽으면 필드를 비운다 (SM-N981N Android 13 실기기 출력 기준)', () => {
+    expect(parseScreenState('  mWakefulness=Dozing\n', '    mShowingDream=false mDreamingLockscreen=true\n')).toEqual({ awake: false, locked: true });
+    expect(parseScreenState('  mWakefulness=Awake\n', '    mDreamingLockscreen=false\n')).toEqual({ awake: true, locked: false });
+    expect(parseScreenState('', 'isStatusBarKeyguard=true')).toEqual({ locked: true });
+    expect(parseScreenState('sh: dumpsys: not found', '')).toEqual({});
   });
 });

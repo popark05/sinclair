@@ -3,7 +3,7 @@ import type { Engine } from '@sinclair/protocol';
 // testing/index 는 vitest 계약 스위트를 끌어오므로(vitest 밖에서 import 불가) 파일 단위 export 를 쓴다
 import { FakeEngine } from '@sinclair/protocol/testing/fake-engine';
 import { HOME_SCREEN, LOGIN_SCREEN } from '@sinclair/protocol/testing/login-scenario';
-import { createAndroidBackend, createDeviceServer } from '@sinclair/device-layer';
+import { createAndroidBackend, createDeviceServer, type ScreenState } from '@sinclair/device-layer';
 import { createMobileEngine, rpcOverDispatcher } from '@sinclair/engine-mobile';
 import type { RunArgs } from './args.ts';
 import { resolveHelperApk } from './helper-apk.ts';
@@ -29,6 +29,11 @@ const LIST_RETRIES = 6;
 /** 막 켜진 접근성 서비스는 창 이벤트를 하나 받기 전까지 빈 트리를 돌려준다(실기기에서 재설치 직후 확인). HOME 으로 창을 바꾸고 트리가 찰 때까지 500ms × 10 = 5초 */
 const TREE_READY_MS = 500;
 const TREE_READY_POLLS = 10;
+/** 예열: 대상 앱 첫 실행의 트리가 노드 몇 개 이상이 될 때까지 500ms × 20 = 10초(앱 콜드 스타트 포함) */
+const WARMUP_POLL_MS = 500;
+const WARMUP_POLLS = 20;
+const WARMUP_MIN_NODES = 5;
+const countNodes = (n: { children?: unknown[] }): number => 1 + ((n.children ?? []) as Array<{ children?: unknown[] }>).reduce((a, c) => a + countNodes(c), 0);
 
 /** 테스트용: APK 해석 단계의 번들·리포 빌드 위치를 바꿔 끼운다 */
 export interface EngineOverrides { bundledDir?: string; repoBuild?: string }
@@ -40,9 +45,11 @@ export async function createEngine(args: RunArgs, log: (line: string) => void, o
   }
   // USB 를 건드리기 전에 APK 부터: 없으면 기기 상태와 무관하게 "헬퍼 APK 없음" 으로 빨리 실패한다
   const helperApk = await resolveHelperApk({ ...(args.helperApk ? { flag: args.helperApk } : {}), env: process.env, cacheDir: args.helperCache, log, ...overrides });
+  // listDevices 가 첫 판정(온보딩 포함)을 기다리므로 "방금 설치·활성화했는지" 는 info 상태가 아니라 온보딩 단계 콜백으로 안다
+  let onboardedNow = false;
   const backend = createAndroidBackend({
     dadb: { includeEmulators: false, authTimeoutMs: APPROVAL_WAIT_MS }, probeWaitMs: APPROVAL_WAIT_MS, helperApkPath: helperApk.path,
-    onHelperStep: (serial, text) => log(`헬퍼 온보딩(…${serial.slice(-4)}): ${text}`),
+    onHelperStep: (serial, text) => { if (/설치됨|활성화됨/.test(text)) onboardedNow = true; log(`헬퍼 온보딩(…${serial.slice(-4)}): ${text}`); },
   });
   try {
     let devices = await backend.listDevices();
@@ -57,17 +64,44 @@ export async function createEngine(args: RunArgs, log: (line: string) => void, o
     for (let i = 0; i < PENDING_POLLS && info.helper?.state === 'pending'; i++) { await new Promise((r) => setTimeout(r, PENDING_POLL_MS)); info = await backend.info(deviceId); }
     const label = `${info.model} (…${deviceId.slice(-4)}) Android ${info.osVersion}`;
     log(`기기 ${label}, 헬퍼 ${info.helper?.state ?? '알 수 없음'}`);
-    // 화면이 꺼져 있거나 비보안 잠금화면이면 트리가 비어 모든 locator 가 실패한다. 깨우고 잠금화면을 넘기고 홈으로 간다(창 이벤트도 만든다)
-    await backend.keys(deviceId, ['KEYCODE_WAKEUP', 'KEYCODE_MENU', 'KEYCODE_HOME']).catch(() => undefined);
+    // 화면이 꺼져 있거나 잠금화면이면 트리가 비어 모든 locator 가 실패한다. 깨우고(WAKEUP) 비보안 잠금을 넘기고(MENU, 위로 스와이프) 홈으로 간다.
+    // 그래도 트리가 비면 보안 잠금(PIN·패턴)이라 프로그램으로 풀 수 없다 — 테스트를 돌려 엉뚱하게 실패시키지 않고 여기서 사유를 밝히고 멈춘다
+    await backend.keys(deviceId, ['KEYCODE_WAKEUP', 'KEYCODE_MENU']).catch(() => undefined);
+    // 잠금화면도 노드를 가지므로 트리가 비었는지로는 못 가른다. dumpsys 로 직접 본다(비보안 잠금은 위로 스와이프로 풀어 본다)
+    let screen: ScreenState = (await backend.screenState?.(deviceId).catch(() => ({}))) ?? {};
+    if (screen.locked) {
+      await backend.swipe(deviceId, { x: 540, y: 1900 }, { x: 540, y: 700 }, 300).catch(() => undefined); // 화면 아래→위(1080×2400 기준, 다른 해상도도 비율상 화면 안)
+      await new Promise((r) => setTimeout(r, 500));
+      screen = (await backend.screenState?.(deviceId).catch(() => ({}))) ?? {};
+      if (screen.locked) throw new Error('기기 화면이 잠겨 있음(보안 잠금은 프로그램으로 풀 수 없음). 기기 잠금을 해제하고 화면 꺼짐 시간을 늘린 뒤 다시 실행');
+    }
+    log(`화면: ${screen.awake === undefined ? '상태 모름' : screen.awake ? '켜짐' : '꺼짐'}, 잠금 ${screen.locked === undefined ? '모름' : screen.locked ? '있음' : '없음'}`);
     if (info.helper?.state === 'ready') {
-      for (let i = 0; i < TREE_READY_POLLS; i++) {
-        const root = await backend.dumpUi(deviceId).catch(() => undefined);
-        if (root && (root.children?.length ?? 0) > 0) break;
-        if (i === 0) log('헬퍼 트리가 아직 비어 있음, 창 이벤트를 기다림');
-        await new Promise((r) => setTimeout(r, TREE_READY_MS));
-      }
+      const treeFilled = async (): Promise<boolean> => {
+        for (let i = 0; i < TREE_READY_POLLS; i++) {
+          const root = await backend.dumpUi(deviceId).catch(() => undefined);
+          if (root && (root.children?.length ?? 0) > 0) return true;
+          await new Promise((r) => setTimeout(r, TREE_READY_MS));
+        }
+        return false;
+      };
+      if (!(await treeFilled())) log('헬퍼 트리가 비어 있음(창 이벤트 전). 계속 진행');
+      await backend.keys(deviceId, ['KEYCODE_HOME']).catch(() => undefined); // 홈에서 시작(창 이벤트도 만든다)
     }
     const engine = createMobileEngine(rpcOverDispatcher(createDeviceServer([backend])), { deviceId, ...(args.app ? { appId: args.app } : {}) });
+    if (onboardedNow && info.helper?.state === 'ready' && args.app) {
+      // 막 설치·활성화된 접근성 서비스는 첫 앱 실행의 창 내용을 한동안(5초 넘게) 비어 있는 트리로 돌려준다(실기기 재설치 직후 반복 확인).
+      // 테스트가 그 창을 만나지 않도록 대상 앱을 한 번 열어 트리가 찰 때까지 기다렸다가 닫는다
+      log('헬퍼를 방금 켰으므로 대상 앱을 한 번 열어 트리를 예열함');
+      await engine.session!.open().catch(() => undefined);
+      for (let i = 0; i < WARMUP_POLLS; i++) {
+        const root = await backend.dumpUi(deviceId).catch(() => undefined);
+        if (root && countNodes(root) >= WARMUP_MIN_NODES) break;
+        await new Promise((r) => setTimeout(r, WARMUP_POLL_MS));
+      }
+      await backend.terminateApp(deviceId, args.app).catch(() => undefined);
+      await backend.button(deviceId, 'home').catch(() => undefined);
+    }
     return {
       engine, deviceId, deviceLabel: label,
       async dispose() {

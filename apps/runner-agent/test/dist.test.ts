@@ -75,8 +75,8 @@ describe.skipIf(!canRun)('호스트 배포본 (동봉 Node 대신 현재 Node �
   }, 120_000); // 번들 빌드 + usb 패키지 복사 + zip/unzip: 전체 스위트 병렬 실행에서 10초 기본 훅 타임아웃을 넘긴다
   afterAll(() => fs.rmSync(out, { recursive: true, force: true }));
 
-  function launch(bin: string, args: string[], env: Record<string, string> = {}) {
-    const child = spawn(path.join(install, 'bin', bin), args, { cwd: os.tmpdir(), env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+  function launch(bin: string, args: string[], env: Record<string, string> = {}, dir = install) {
+    const child = spawn(path.join(dir, 'bin', bin), args, { cwd: os.tmpdir(), env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
     children.push(child);
     let text = '';
     child.stdout!.on('data', (d) => { text += d; }); child.stderr!.on('data', (d) => { text += d; });
@@ -120,12 +120,9 @@ describe.skipIf(!canRun)('호스트 배포본 (동봉 Node 대신 현재 Node �
     // "새 버전" 설치본: 같은 zip 을 다른 디렉터리에 푼 것으로 흉내 낸다(데이터는 설치 디렉터리 밖에 있다)
     const next = path.join(out, 'install-next');
     fs.cpSync(install, next, { recursive: true });
-    const child = spawn(path.join(next, 'bin', 'sinclair-control-plane'), ['--port', '0'], { env: { ...process.env, SINCLAIR_CP_DB: db }, stdio: ['ignore', 'pipe', 'pipe'] });
-    children.push(child);
-    let text = ''; child.stdout!.on('data', (d) => { text += d; });
-    const port2 = await new Promise<number>((resolve, reject) => { const check = () => { const m = /READY .*port=(\d+)/.exec(text); if (m) resolve(Number(m[1])); }; child.stdout!.on('data', check); setTimeout(() => reject(new Error(`READY 대기 초과: ${text}`)), 20_000).unref(); });
-    expect(await (await fetch(`http://127.0.0.1:${port2}/runs/r-up`)).text()).toBe(before);
-    child.kill('SIGTERM');
+    const upgraded = launch('sinclair-control-plane', ['--port', '0'], { SINCLAIR_CP_DB: db }, next);
+    expect(await (await fetch(`http://127.0.0.1:${await upgraded.ready()}/runs/r-up`)).text()).toBe(before);
+    expect(await upgraded.stop()).toBe(0);
   });
 
   it('런처: control-plane 이 sqlite 기본으로 READY → ingest → SIGTERM 정상 종료; 환경변수가 통과한다', async () => {

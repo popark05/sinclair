@@ -1,6 +1,6 @@
-export type { DeviceBackend, DeviceInfo, Point } from './backend.ts';
+export type { DeviceBackend, DeviceInfo, Point, ScreenState } from './backend.ts';
 export { RpcDispatcher, RpcError, RPC_ERRORS } from './rpc.ts';
 export { createDeviceServer, SERVER_VERSION } from './server.ts';
 export { serveHttp } from './http.ts';
-export { createAndroidBackend, type AndroidBackend, type AndroidBackendOptions, type InputRouteEvent } from './android/android-backend.ts';
+export { createAndroidBackend, parseScreenState, type AndroidBackend, type AndroidBackendOptions, type InputRouteEvent } from './android/android-backend.ts';
 export { Dadb, type DadbOptions, type DadbListOptions } from './adb/dadb.ts';

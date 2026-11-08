@@ -3,7 +3,7 @@
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { DeviceButton, HelperInfo, SemanticNode, SnapshotResult } from '@sinclair/protocol';
-import type { DeviceBackend, DeviceInfo } from '../backend.ts';
+import type { DeviceBackend, ScreenState, DeviceInfo } from '../backend.ts';
 import { HELPER_PACKAGE, HELPER_SERVICE, HelperHttpError, HelperSession, type HelperAction } from './helper-client.ts';
 import { ADB_TRACE, adbTrace } from '../adb/trace.ts';
 import { Dadb, type DadbListOptions } from '../adb/dadb.ts';
@@ -44,6 +44,13 @@ const BUTTON_KEYCODES: Record<DeviceButton, string> = {
 
 /** `input keyevent` 에 넘길 수 있는 키 이름: KEYCODE_* 상수 또는 숫자 키코드 */
 const KEY_NAME = /^(KEYCODE_[A-Z0-9_]+|\d{1,4})$/;
+
+/** `dumpsys power`/`dumpsys window` 출력에서 화면 상태를 읽는다. 못 읽으면 필드를 비운다(기기·버전마다 문구가 다를 수 있다) */
+export function parseScreenState(power: string, window: string): ScreenState {
+  const wake = /mWakefulness=(\w+)/.exec(power)?.[1];
+  const lock = /mDreamingLockscreen=(true|false)/.exec(window)?.[1] ?? /isStatusBarKeyguard=(true|false)/.exec(window)?.[1];
+  return { ...(wake ? { awake: wake === 'Awake' } : {}), ...(lock ? { locked: lock === 'true' } : {}) };
+}
 
 /** 셸 인자 하나를 작은따옴표로 감싼다. */
 function shellQuote(arg: string): string {
@@ -498,6 +505,11 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
       return input(id, `keyevent ${keys.join(' ')}`);
     },
     button: (id, name) => input(id, `keyevent ${BUTTON_KEYCODES[name]}`),
+    screenState: async (id) => {
+      const sh = async (cmd: string) => (await dadbFor(id).shell(cmd)).output;
+      // dumpsys window 전체는 수백 KB 라 grep 으로 줄만 뽑는다
+      return parseScreenState(await sh('dumpsys power | grep -m1 mWakefulness='), await sh('dumpsys window | grep -m1 -E "mDreamingLockscreen=|isStatusBarKeyguard="'));
+    },
     // appId 만 받으므로 액티비티 이름이 필요한 `am start -n` 대신 런처 카테고리로 여는 monkey 를 쓴다.
     launchApp: (id, appId) => runActivityManager(id, `monkey -p ${shellQuote(appId)} -c android.intent.category.LAUNCHER 1`),
     terminateApp: (id, appId) => runVoid(id, `am force-stop ${shellQuote(appId)}`),

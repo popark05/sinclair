@@ -5,7 +5,7 @@ description: "Sinclair 설치본(release/sinclair-<version>-<target>.zip)이 리
 
 # verify-install
 
-intent 의 제약 "설치된 macOS/Windows 빌드에서 동작(dev 모드만으로 검증 금지)" 을 닫는 스킬. 모든 구동은 **설치본의 `bin/` 런처**로만 하고, 리포의 `pnpm`/`npx` 는 조립(`build.sh`)에만 쓴다. 헬퍼 제거에만 `adb` 를 쓴다(기기 도구).
+intent 의 제약 "설치된 macOS/Windows 빌드에서 동작(dev 모드만으로 검증 금지)" 을 닫는 스킬. 모든 구동은 **설치본의 `bin/` 런처**로만 하고, 리포의 `pnpm`/`npx` 는 조립(`build.sh`)에만 쓴다. `adb` 는 헬퍼 제거·기기 식별·`kill-server` 에만 쓴다(기기 도구, 리포 코드 아님). 스크립트는 리포 루트에서 실행한다(`run-device.sh` 가 리포의 설정 앱 샘플 테스트를 복사한다).
 
 ```bash
 S=.claude/skills/verify-install/scripts

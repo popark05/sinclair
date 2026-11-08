@@ -3,8 +3,7 @@
 # 사용: scripts/build.sh <RUN_DIR>   → $RUN_DIR/install.json {dir, zip, version, target, nodeVersion, zipMb}
 set -euo pipefail
 RUN_DIR=${1:?RUN_DIR 필요}
-RUN_DIR=$(mkdir -p "$RUN_DIR" && cd "$RUN_DIR" && pwd)  # 런처는 /tmp 에서 실행하므로 절대 경로로
-mkdir -p "$RUN_DIR"
+. "$(dirname "$0")/lib.sh"; RUN_DIR=$(resolve_run_dir "$RUN_DIR")
 case "$(uname -s)-$(uname -m)" in Darwin-arm64) TARGET=mac-arm64;; Darwin-x86_64) TARGET=mac-x64;; *) echo "지원하지 않는 호스트: $(uname -s)-$(uname -m)" >&2; exit 1;; esac
 node scripts/dist.mjs --targets "$TARGET" --out "$RUN_DIR/release" >"$RUN_DIR/build.out" 2>&1 || { echo "조립 실패" >&2; cat "$RUN_DIR/build.out" >&2; exit 1; }
 ZIP=$(ls "$RUN_DIR"/release/sinclair-*-"$TARGET".zip)

@@ -2,8 +2,8 @@
 # 설치본 에이전트로 FakeEngine run: Reporter → 설치본 서버 → verified. 사용: scripts/run-fake.sh <RUN_DIR>   증거: evidence/install-fake.json
 set -uo pipefail
 RUN_DIR=${1:?RUN_DIR 필요}
-RUN_DIR=$(mkdir -p "$RUN_DIR" && cd "$RUN_DIR" && pwd)  # 런처는 /tmp 에서 실행하므로 절대 경로로
-DIR=$(node -p "JSON.parse(require('fs').readFileSync('$RUN_DIR/install.json','utf8')).dir"); PORT=$(node -p "JSON.parse(require('fs').readFileSync('$RUN_DIR/server.json','utf8')).port")
+. "$(dirname "$0")/lib.sh"; RUN_DIR=$(resolve_run_dir "$RUN_DIR")
+DIR=$(install_dir "$RUN_DIR"); PORT=$(server_port "$RUN_DIR")
 URL="http://127.0.0.1:$PORT"; CYCLE="install-fake-$(date +%s)"
 mkdir -p "$RUN_DIR/tests" "$RUN_DIR/evidence"
 printf "import { test } from '@sinclair/runner';\ntest('로그인', async ({ screen, expect }) => { await screen.getByRole('button', { name: '로그인' }).tap(); await expect(screen.getByText('환영합니다')).toBeVisible(); });\n" >"$RUN_DIR/tests/login.sinclair.ts"
