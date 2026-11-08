@@ -21,7 +21,8 @@ if (!hasSource && existsSync(bundle)) {
   for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => child.kill(sig));
   child.on('exit', (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
 } else {
-  process.on('disconnect', () => process.exit(143)); // 부모 셸이 사라짐(SIGTERM 과 같은 코드)
+  // 부모 셸이 사라짐(SIGTERM 과 같은 코드). run 워커(__worker)는 예외: 데몬의 IPC 가 끊기면 현재 테스트까지 마치고 스스로 끝난다(worker.ts)
+  if (!process.env.SINCLAIR_AGENT_WORKER) process.on('disconnect', () => process.exit(143));
   process.channel?.unref(); // 채널이 이벤트 루프를 붙잡아 main 이 끝난 뒤에도 프로세스가 남지 않도록
   const { main } = await import(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'main.ts'));
   process.exitCode = await main();

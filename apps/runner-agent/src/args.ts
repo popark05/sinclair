@@ -160,6 +160,7 @@ const DAEMON_OPTIONS: readonly OptionSpec[] = [
   { ...OPTIONS.find((o) => o.name === 'tests')!, help: 'Cycle 에 suite 가 없을 때 쓸 기본 테스트 디렉터리' },
   ...OPTIONS.filter((o) => ['engine', 'device', 'app', 'artifacts', 'timeout', 'retries', 'agent', 'spool', 'helper-apk', 'helper-cache'].includes(o.name)),
   { name: 'poll', key: 'pollMs', env: 'SINCLAIR_AGENT_POLL', required: false, help: '대기 중인 Run 이 없을 때 다시 묻는 간격 ms (기본 5000, 최소 100)' },
+  { name: 'concurrency', key: 'concurrency', env: 'SINCLAIR_AGENT_CONCURRENCY', required: false, help: '동시에 돌리는 run 수 상한 (기본: 쓸 수 있는 기기 수, run 마다 워커 프로세스)' },
 ];
 
 export const DAEMON_HELP = `사용법: sinclair-agent daemon [옵션]
@@ -173,7 +174,7 @@ ${helpTable(DAEMON_OPTIONS)}
 종료 코드: 0 모든 run 통과(lease 상실·종료 신호로 중단된 run 은 실패로 세지 않는다), 1 실패·blocked·오류가 있던 run 있음, 3 설정 오류
 `;
 
-export interface DaemonCliArgs extends Omit<RunArgs, 'cycle' | 'target' | 'run'> { targets: string[]; pollMs?: number }
+export interface DaemonCliArgs extends Omit<RunArgs, 'cycle' | 'target' | 'run'> { targets: string[]; pollMs?: number; concurrency?: number }
 
 export function parseDaemonArgs(argv: string[], env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): DaemonCliArgs | { help: true } {
   const parsed = parseWithTable(DAEMON_OPTIONS, argv, env);
@@ -185,7 +186,8 @@ export function parseDaemonArgs(argv: string[], env: NodeJS.ProcessEnv, platform
   if (!(ENGINES as readonly string[]).includes(engine)) throw new AgentConfigError(`--engine 은 ${ENGINES.join('|')} 중 하나여야 함: ${engine}`);
   const timeoutMs = positiveInt('timeout', out.timeoutMs);
   const pollMs = positiveInt('poll', out.pollMs, 100); // 100ms 미만은 서버를 두드리기만 한다
+  const concurrency = positiveInt('concurrency', out.concurrency, 1);
   const retries = positiveInt('retries', out.retries, 0, MAX_RETRIES);
-  const { targets: _t, pollMs: _p, timeoutMs: _m, retries: _r, ...rest } = out;
-  return { ...rest, targets, engine, spool: out.spool ?? defaultSpoolDir(env, platform), helperCache: out.helperCache ?? defaultHelperCacheDir(env, platform), ...(timeoutMs !== undefined ? { timeoutMs } : {}), ...(retries !== undefined ? { retries } : {}), ...(pollMs !== undefined ? { pollMs } : {}) } as unknown as DaemonCliArgs;
+  const { targets: _t, pollMs: _p, timeoutMs: _m, retries: _r, concurrency: _cc, ...rest } = out;
+  return { ...rest, targets, engine, spool: out.spool ?? defaultSpoolDir(env, platform), helperCache: out.helperCache ?? defaultHelperCacheDir(env, platform), ...(timeoutMs !== undefined ? { timeoutMs } : {}), ...(retries !== undefined ? { retries } : {}), ...(pollMs !== undefined ? { pollMs } : {}), ...(concurrency !== undefined ? { concurrency } : {}) } as unknown as DaemonCliArgs;
 }

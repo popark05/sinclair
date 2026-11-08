@@ -3,6 +3,7 @@ import { parseRunArgs, parseResumeArgs, parseDaemonArgs, AgentConfigError, RUN_H
 import { runOnce, EXIT } from './run-once.ts';
 import { resumeSpool } from './spool.ts';
 import { runDaemon } from './daemon.ts';
+import { workerMain } from './worker.ts';
 
 const HELP = `사용법: sinclair-agent <명령> [옵션]
 
@@ -15,6 +16,7 @@ const HELP = `사용법: sinclair-agent <명령> [옵션]
 
 export async function main(argv = process.argv.slice(2), env = process.env): Promise<number> {
   const [command, ...rest] = argv;
+  if (command === '__worker') return workerMain(); // 데몬이 run 마다 띄우는 숨은 명령(device-fleet 04)
   if (!command || command === '--help' || command === '-h') { process.stdout.write(HELP); return command ? EXIT.ok : EXIT.config; }
   if (command !== 'run' && command !== 'resume' && command !== 'daemon') { console.error(`모르는 명령: ${command}\n\n${HELP}`); return EXIT.config; }
   const help = command === 'run' ? RUN_HELP : command === 'daemon' ? DAEMON_HELP : RESUME_HELP;
@@ -31,7 +33,9 @@ export async function main(argv = process.argv.slice(2), env = process.env): Pro
       const stop = (sig: string) => { console.log(`${sig} 수신, 멈춤(진행 중 run 이 있으면 현재 테스트까지 마치고 나머지는 skipped, run 은 cancelled)`); aborter.abort(); };
       process.once('SIGTERM', () => stop('SIGTERM'));
       process.once('SIGINT', () => stop('SIGINT'));
-      const summary = await runDaemon(args, { signal: aborter.signal });
+      // bin 으로 띄운 데몬은 run 을 워커 프로세스로 돌린다: 같은 node·같은 플래그·같은 bin(리포 체크아웃이든 설치본이든 bin 이 알아서 고른다)
+      const workerCommand = process.argv[1] ? [process.execPath, ...process.execArgv, process.argv[1]] : undefined;
+      const summary = await runDaemon(args, { signal: aborter.signal, ...(workerCommand ? { workerCommand } : {}) });
       console.log(`데몬 요약: run ${summary.runs.length}개 (${summary.runs.map((r) => `${r.targetId}:${r.exitCode}`).join(', ')}), resume ${summary.resumed}`);
       // 중단(cancelled)된 run 은 이 노드의 실패가 아니다: 계획된 종료·lease 상실이고, 케이스 결과는 Cycle 뷰가 blocked·대체로 드러낸다
       return summary.runs.every((r) => r.exitCode === EXIT.ok || r.exitCode === EXIT.cancelled) ? EXIT.ok : EXIT.testsFailed;

@@ -4,7 +4,7 @@ import type { Engine, NodeDevice } from '@sinclair/protocol';
 // testing/index 는 vitest 계약 스위트를 끌어오므로(vitest 밖에서 import 불가) 파일 단위 export 를 쓴다
 import { FakeEngine } from '@sinclair/protocol/testing/fake-engine';
 import { HOME_SCREEN, LOGIN_SCREEN } from '@sinclair/protocol/testing/login-scenario';
-import { createAndroidBackend, createDeviceServer, type ScreenState } from '@sinclair/device-layer';
+import { createAndroidBackend, createDeviceServer, serveHttp, type ScreenState } from '@sinclair/device-layer';
 import { createMobileEngine, rpcOverDispatcher } from '@sinclair/engine-mobile';
 import type { RunArgs } from './args.ts';
 import { resolveHelperApk } from './helper-apk.ts';
@@ -50,8 +50,15 @@ export interface AndroidNode {
   /** 꽂힌 기기와 연결·헬퍼·화면 잠금 상태(Fleet 보고·클레임 후보용). 잠금 확인이 실패하면 locked 를 비운다(모름).
    *  tryUnlock: 잠긴 기기(쓰는 중이 아닌)를 한 번 깨우고 위로 스와이프해 본다 — 비보안 잠금은 이것으로 풀린다. 못 풀면 보안 잠금으로 보고 화면을 끈 뒤 풀린 것이 보일 때까지 다시 깨우지 않는다(unlock.ts) */
   inventory(opts?: { tryUnlock?: boolean }): Promise<NodeDevice[]>;
-  /** 이 노드의 백엔드 위에 run 하나용 엔진을 만든다. dispose 는 앱을 정리할 뿐 백엔드를 닫지 않는다 */
+  /** 이 노드의 백엔드 위에 run 하나용 엔진을 만든다(같은 프로세스). dispose 는 앱을 정리할 뿐 백엔드를 닫지 않는다. = prepare + 엔진 + cleanup */
   engineFor(args: RunArgs, log: (line: string) => void): Promise<EngineHandle>;
+  /** run 하나를 위해 기기를 준비한다: 목록에서 찾기, 헬퍼 대기, 깨우기·잠금 확인, (방금 온보딩했으면) 예열. 이후 cleanup 까지 그 기기는 쓰는 중이다.
+   *  워커 프로세스가 엔진을 만들 때(device-fleet 04) 데몬이 워커 전에 부른다 */
+  prepare(args: RunArgs, log: (line: string) => void): Promise<{ deviceId: string; label: string }>;
+  /** run 뒤 정리: 앱 종료, 홈. 쓰는 중 표시를 푼다 */
+  cleanup(deviceId: string, appId?: string): Promise<void>;
+  /** 이 백엔드를 127.0.0.1 HTTP JSON-RPC(토큰)로 연다 — 워커는 USB 를 잡지 않고 이것으로 기기를 조작한다. 처음 부를 때 한 번 열고 close 에서 닫는다 */
+  serveRpc(): Promise<{ port: number; token: string }>;
   close(): Promise<void>;
 }
 
@@ -69,6 +76,9 @@ export async function openAndroidNode(args: Pick<RunArgs, 'helperApk' | 'helperC
     dadb: { includeEmulators: false, authTimeoutMs: APPROVAL_WAIT_MS }, probeWaitMs: APPROVAL_WAIT_MS, helperApkPath: helperApk.path,
     onHelperStep: (serial, text) => { if (/(?<!이미 )설치됨|활성화됨/.test(text)) needsWarmup.add(serial); log(`헬퍼 온보딩(…${serial.slice(-4)}): ${text}`); },
   });
+  // 같은 프로세스 엔진과 워커용 HTTP 가 같은 디스패처를 쓴다: 기기별 호출 직렬화(rpc.ts)가 둘 사이에도 지켜진다
+  const dispatcher = createDeviceServer([backend]);
+  let rpcServer: ReturnType<typeof serveHttp> | undefined;
   /** 화면 아래(80%)에서 위(30%)로 스와이프. 화면 크기는 UI 트리 루트의 크기로 안다(모르면 1080×2400 기준) */
   const swipeUp = async (id: string): Promise<void> => {
     const rect = (await backend.dumpUi(id).catch(() => undefined))?.rect;
@@ -82,7 +92,7 @@ export async function openAndroidNode(args: Pick<RunArgs, 'helperApk' | 'helperC
     sleep: (id) => backend.keys(id, ['KEYCODE_SLEEP']),
     lockedNow: async (id) => (await backend.screenState?.(id))?.locked,
   }, { log });
-  return {
+  const node: AndroidNode = {
     async inventory(opts = {}) {
       let devices = await backend.listDevices();
       // 백엔드를 연 직후 첫 목록은 비어 있을 수 있다(다른 프로세스가 USB 를 막 놓았을 때 — engineFor 의 LIST_RETRIES 와 같은 이유).
@@ -103,7 +113,7 @@ export async function openAndroidNode(args: Pick<RunArgs, 'helperApk' | 'helperC
         return { id: d.id, platform: d.platform, model: d.model, osVersion: d.osVersion, connection: d.state, ...(d.helper ? { helper: d.helper.state } : {}), ...(screen?.locked !== undefined ? { locked: screen.locked } : {}) };
       }));
     },
-    async engineFor(args, log) {
+    async prepare(args, log) {
       let devices = await backend.listDevices();
       for (let i = 0; i < LIST_RETRIES && !devices.some((d) => (args.device ? d.id === args.device : true)); i++) {
         await new Promise((r) => setTimeout(r, LIST_RETRY_MS));
@@ -140,15 +150,14 @@ export async function openAndroidNode(args: Pick<RunArgs, 'helperApk' | 'helperC
         if (!(await treeFilled())) log('헬퍼 트리가 비어 있음(창 이벤트 전). 계속 진행');
         await backend.keys(deviceId, ['KEYCODE_HOME']).catch(() => undefined); // 홈에서 시작(창 이벤트도 만든다)
       }
-      const engine = createMobileEngine(rpcOverDispatcher(createDeviceServer([backend])), { deviceId, ...(args.app ? { appId: args.app } : {}) });
-      // 여기까지 왔으면 잠금이 풀려 있다. 이제부터 dispose 까지 인벤토리는 이 기기에 dumpsys 를 보내지 않는다
+      // 여기까지 왔으면 잠금이 풀려 있다. 이제부터 cleanup 까지 인벤토리는 이 기기에 dumpsys 를 보내지 않는다
       inUse.add(deviceId);
       lastLocked.set(deviceId, false);
       if (needsWarmup.has(deviceId) && info.helper?.state === 'ready' && args.app) {
         // 막 설치·활성화된 접근성 서비스는 첫 앱 실행의 창 내용을 한동안(5초 넘게) 비어 있는 트리로 돌려준다(실기기 재설치 직후 반복 확인).
         // 테스트가 그 창을 만나지 않도록 대상 앱을 한 번 열어 트리가 찰 때까지 기다렸다가 닫는다
         log('헬퍼를 방금 켰으므로 대상 앱을 한 번 열어 트리를 예열함');
-        await engine.session!.open().catch(() => undefined);
+        await backend.launchApp(deviceId, args.app).catch(() => undefined);
         for (let i = 0; i < WARMUP_POLLS; i++) {
           const root = await backend.dumpUi(deviceId).catch(() => undefined);
           if (root && countNodes(root) >= WARMUP_MIN_NODES) break;
@@ -158,19 +167,32 @@ export async function openAndroidNode(args: Pick<RunArgs, 'helperApk' | 'helperC
         await backend.button(deviceId, 'home').catch(() => undefined);
         needsWarmup.delete(deviceId);
       }
+      return { deviceId, label };
+    },
+    async cleanup(deviceId, appId) {
+      if (appId) await backend.terminateApp(deviceId, appId).catch(() => undefined);
+      await backend.button(deviceId, 'home').catch(() => undefined);
+      inUse.delete(deviceId);
+      // 백엔드는 닫지 않는다: 노드(데몬)가 소유하고 다음 run·인벤토리가 같이 쓴다
+    },
+    async engineFor(args, log) {
+      const { deviceId, label } = await node.prepare(args, log);
+      const engine = createMobileEngine(rpcOverDispatcher(dispatcher), { deviceId, ...(args.app ? { appId: args.app } : {}) });
       return {
         engine, deviceId, deviceLabel: label,
-        async dispose() {
-          await engine.session?.restart().catch(() => undefined);
-          if (args.app) await backend.terminateApp(deviceId, args.app).catch(() => undefined);
-          await backend.button(deviceId, 'home').catch(() => undefined);
-          inUse.delete(deviceId);
-          // 백엔드는 닫지 않는다: 노드(데몬)가 소유하고 다음 run·인벤토리가 같이 쓴다
-        },
+        dispose: async () => { await engine.session?.restart().catch(() => undefined); await node.cleanup(deviceId, args.app); },
       };
     },
-    close: () => backend.close(),
+    serveRpc() {
+      rpcServer ??= serveHttp(dispatcher);
+      return rpcServer.then((r) => ({ port: r.port, token: r.token }));
+    },
+    async close() {
+      if (rpcServer) await (await rpcServer).close().catch(() => undefined);
+      await backend.close();
+    },
   };
+  return node;
 }
 
 export async function createEngine(args: RunArgs, log: (line: string) => void, overrides: EngineOverrides = {}): Promise<EngineHandle> {

@@ -9,12 +9,15 @@ import { collectTestFiles, executeRun, EXIT, type ExitCode, type RunOnceDeps } f
 import { resumeSpool } from './spool.ts';
 import { nodeDeviceProblem, type NodeDevice } from '@sinclair/protocol';
 import { fakeDevice, openAndroidNode, type AndroidNode } from './engines.ts';
+import { runInWorker, type WorkerDevice } from './worker.ts';
 
 export interface DaemonArgs extends Omit<RunArgs, 'cycle' | 'target' | 'run'> {
   /** 이 노드가 맡겠다고 선언하는 이름 타깃들(문자열 타깃용, 하위 호환). 조건 타깃만 쓰면 비어도 된다 */
   targets: string[];
   /** 대기 중인 Run 이 없을 때 다시 물어보는 간격(ms, 기본 5초: Cycle 생성 뒤 몇 초 안에 돌기 시작하면서 서버에 부담이 없을 만큼) */
   pollMs?: number;
+  /** 동시에 돌리는 run 수 상한(워커 모드). 기본은 쓸 수 있는 기기 수(기기마다 하나) */
+  concurrency?: number;
 }
 
 export interface ClaimedRun { run: RegisteredRun & { lease: { agentId: string; expiresAt: string; deviceId?: string } }; leaseTtlMs: number; suite?: { tests: string; tags?: string[]; retries?: number }; warning?: string }
@@ -26,6 +29,11 @@ export interface DaemonDeps extends RunOnceDeps {
   maxRuns?: number;
   fetch?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
+  /** run 마다 띄울 워커 명령(node + 플래그 + bin). 있으면 워커 모드: 기기마다 동시에(device-fleet 04). bin 의 main 이 자기 execArgv 를 넣어 넘긴다 —
+   *  리포 체크아웃의 bin 재실행 셸을 거치면 IPC 가 손자 프로세스에 닿지 않으므로 변환 플래그가 이미 붙은 명령이어야 한다 */
+  workerCommand?: readonly string[];
+  /** 테스트용: 워커를 띄웠을 때(run 과 pid) */
+  onWorkerSpawn?: (runId: string, pid: number) => void;
   /** 테스트용: Fleet 에 보고할 기기 목록. 없으면 fake 엔진은 가짜 기기 하나, mobile 은 데몬이 소유한 디바이스 백엔드의 목록 */
   inventory?: () => Promise<NodeDevice[]>;
 }
@@ -191,20 +199,100 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
   await report();
 
   try {
+    // 워커 모드(bin 으로 띄운 데몬): run 마다 워커 프로세스, 기기마다 하나씩 동시에(상한 --concurrency). 라이브러리로 부르면 같은 프로세스에서 하나씩(러너가 프로세스당 하나)
+    const workerMode = !!deps.workerCommand;
+    const limit = workerMode ? (args.concurrency ?? Number.POSITIVE_INFINITY) : 1;
+    const active = new Map<string, { deviceId: string | undefined; done: Promise<void> }>();
+    let claimedCount = 0;
+
+    /** 클레임한 Run 하나: heartbeat, (워커 모드면) 기기 준비 → 워커 → 정리, 즉시 보고, 요약 */
+    const runClaimed = async (claimed: ClaimedRun): Promise<void> => {
+      const { run, leaseTtlMs } = claimed;
+      const targetId = run.targetId;
+      if (claimed.warning) log(`클레임 경고: ${claimed.warning}`);
+      // lease 받은 기기로 돈다. 그 기기를 못 찾으면 엔진 준비가 실패해 blocked(infra-failed)로 보고되고, run 이 끝나 기기 lease 도 풀린다
+      const leasedDevice = claimed.run.lease.deviceId;
+      const testsDir = path.resolve(claimed.suite?.tests ?? args.tests);
+      // Cycle 이 정한 재시도 횟수가 노드 설정보다 우선한다(QA 담당자가 Cycle 단위로 정책을 고른다)
+      const retries = claimed.suite?.retries ?? args.retries;
+      log(`run ${run.runId} 클레임 (cycle ${run.cycleId}, target ${targetId}${leasedDevice ? `, 기기 …${leasedDevice.slice(-4)}` : ''}, tests ${testsDir}${retries !== undefined ? `, retries ${retries}` : ''})`);
+      // 동시에 여러 run 이 돌면 로그가 섞이므로 워커 모드에서는 run 을 앞에 붙인다
+      const runLog = workerMode ? (l: string): void => log(`[run …${run.runId.slice(-8)}] ${l}`) : log;
+
+      // run 마다 취소 컨트롤러: lease 상실과 데몬 종료 신호가 같은 길로 러너에 닿는다. 러너는 진행 중 테스트를 마치고 나머지를 skipped 로 보고하므로
+      // 두 에이전트가 같은 Run 에 보고하는 창은 "현재 테스트 하나" 로 줄고, SIGTERM 도 run 전체가 아니라 테스트 하나 뒤에 멈춘다
+      const canceller = new AbortController();
+      const onDaemonAbort = (): void => canceller.abort(new Error('종료 신호'));
+      if (deps.signal?.aborted) onDaemonAbort(); else deps.signal?.addEventListener('abort', onDaemonAbort, { once: true });
+      // lease 의 1/3 마다 heartbeat: 두 번 놓쳐도 만료 전에 한 번 더 기회가 있다.
+      // lease 를 잃으면(not-owner: 만료 뒤 다른 에이전트가 가져감 / no-run) 러너를 취소한다
+      let leaseLost = false;
+      const heartbeatTimer = setInterval(() => {
+        void heartbeat(args.controlPlane, run.runId, agentId, deps.fetch).then((r) => {
+          if (r === 'ok') return;
+          runLog(`heartbeat ${run.runId}: ${r}`);
+          if (r === 'not-owner' || r === 'replaced' || r === 'no-run') { leaseLost = true; clearInterval(heartbeatTimer); canceller.abort(new Error('lease 를 잃음')); }
+        });
+      }, Math.max(MIN_HEARTBEAT_MS, Math.floor(leaseTtlMs / 3)));
+      heartbeatTimer.unref?.();
+      let code: ExitCode;
+      try {
+        const files = await collectTestFiles(testsDir);
+        const { targets: _targets, pollMs: _poll, concurrency: _c, ...runArgs } = args; // RunArgs 에 데몬 전용 필드가 섞이지 않게
+        const fullArgs: RunArgs = { ...runArgs, cycle: run.cycleId, target: targetId, run: run.runId, tests: testsDir, ...(retries !== undefined ? { retries } : {}), ...(leasedDevice ? { device: leasedDevice } : {}) };
+        if (!workerMode) code = await executeRun(fullArgs, run, files, { ...runDeps, signal: canceller.signal, log: runLog });
+        else {
+          // mobile: 데몬이 기기를 준비하고(USB 는 데몬만) 워커에는 디바이스 RPC 주소만 준다. 준비가 실패하면 같은 프로세스에서 blocked 로 보고한다(테스트는 돌지 않는다)
+          let device: WorkerDevice | undefined;
+          let prepError: unknown;
+          if (node && leasedDevice) {
+            try {
+              const prep = await node.prepare(fullArgs, runLog);
+              const rpc = await node.serveRpc();
+              device = { rpcPort: rpc.port, rpcToken: rpc.token, deviceId: prep.deviceId, label: prep.label };
+            } catch (err) { prepError = err; }
+          }
+          try {
+            code = prepError !== undefined
+              ? await executeRun(fullArgs, run, files, { ...deps, log: runLog, signal: canceller.signal, createEngine: async () => { throw prepError; } })
+              : await runInWorker(deps.workerCommand!, { type: 'start', args: fullArgs, run, files, ...(device ? { device } : {}) }, { log: runLog, signal: canceller.signal, ...(deps.onWorkerSpawn ? { onSpawn: (pid: number) => deps.onWorkerSpawn!(run.runId, pid) } : {}) });
+          } finally {
+            if (node && leasedDevice) await node.cleanup(leasedDevice, args.app);
+          }
+        }
+      } catch (err) {
+        runLog(`run ${run.runId} 준비 실패: ${err instanceof Error ? err.message : String(err)}`);
+        code = EXIT.config;
+      } finally {
+        clearInterval(heartbeatTimer);
+        deps.signal?.removeEventListener('abort', onDaemonAbort);
+      }
+      // 신호가 왔다는 것이 아니라 run 이 실제로 중단됐을 때만 사유를 남긴다(마지막 테스트 도중 신호면 run 은 finished)
+      const cancelled = code === EXIT.cancelled ? (canceller.signal.reason instanceof Error ? canceller.signal.reason.message : String(canceller.signal.reason)) : undefined;
+      if (leaseLost) runLog(cancelled ? `run ${run.runId}: lease 를 잃어 중단 — 진행 중이던 테스트까지만 보고됐고 나머지는 skipped(cancelled)` : `경고: run ${run.runId} 의 lease 를 잃었지만 남은 테스트 없이 끝남`);
+      // run 이 끝나면 주기 보고를 기다리지 않고 바로 다시 보고한다: 기기가 빠지거나(blocked) run 도중 잠겼으면(run 중에는 잠금을 다시 보지 않는다) Fleet 에 지금 상태가 곧 보인다. lease 는 run.finished 로 이미 풀렸다
+      await reportNow();
+      summary.runs.push({ runId: run.runId, targetId, exitCode: code, ...(leaseLost ? { leaseLost: true } : {}), ...(cancelled ? { cancelled } : {}) });
+    };
+
     while (!deps.signal?.aborted) {
-      let worked = false;
+      let claimedNow = false;
+      const room = active.size < limit && (deps.maxRuns === undefined || claimedCount < deps.maxRuns);
       // 폴링마다 클레임 한 번: 서버가 이 노드에 줄 Run 을 고른다 — 이름 타깃은 --targets 로 선언한 것, 조건 타깃은 내놓은 기기 중 맞는 것이 있을 때(device-fleet 03)
-      claim: {
+      if (room) claim: {
         let claimed: ClaimedRun | undefined;
         await refreshCandidates(); // 클레임 직전: 앞 run 이 길었으면 그 사이 상태가 바뀌었을 수 있다
-        const devices = candidateIds;
-        if (devices.length === 0) {
+        if (candidateIds.length === 0) {
           // 기기 없는 노드는 클레임하지 않는다(받아도 돌릴 기기가 없다). 조용히 기다리지 않도록 한 번 알린다
           if (!announcedNoCandidates) log(`후보 기기 없음: 클레임하지 않고 기다림${args.device ? ` (--device …${args.device.slice(-4)} 가 목록에 없음)` : ''}`);
           announcedNoCandidates = true;
           break claim;
         }
         announcedNoCandidates = false;
+        // 이 데몬의 run 이 쓰는 기기는 후보에서 뺀다(서버의 기기 lease 도 막지만, 끝난 run 의 정리가 남은 기기를 바로 다시 내놓지 않게)
+        const inUse = new Set([...active.values()].map((a) => a.deviceId));
+        const devices = candidateIds.filter((d) => !inUse.has(d));
+        if (devices.length === 0) break claim; // 전부 쓰는 중: run 하나가 끝나기를 기다린다
         try {
           if (!legacyClaims) claimed = await claimRun(args.controlPlane, undefined, agentId, deps.fetch, devices, args.targets);
         } catch (err) {
@@ -222,55 +310,23 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
           }
         }
         if (!claimed) break claim;
-        worked = true;
-        const { run, leaseTtlMs } = claimed;
-        const targetId = run.targetId;
-        if (claimed.warning) log(`클레임 경고: ${claimed.warning}`);
-        // lease 받은 기기로 돈다. 그 기기를 못 찾으면 엔진 준비가 실패해 blocked(infra-failed)로 보고되고, run 이 끝나 기기 lease 도 풀린다
-        const leasedDevice = claimed.run.lease.deviceId;
-        const testsDir = path.resolve(claimed.suite?.tests ?? args.tests);
-        // Cycle 이 정한 재시도 횟수가 노드 설정보다 우선한다(QA 담당자가 Cycle 단위로 정책을 고른다)
-        const retries = claimed.suite?.retries ?? args.retries;
-        log(`run ${run.runId} 클레임 (cycle ${run.cycleId}, target ${targetId}${leasedDevice ? `, 기기 …${leasedDevice.slice(-4)}` : ''}, tests ${testsDir}${retries !== undefined ? `, retries ${retries}` : ''})`);
-
-        // run 마다 취소 컨트롤러: lease 상실과 데몬 종료 신호가 같은 길로 러너에 닿는다. 러너는 진행 중 테스트를 마치고 나머지를 skipped 로 보고하므로
-        // 두 에이전트가 같은 Run 에 보고하는 창은 "현재 테스트 하나" 로 줄고, SIGTERM 도 run 전체가 아니라 테스트 하나 뒤에 멈춘다
-        const canceller = new AbortController();
-        const onDaemonAbort = (): void => canceller.abort(new Error('종료 신호'));
-        if (deps.signal?.aborted) onDaemonAbort(); else deps.signal?.addEventListener('abort', onDaemonAbort, { once: true });
-        // lease 의 1/3 마다 heartbeat: 두 번 놓쳐도 만료 전에 한 번 더 기회가 있다.
-        // lease 를 잃으면(not-owner: 만료 뒤 다른 에이전트가 가져감 / no-run) 러너를 취소한다
-        let leaseLost = false;
-        const heartbeatTimer = setInterval(() => {
-          void heartbeat(args.controlPlane, run.runId, agentId, deps.fetch).then((r) => {
-            if (r === 'ok') return;
-            log(`heartbeat ${run.runId}: ${r}`);
-            if (r === 'not-owner' || r === 'replaced' || r === 'no-run') { leaseLost = true; clearInterval(heartbeatTimer); canceller.abort(new Error('lease 를 잃음')); }
-          });
-        }, Math.max(MIN_HEARTBEAT_MS, Math.floor(leaseTtlMs / 3)));
-        heartbeatTimer.unref?.();
-        let code: ExitCode;
-        try {
-          const files = await collectTestFiles(testsDir);
-          const { targets: _targets, pollMs: _poll, ...runArgs } = args; // RunArgs 에 데몬 전용 필드가 섞이지 않게
-          code = await executeRun({ ...runArgs, cycle: run.cycleId, target: targetId, run: run.runId, tests: testsDir, ...(retries !== undefined ? { retries } : {}), ...(leasedDevice ? { device: leasedDevice } : {}) }, run, files, { ...runDeps, signal: canceller.signal });
-        } catch (err) {
-          log(`run ${run.runId} 준비 실패: ${err instanceof Error ? err.message : String(err)}`);
-          code = EXIT.config;
-        } finally {
-          clearInterval(heartbeatTimer);
-          deps.signal?.removeEventListener('abort', onDaemonAbort);
-        }
-        // 신호가 왔다는 것이 아니라 run 이 실제로 중단됐을 때만 사유를 남긴다(마지막 테스트 도중 신호면 run 은 finished)
-        const cancelled = code === EXIT.cancelled ? (canceller.signal.reason instanceof Error ? canceller.signal.reason.message : String(canceller.signal.reason)) : undefined;
-        if (leaseLost) log(cancelled ? `run ${run.runId}: lease 를 잃어 중단 — 진행 중이던 테스트까지만 보고됐고 나머지는 skipped(cancelled)` : `경고: run ${run.runId} 의 lease 를 잃었지만 남은 테스트 없이 끝남`);
-        // run 이 끝나면 주기 보고를 기다리지 않고 바로 다시 보고한다: 기기가 빠지거나(blocked) run 도중 잠겼으면(run 중에는 잠금을 다시 보지 않는다) Fleet 에 지금 상태가 곧 보인다. lease 는 run.finished 로 이미 풀렸다
-        await reportNow();
-        summary.runs.push({ runId: run.runId, targetId, exitCode: code, ...(leaseLost ? { leaseLost: true } : {}), ...(cancelled ? { cancelled } : {}) });
-        if (deps.maxRuns !== undefined && summary.runs.length >= deps.maxRuns) { summary.stoppedBy = 'maxRuns'; return summary; }
+        claimedNow = true;
+        claimedCount++;
+        const runId = claimed.run.runId;
+        const done = runClaimed(claimed).finally(() => { active.delete(runId); });
+        active.set(runId, { deviceId: claimed.run.lease.deviceId, done });
+        if (!workerMode) await done; // 같은 프로세스 모드: 하나씩
       }
-      if (!worked && !deps.signal?.aborted) await sleep(args.pollMs ?? DEFAULT_POLL_MS);
+      if (deps.maxRuns !== undefined && claimedCount >= deps.maxRuns) {
+        await Promise.allSettled([...active.values()].map((a) => a.done));
+        summary.stoppedBy = 'maxRuns';
+        return summary;
+      }
+      // 아무것도 못 받았으면 폴링 간격만큼, 그 사이 run 이 끝나면 바로 다시 본다(빈 기기가 생겼다)
+      if (!claimedNow && !deps.signal?.aborted) await Promise.race([sleep(args.pollMs ?? DEFAULT_POLL_MS), ...[...active.values()].map((a) => a.done)]);
     }
+    // 종료 신호: 각 run 의 취소가 이미 전파됐다. 진행 중 테스트를 마치고 끝나기를 기다린다
+    await Promise.allSettled([...active.values()].map((a) => a.done));
     log('데몬 종료');
     return summary;
   } finally {
