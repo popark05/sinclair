@@ -61,7 +61,7 @@ Verdict 세부(2026-11-07, control-plane-ingest 티켓 05, `apps/control-plane/s
 ## 프런트엔드
 
 - **Studio** (Electron): Device 패널(라이브 스트림, 입력 전달), Inspector(트리 + locator 후보 생성), Agent Session(턴 타임라인, 지시 주입), Recording 편집·코드 내보내기, Test Editor(Monaco), Network(EverMock 연동), Trace Viewer.
-- **Console** (웹): Cycle 매트릭스 히트맵, Verdict, 실패 상세·공유 링크, Issue 분류, 안정성 이력, 플릿 상태, 비용·캐시 적중률.
+- **Console** (웹): Cycle 매트릭스 히트맵, Verdict, 실패 상세·공유 링크, Issue 분류, 안정성 이력, 플릿 상태, 비용·캐시 적중률. React + Vite 정적 앱(`apps/console`, `base: /console/`)을 control-plane 이 `--console-dir` 로 같은 출처에서 서빙한다(인증 없음 — 신뢰망 안에서만). control-plane HTTP API 만 쓰고 응답 타입은 control-plane 에서 type 으로만 가져온다. 목록은 `GET /cycles/summary`(console 01).
 - 둘은 `packages/ui`를 공유.
 
 ## 네트워크 모드

@@ -1,0 +1,14 @@
+:root { --bg: #fafafa; --fg: #1f2328; --muted: #6e7781; --line: #d0d7de; --good: #1a7f37; --bad: #cf222e; --warn: #9a6700; --info: #0969da; font-family: system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; color: var(--fg); background: var(--bg); }
+body { margin: 0; }
+.top { padding: 10px 20px; border-bottom: 1px solid var(--line); background: #fff; font-weight: 600; }
+.top a { color: var(--fg); text-decoration: none; }
+main { padding: 16px 20px; max-width: 1280px; }
+h1 { font-size: 20px; margin: 4px 0 12px; }
+.table { border-collapse: collapse; width: 100%; background: #fff; }
+.table th, .table td { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: left; font-size: 14px; }
+.table th { color: var(--muted); font-weight: 500; }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; border: 1px solid currentColor; }
+.badge-good { color: var(--good); } .badge-bad { color: var(--bad); } .badge-warn { color: var(--warn); } .badge-info { color: var(--info); } .badge-neutral { color: var(--muted); }
+.muted { color: var(--muted); }
+.error { color: var(--bad); }
+.progress { font-variant-numeric: tabular-nums; }

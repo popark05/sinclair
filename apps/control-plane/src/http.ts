@@ -13,12 +13,14 @@
 //   GET  /fleet              → FleetView(노드별 기기와 idle/untrusted/offline)
 //   GET  /health             200
 import http from 'node:http';
+import * as fs from 'node:fs/promises';
+import * as nodePath from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ingestBatch } from './ingest.ts';
 import { projectRun, type RunView } from './projection.ts';
 import type { EventStore } from './store.ts';
 import { createMemoryCycleStore, type CycleStore, type RunRegistration } from './cycle-store.ts';
-import { MAX_RETRY_LIMIT } from './verdict.ts';
+import { MAX_RETRY_LIMIT, type CycleView } from './verdict.ts';
 import { matchesTarget, parseCycleTargets, parseNodeReport, type NodeDevice } from '@sinclair/protocol';
 import { buildFleetView, createMemoryFleetStore, type FleetStore } from './fleet.ts';
 import { buildCycleView, sweepAbandoned, sweepAllAbandoned } from './cycle-view.ts';
@@ -35,7 +37,22 @@ export interface ControlPlaneOptions {
   leaseTtlMs?: number;
   /** 테스트용 시계 */
   now?: () => number;
+  /** Console 빌드 디렉터리. 있으면 /console 에서 정적으로 서빙한다(없으면 API 만) */
+  consoleDir?: string;
 }
+
+/** Cycle 목록 한 줄(Console 의 Cycle 목록). 진행률은 판정에 들어가는 Run(대체되지 않은 것) 기준 */
+export interface CycleSummary {
+  cycleId: string; build: string; targets: string[]; createdAt: string;
+  state: CycleView['state']; verdict: CycleView['verdict'];
+  runs: { total: number; finished: number };
+}
+const DEFAULT_SUMMARY_LIMIT = 50;
+const MAX_SUMMARY_LIMIT = 500;
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.map': 'application/json',
+};
 
 export const DEFAULT_LEASE_TTL_MS = 60_000;
 /** 러너 MAX_RETRIES 와 같은 값. apps 는 러너를 import 하지 않으므로 숫자를 따로 둔다(apps/runner-agent/test/args.test.ts 가 같음을 확인) */
@@ -97,9 +114,32 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
     }
     try { return { body: JSON.parse(Buffer.concat(chunks).toString('utf8')) }; } catch { json(res, 400, { error: 'JSON 파싱 실패' }); return undefined; }
   };
+  /** Console 정적 파일. 디렉터리 밖으로 나가는 경로는 거부하고, 확장자 없는 경로(SPA 화면)는 index.html, 없는 자산은 404 */
+  const consoleRoot = opts.consoleDir ? nodePath.resolve(opts.consoleDir) : undefined;
+  const serveConsole = async (res: http.ServerResponse, rel: string): Promise<void> => {
+    const file = nodePath.resolve(consoleRoot!, `.${nodePath.posix.normalize(`/${rel}`)}`);
+    if (file !== consoleRoot && !file.startsWith(consoleRoot! + nodePath.sep)) return json(res, 404, { error: '없음' });
+    const ext = nodePath.extname(file);
+    const target = !ext || ext === '.html' ? (ext ? file : nodePath.join(consoleRoot!, 'index.html')) : file;
+    try {
+      const body = await fs.readFile(target);
+      // 해시가 붙은 자산은 오래 캐시, index.html 은 늘 새로(새 배포가 바로 보이게)
+      res.writeHead(200, { 'content-type': MIME[nodePath.extname(target)] ?? 'application/octet-stream', 'cache-control': target.endsWith('index.html') ? 'no-cache' : 'public, max-age=31536000, immutable' }).end(body);
+    } catch {
+      json(res, 404, { error: '없음' });
+    }
+  };
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+      if (consoleRoot && req.method === 'GET') {
+        if (url.pathname === '/') { res.writeHead(302, { location: '/console/' }).end(); return; }
+        if (url.pathname === '/console' || url.pathname.startsWith('/console/')) {
+          let rel: string;
+          try { rel = decodeURIComponent(url.pathname.slice('/console'.length)); } catch { return json(res, 400, { error: '경로 인코딩이 잘못됨' }); }
+          return serveConsole(res, rel);
+        }
+      }
       let parts: string[];
       try { parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent); } catch { return json(res, 400, { error: '경로 인코딩이 잘못됨' }); }
       if (req.method === 'POST' && url.pathname === '/ingest') {
@@ -131,6 +171,22 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         return json(res, 201, cycle);
       }
       if (req.method === 'GET' && url.pathname === '/cycles') return json(res, 200, await cycles.listCycles());
+      // Console 의 Cycle 목록: 최신순 N 개의 상태·Verdict·진행률. Cycle 마다 이벤트를 읽으므로 limit 로 묶는다("summary" 라는 cycleId 는 쓸 수 없다)
+      if (req.method === 'GET' && url.pathname === '/cycles/summary') {
+        const limitText = url.searchParams.get('limit') ?? String(DEFAULT_SUMMARY_LIMIT);
+        const limit = Number(limitText);
+        if (!/^\d+$/.test(limitText) || limit < 1 || limit > MAX_SUMMARY_LIMIT) return json(res, 400, { error: `limit 는 1~${MAX_SUMMARY_LIMIT} 정수여야 함` });
+        const all = (await cycles.listCycles()).map((c, i) => ({ c, i })).sort((a, b) => b.c.createdAt.localeCompare(a.c.createdAt) || b.i - a.i).slice(0, limit);
+        const out: CycleSummary[] = [];
+        for (const { c } of all) {
+          const view = await buildCycleView(store, cycles, c.cycleId);
+          if (!view) continue;
+          const counted = view.runs.filter((r) => !r.replacedBy);
+          out.push({ cycleId: c.cycleId, build: c.build, targets: c.targets, createdAt: c.createdAt, state: view.state, verdict: view.verdict,
+            runs: { total: counted.length, finished: counted.filter((r) => r.state === 'finished' || r.state === 'cancelled' || r.state === 'infra-failed').length } });
+        }
+        return json(res, 200, out);
+      }
       if (req.method === 'GET' && parts[0] === 'cycles' && parts.length === 2) {
         // 조회도 정리 시점이다: 별도 스케줄러 없이 클레임·조회에서 버려진 Run 을 닫는다
         await sweepAbandoned(store, cycles, parts[1]!, sweepOpts());

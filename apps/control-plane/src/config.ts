@@ -11,6 +11,8 @@ export interface ControlPlaneConfig {
   db: string;
   /** 클레임 lease 수명(ms). 버려진 Run 판정 유예도 이 값이다. parseConfig 는 항상 채우지만 테스트가 손으로 만드는 설정은 생략할 수 있다(서버 기본 60초) */
   leaseTtlMs?: number;
+  /** Console 정적 파일 디렉터리(빌드 결과). 있으면 /console 에서 서빙한다 */
+  consoleDir?: string;
 }
 
 export class ConfigError extends Error {}
@@ -25,6 +27,7 @@ const OPTIONS = [
   { name: 'port', env: 'SINCLAIR_CP_PORT', help: `포트 (기본 ${DEFAULT_PORT}, 0 이면 OS 배정)` },
   { name: 'store', env: 'SINCLAIR_CP_STORE', help: '저장소 memory|sqlite (기본 sqlite)' },
   { name: 'db', env: 'SINCLAIR_CP_DB', help: 'SQLite 파일 (기본 OS 데이터 디렉터리/sinclair/control-plane.db)' },
+  { name: 'console-dir', env: 'SINCLAIR_CP_CONSOLE_DIR', help: 'Console(웹 대시보드) 빌드 디렉터리. 있으면 /console 에서 서빙 (기본 없음 = API 만)' },
   { name: 'lease-ttl-ms', env: 'SINCLAIR_CP_LEASE_TTL_MS', help: `클레임 lease 수명 ms (기본 ${DEFAULT_LEASE_TTL_MS}). 버려진 Run 판정 유예도 같은 값` },
 ] as const;
 
@@ -79,5 +82,6 @@ export function parseConfig(argv: string[], env: NodeJS.ProcessEnv, platform: No
   const ttlText = resolve('lease-ttl-ms', String(DEFAULT_LEASE_TTL_MS));
   const leaseTtlMs = Number(ttlText);
   if (!/^\d+$/.test(ttlText) || leaseTtlMs < 1000) throw new ConfigError(`lease-ttl-ms 는 1000 이상의 정수여야 함: ${ttlText}`);
-  return { host, port, store: store as ControlPlaneConfig['store'], db, leaseTtlMs };
+  const consoleDir = resolve('console-dir', '');
+  return { host, port, store: store as ControlPlaneConfig['store'], db, leaseTtlMs, ...(consoleDir ? { consoleDir: path.resolve(consoleDir) } : {}) };
 }
