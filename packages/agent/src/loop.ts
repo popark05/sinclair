@@ -149,6 +149,7 @@ const hide = (t: string): string => (secrets ? secrets.redact(t) : t);
       const incidentCtx = () => ({ ...(appPackage ? { appPackage } : {}), ...(opts.incidents ? { policy: opts.incidents } : {}) });
       let lastRecovered: string | undefined;
       let sameAfterRecovery = 0;
+      let recoveredThisTurn = false;
       for (;;) {
         if (aborter.signal.aborted) return fail(`시간 한도 ${timeoutMs}ms 에 닿음`);
         const inc = detectIncident(observed.root, incidentCtx());
@@ -172,6 +173,7 @@ const hide = (t: string): string => (secrets ? secrets.redact(t) : t);
           break;
         }
         record(inc.kind, action);
+        recoveredThisTurn = true;
         lastRecovered = inc.signature;
         try { observed = await observeNow(pixels || guardPixels); } catch (err) {
           if (aborter.signal.aborted) return fail(`시간 한도 ${timeoutMs}ms 에 닿음`);
@@ -183,8 +185,9 @@ const hide = (t: string): string => (secrets ? secrets.redact(t) : t);
       // Ledger: 앞 턴이 실행한 뒤 화면이 바뀐 부분을 그 턴의 기록에 붙인다(이전 관찰을 통째로 싣는 대신)
       const prevTurn = history.at(-1);
       if (prevShown && prevTurn?.call && prevTurn.result !== 'rejected' && !prevTurn.change) {
-        const change = screenChange(prevShown, shown);
-        if (change) prevTurn.change = change;
+        // 실행한 턴에는 늘 붙인다('없음' 도 — 계산하지 않은 것과 구별). 그 사이 Incident 복구가 있었으면 복구 뒤 화면이라고 밝힌다(모델이 자기 탭의 결과로 오해하지 않게)
+        const change = screenChange(prevShown, shown) ?? '없음';
+        prevTurn.change = recoveredThisTurn ? `Incident 복구 뒤: ${change}` : change;
       }
       prevShown = shown;
       const observation = renderObservation(shown);

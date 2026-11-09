@@ -6,7 +6,8 @@
 // 사내망(SSL 인터셉션)은 NODE_EXTRA_CA_CERTS 로 CA 묶음을 주면 Node 의 fetch 가 신뢰한다.
 import Anthropic from '@anthropic-ai/sdk';
 import type { StepUsage } from '@sinclair/protocol';
-import { renderLedger, renderTurn, LEDGER_BLOCK, DEFAULT_LEDGER_BUDGET, DEFAULT_RECENT_TURNS } from './ledger.ts';
+import { createHash } from 'node:crypto';
+import { renderLedger, renderTurn, blockFoldOf, LEDGER_BLOCK, DEFAULT_LEDGER_BUDGET } from './ledger.ts';
 import { addUsage } from './usage.ts';
 import { ModelCallError, ModelConfigError, type JudgeReply, type JudgeRequest, type StepExecutor, type StepReply, type StepRequest } from './executor.ts';
 
@@ -145,26 +146,29 @@ export function createClaudeExecutor(options: ClaudeExecutorOptions = {}): StepE
     return res;
   }
 
-  /** 묶음 시작 턴(1부터) → 모델 요약. '' 는 실패(결정적 요약으로, 다시 묻지 않는다). 묶음은 한 번 접히면 바뀌지 않아 캐시가 맞다 */
-  const summaries = new Map<number, string>();
+  /** 묶음 내용(목표 + 그 8턴) 해시 → 모델 요약. '' 는 실패(결정적 요약으로, 다시 묻지 않는다).
+   *  내용으로 키를 잡아야 같은 실행기를 쓰는 다른 act·다른 목표에 남의 요약이 가지 않는다 */
+  const summaries = new Map<string, string>();
+  const blockText = (req: StepRequest, from: number): string => req.history.slice(from, from + LEDGER_BLOCK).map((t, i) => renderTurn(t, from + i, 120)).join('\n');
+  const blockKey = (req: StepRequest, from: number): string => createHash('sha1').update(req.goal).update('\u0000').update(blockText(req, from)).digest('hex');
   async function prefetchSummaries(req: StepRequest, signal: AbortSignal): Promise<ReturnType<typeof toUsage>> {
-    if (!options.ledgerSummaryModel) return undefined;
-    const n = req.history.length;
-    // renderLedger 와 같은 묶음 경계(최근 DEFAULT_RECENT_TURNS 턴을 뺀 꽉 찬 묶음)
-    const blockFold = n > DEFAULT_RECENT_TURNS ? Math.floor((n - DEFAULT_RECENT_TURNS) / LEDGER_BLOCK) * LEDGER_BLOCK : 0;
+    const summaryModel = options.ledgerSummaryModel;
+    if (!summaryModel) return undefined;
     let used: ReturnType<typeof toUsage>;
-    for (let from = 0; from < blockFold; from += LEDGER_BLOCK) {
-      if (summaries.has(from + 1)) continue;
-      const lines = req.history.slice(from, from + LEDGER_BLOCK).map((t, i) => renderTurn(t, from + i, 120)).join('\n');
+    for (let from = 0; from < blockFoldOf(req.history.length); from += LEDGER_BLOCK) {
+      const key = blockKey(req, from);
+      if (summaries.has(key)) continue;
       try {
-        const r = await getClient().messages.create({ model: options.ledgerSummaryModel, max_tokens: 400, system: SUMMARY_SYSTEM, messages: [{ role: 'user', content: `목표: ${req.goal}\n\n${lines}` }] }, { signal });
+        const r = await getClient().messages.create({ model: summaryModel, max_tokens: 400, system: SUMMARY_SYSTEM, messages: [{ role: 'user', content: `목표: ${req.goal}\n\n${blockText(req, from)}` }] }, { signal });
         used = addUsage(used, toUsage(r.usage));
         const text = r.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join(' ').trim();
-        summaries.set(from + 1, r.stop_reason === 'refusal' ? '' : text.slice(0, 400));
+        summaries.set(key, r.stop_reason === 'refusal' ? '' : text.slice(0, 400));
       } catch (err) {
         if (signal.aborted) throw err;
-        if (err instanceof Anthropic.APIError && (err.status === 401 || err.status === 403)) throw translateError(err, options.ledgerSummaryModel);
-        summaries.set(from + 1, ''); // 요약 실패는 턴을 막지 않는다
+        // 자격 증명·모델 이름·요청 모양 문제는 설정 오류(그 변수를 밝혀서). 일시 오류는 결정적 요약으로 넘어가고 턴은 계속
+        if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) throw translateError(err, summaryModel);
+        if (err instanceof Anthropic.NotFoundError || err instanceof Anthropic.BadRequestError) throw new ModelConfigError(`요약 모델 ${summaryModel} 요청이 거부됨(${err.status}): SINCLAIR_AGENT_LEDGER_SUMMARY_MODEL 을 확인`);
+        summaries.set(key, '');
       }
     }
     return used;
@@ -174,12 +178,17 @@ export function createClaudeExecutor(options: ClaudeExecutorOptions = {}): StepE
     ...(options.pixels ? { pixels: true } : {}),
     async next(req, signal): Promise<StepReply> {
       const summaryUsage = await prefetchSummaries(req, signal);
-      const ledger = renderLedger(req, { budgetTokens: options.ledgerBudget ?? DEFAULT_LEDGER_BUDGET, blockSummary: (from) => summaries.get(from) || undefined });
+      const ledger = renderLedger(req, { budgetTokens: options.ledgerBudget ?? DEFAULT_LEDGER_BUDGET, blockSummary: (from) => summaries.get(blockKey(req, from - 1)) || undefined });
+      // 본 요청이 실패해도 요약에 쓴 토큰은 비용으로 남긴다
       const res = await send(signal, {
         system: SYSTEM,
         content: [...imageBlock(req.pixels), { type: 'text', text: ledger.text }],
         // action spec 에서 만든 스키마 그대로 + strict(스키마를 지키는 입력만). 강제 tool_choice 는 Sonnet 5.5 에서 400 이라 auto + 지시
         extra: { tools: req.tools.map((t) => ({ ...t, strict: true })), tool_choice: { type: 'auto', disable_parallel_tool_use: true } },
+      }).catch((err: unknown) => {
+        if (summaryUsage && err instanceof ModelCallError) throw new ModelCallError(err.message, addUsage(summaryUsage, err.usage));
+        if (summaryUsage && !(err instanceof ModelConfigError) && err instanceof Error && !(err instanceof Anthropic.APIUserAbortError)) throw new ModelCallError(err.message, summaryUsage);
+        throw err;
       });
       const usage = addUsage(summaryUsage, toUsage(res.usage));
       const tool = res.content.find((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === 'tool_use');

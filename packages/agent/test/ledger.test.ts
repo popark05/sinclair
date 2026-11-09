@@ -8,9 +8,10 @@ const turn = (i: number, extra: Partial<AgentTurn> = {}): AgentTurn => ({ call: 
 const req = (n: number, observation = '@e0 root\n  @e1 button "다음"', goal = '설정에서 알림을 끄고 돌아와라'): StepRequest => ({ goal, observation, history: Array.from({ length: n }, (_, i) => turn(i + 1)), tools: [] });
 
 describe('estimateTokens', () => {
-  it('UTF-8 바이트/3 — 한글은 글자당 1, 영문은 3자당 1(보수적)', () => {
-    expect(estimateTokens('가나다')).toBe(3);
-    expect(estimateTokens('abcdef')).toBe(2);
+  it('한글은 글자당 1, 영문 글자는 3자당 1, 숫자·기호는 2자당 1, 10% 여유', () => {
+    expect(estimateTokens('가나다')).toBe(4); // 3 × 1.1
+    expect(estimateTokens('abcdef')).toBe(3); // 2 × 1.1
+    expect(estimateTokens('@123')).toBe(3); // 4/2 × 1.1
   });
 });
 
@@ -48,19 +49,19 @@ describe('renderLedger', () => {
   it('줄이는 순서: 사유 문구 자르기 → 최근 턴 줄이기(최소 3) → 관찰 자르기', () => {
     const full = renderLedger(req(14));
     expect(full.text).toMatch(/(자세한 사유 ){15}/);
-    const r1 = renderLedger(req(14), { budgetTokens: 300 }); // 사유만 자르면 들어간다
+    const r1 = renderLedger(req(14), { budgetTokens: 400 }); // 사유만 자르면 들어간다
     expect(r1).toMatchObject({ recentTurns: 14, truncatedObservation: false });
     expect(r1.text).not.toMatch(/(자세한 사유 ){15}/);
-    const r2 = renderLedger(req(14), { budgetTokens: 250 }); // 최근 턴도 줄여야 들어간다
+    const r2 = renderLedger(req(14), { budgetTokens: 300 }); // 최근 턴도 줄여야 들어간다
     expect(r2.recentTurns).toBeLessThan(14);
     expect(r2.recentTurns).toBeGreaterThanOrEqual(3);
     expect(r2.truncatedObservation).toBe(false);
-    expect(r2.estimatedTokens).toBeLessThanOrEqual(250);
+    expect(r2.estimatedTokens).toBeLessThanOrEqual(300);
   });
 
   it('모델 요약이 주어지면 그 묶음은 모델 요약으로', () => {
     const r = renderLedger(req(20), { blockSummary: (from) => (from === 1 ? '설정 앱을 열고 알림 메뉴까지 갔다' : undefined) });
-    expect(r.text).toMatch(/턴 1–8 요약: 설정 앱을 열고 알림 메뉴까지 갔다/);
+    expect(r.text).toMatch(/턴 1–8 요약\(요약 모델, 참고용\): 설정 앱을 열고 알림 메뉴까지 갔다/);
   });
 });
 
@@ -69,7 +70,7 @@ describe('screenChange', () => {
   it('나타난 글자·사라진 글자를 한 줄로(같으면 없음)', () => {
     expect(screenChange(s('로그인', '아이디'), s('환영합니다', '로그아웃', '아이디'))).toBe('+ "환영합니다" "로그아웃" / − "로그인"');
     expect(screenChange(s('a'), s('a'))).toBeUndefined();
-    expect(screenChange(s(...Array.from({ length: 30 }, (_, i) => `x${i}`)), s())).toMatch(/− .* 외 25개/);
+    expect(screenChange(s(...Array.from({ length: 30 }, (_, i) => `항목 ${String.fromCharCode(0xac00 + i)}`)), s())).toMatch(/− .* 외 25개/);
   });
 });
 
@@ -87,5 +88,48 @@ describe('Ledger · 대본 모델 50턴 세션', () => {
       const n = req.history.length;
       for (let i = Math.max(0, n - 3); i < n; i++) expect(l.text).toContain(`${i + 1}. ${req.history[i]!.call!.name}`);
     }
+  });
+});
+
+describe('Ledger · 리뷰 반영(예산 보장·변화 잡음·상태)', () => {
+  const turns = (n: number): AgentTurn[] => Array.from({ length: n }, (_, i) => ({ call: { name: 'tap', input: { ref: `@e${i + 1}` } }, result: 'ok' }));
+  it.each([
+    ['아주 긴 목표', { goal: '긴 목표 '.repeat(3000), observation: '@r root', history: turns(3), tools: [] }],
+    ['아주 긴 Incident', { goal: 'g', incident: 'Incident: '.repeat(2000), observation: '@r root', history: turns(3), tools: [] }],
+    ['아주 긴 루트 한 줄', { goal: 'g', observation: `@r root "${'x'.repeat(40000)}"`, history: turns(3), tools: [] }],
+    ['턴 200개 + 긴 모델 요약', { goal: 'g', observation: '@r root', history: turns(200), tools: [] }],
+  ] as Array<[string, StepRequest]>)('%s 도 예산을 넘지 않고, 마지막 3턴은 남는다', (_, r) => {
+    for (const budget of [1000, 4000]) {
+      const l = renderLedger(r, { budgetTokens: budget, blockSummary: () => '요'.repeat(400) });
+      expect(l.estimatedTokens).toBeLessThanOrEqual(budget);
+      const n = r.history.length;
+      for (let i = n - 2; i <= n; i++) expect(l.text).toMatch(new RegExp(`^${i}\\. tap @e${i} `, 'm'));
+    }
+  });
+
+  it('긴 목표는 앞부분을 남기고 잘렸다고 표시한다', () => {
+    const l = renderLedger({ goal: `핵심 목표 ${'부연 '.repeat(4000)}`, observation: '@r root', history: [], tools: [] }, { budgetTokens: 2000 });
+    expect(l.text).toMatch(/^목표: 핵심 목표 /);
+    expect(l.text).toMatch(/목표 \d+자 생략/);
+  });
+
+  it('추정은 영문·한글·트리 문법 모두 넉넉하게(바이트/3 보다 크거나 같다)', () => {
+    for (const t of ['가나다라', 'hello world', '@e123 button "결제" id=com.app:id/pay (disabled)']) expect(estimateTokens(t)).toBeGreaterThanOrEqual(Math.ceil(Buffer.byteLength(t) / 3));
+    expect(estimateTokens('@e123')).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('screenChange · 리뷰 반영', () => {
+  const s = (nodes: SemanticNode[]): SemanticNode => ({ ref: '@r', role: 'root', children: nodes });
+  it('숫자만 바뀌는 글자(시계·배터리)는 변화가 아니다', () => {
+    expect(screenChange(s([{ ref: '@c', role: 'text', text: '10:30' }, { ref: '@b', role: 'text', text: '배터리 81%' }]), s([{ ref: '@c', role: 'text', text: '10:31' }, { ref: '@b', role: 'text', text: '배터리 80%' }]))).toBeUndefined();
+  });
+  it('스위치·체크 상태 변화를 알린다', () => {
+    const sw = (checked: boolean): SemanticNode => s([{ ref: '@s', role: 'switch', name: '알림', states: { checked } }]);
+    expect(screenChange(sw(true), sw(false))).toBe('~ "알림" 선택 해제');
+    expect(screenChange(sw(false), sw(true))).toBe('~ "알림" 선택됨');
+  });
+  it('입력 칸의 글자(입력한 값)는 변화로 내보내지 않는다', () => {
+    expect(screenChange(s([{ ref: '@f', role: 'textbox', placeholder: '아이디' }]), s([{ ref: '@f', role: 'textbox', placeholder: '아이디', text: 'qa-plain' }]))).toBeUndefined();
   });
 });

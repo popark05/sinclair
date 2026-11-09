@@ -210,14 +210,34 @@ describe('createClaudeExecutor · Ledger', () => {
     const exec = createClaudeExecutor(opts(api.baseURL, { ledgerSummaryModel: 'claude-haiku-5-5' }));
     const first = await exec.next({ goal: '목표', observation: '@r root', history: longHistory(17), tools: [] }, new AbortController().signal);
     expect(api.captured.map((c) => c.body.model)).toEqual(['claude-haiku-5-5', 'claude-sonnet-5-5']);
-    expect(JSON.stringify(api.captured[1]!.body.messages)).toMatch(/턴 1–8 요약: 설정 앱에서 알림 메뉴까지 갔다/);
+    expect(JSON.stringify(api.captured[1]!.body.messages)).toMatch(/턴 1–8 요약\(요약 모델, 참고용\): 설정 앱에서 알림 메뉴까지 갔다/);
     expect(first.usage).toMatchObject({ inputTokens: 1200, outputTokens: 40 });
     await exec.next({ goal: '목표', observation: '@r root', history: longHistory(18), tools: [] }, new AbortController().signal);
     expect(api.captured.map((c) => c.body.model)).toEqual(['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-sonnet-5-5']); // 같은 묶음은 다시 요약하지 않는다
   });
 
-  it('요약 모델이 실패하면 결정적 요약으로 돌아가고 턴은 계속된다', async () => {
-    const api = await fakeApi([(c) => (c.body.model === 'claude-haiku-5-5' ? { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'x' } } } : toolUse('done', { summary: 'x' }))]);
+  it('요약 캐시는 묶음 내용(목표+턴)으로: 같은 실행기를 쓰는 다른 act 에 남의 요약이 가지 않는다', async () => {
+    let k = 0;
+    const api = await fakeApi([(c) => (c.body.model === 'claude-haiku-5-5' ? textReply(`요약 ${++k}`) : toolUse('done', { summary: 'x' }))]);
+    const exec = createClaudeExecutor(opts(api.baseURL, { ledgerSummaryModel: 'claude-haiku-5-5' }));
+    await exec.next({ goal: '목표 A', observation: '@r root', history: longHistory(17), tools: [] }, new AbortController().signal);
+    await exec.next({ goal: '목표 B', observation: '@r root', history: longHistory(17), tools: [] }, new AbortController().signal);
+    expect(JSON.stringify(api.captured.at(-1)!.body.messages)).toMatch(/요약 2/);
+  });
+
+  it('요약 모델 설정이 틀리면(404) 그 변수를 밝힌 설정 오류', async () => {
+    const api = await fakeApi([(c) => (c.body.model === 'claude-haiku-typo' ? { status: 404, body: { type: 'error', error: { type: 'not_found_error', message: 'model' } } } : toolUse('done', { summary: 'x' }))]);
+    await expect(createClaudeExecutor(opts(api.baseURL, { ledgerSummaryModel: 'claude-haiku-typo' })).next({ goal: '목표', observation: '@r root', history: longHistory(17), tools: [] }, new AbortController().signal)).rejects.toThrow(/SINCLAIR_AGENT_LEDGER_SUMMARY_MODEL/);
+  });
+
+  it('본 요청이 실패해도 요약에 쓴 토큰은 오류에 실린다', async () => {
+    const api = await fakeApi([(c) => (c.body.model === 'claude-haiku-5-5' ? textReply('요약') : { status: 529, body: { type: 'error', error: { type: 'overloaded_error', message: 'x' } } })]);
+    const err = await createClaudeExecutor(opts(api.baseURL, { ledgerSummaryModel: 'claude-haiku-5-5' })).next({ goal: '목표', observation: '@r root', history: longHistory(17), tools: [] }, new AbortController().signal).catch((e: unknown) => e);
+    expect(err).toMatchObject({ usage: { inputTokens: 200, outputTokens: 30 } });
+  });
+
+  it('요약 모델이 일시 오류(5xx)로 실패하면 결정적 요약으로 돌아가고 턴은 계속된다', async () => {
+    const api = await fakeApi([(c) => (c.body.model === 'claude-haiku-5-5' ? { status: 500, body: { type: 'error', error: { type: 'api_error', message: 'x' } } } : toolUse('done', { summary: 'x' }))]);
     const r = await createClaudeExecutor(opts(api.baseURL, { ledgerSummaryModel: 'claude-haiku-5-5' })).next({ goal: '목표', observation: '@r root', history: longHistory(17), tools: [] }, new AbortController().signal);
     expect(r.call).toMatchObject({ name: 'done' });
     expect(JSON.stringify(api.captured.at(-1)!.body.messages)).toMatch(/턴 1–8 요약: tap 8/);

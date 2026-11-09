@@ -1,7 +1,7 @@
 // 에이전트 루프: 관찰 → 실행기(모델)에 다음 툴 → 닫힌 검사 → 엔진 실행. 대본 실행기로 FakeEngine 로그인 시나리오를 돈다.
 import { describe, it, expect } from 'vitest';
 import { FakeEngine, HOME_SCREEN, LOGIN_SCREEN } from '@sinclair/protocol/testing';
-import { EngineError } from '@sinclair/protocol';
+import { EngineError, type SemanticNode } from '@sinclair/protocol';
 import { runAct, scriptedExecutor, renderObservation, ModelConfigError, actProgressOf, ModelCallError, type ToolCall, type StepExecutor } from '../src/index.ts';
 
 const login = () => new FakeEngine({ root: LOGIN_SCREEN, onTap: (n) => (n.name === '로그인' ? HOME_SCREEN : undefined) });
@@ -171,6 +171,19 @@ describe('runAct · 화면 변화(Ledger)', () => {
     await runAct(login(), '로그인', { executor: exec });
     const tapTurn = exec.requests[3]!.history[2]!;
     expect(tapTurn).toMatchObject({ call: { name: 'tap' }, change: expect.stringMatching(/\+ "환영합니다".*− .*"로그인"/) });
-    expect(exec.requests[1]!.history[0]).not.toHaveProperty('change'); // 아이디 입력은 글자만 바뀌어 이름 변화 없음
+    expect(exec.requests[1]!.history[0]).toMatchObject({ change: '없음' }); // 아이디 입력은 칸의 글자만 바뀌어 보이는 변화 없음 — "계산 안 함" 과 구별되게 '없음'
+  });
+});
+
+describe('runAct · 화면 변화 · 리뷰 반영', () => {
+  it('거부된 턴에는 변화를 붙이지 않고, Incident 복구를 거친 변화는 그렇다고 표시한다', async () => {
+    const { APP, CRASH, LAUNCHER } = await import('./fixtures/incident-screens.ts');
+    let crashed = false;
+    const done: SemanticNode = { ref: '@r', role: 'root', children: [{ ref: '@d', role: 'text', testId: 'com.shop:id/done', text: '완료' }] };
+    const engine = new FakeEngine({ root: APP, onTap: (n) => (n.ref === '@a2' && !crashed ? ((crashed = true), CRASH) : n.ref === '@c2' ? LAUNCHER : n.ref === '@a2' ? done : undefined) });
+    const exec = scriptedExecutor([{ name: 'tap', input: { ref: '@a2', force: true } }, { name: 'tap', input: { ref: '@a2' } }, { name: 'done', input: { summary: 'x' } }]);
+    await runAct(engine, '결제', { executor: exec });
+    expect(exec.requests[1]!.history[0]).not.toHaveProperty('change');
+    expect(exec.requests[2]!.history[1]!.change).toMatch(/Incident 복구 뒤/);
   });
 });

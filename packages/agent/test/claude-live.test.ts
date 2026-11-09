@@ -1,9 +1,11 @@
 // opt-in: 실제 Claude API 로 FakeEngine 로그인 시나리오를 끝낸다. 키가 있고 SINCLAIR_AGENT_LIVE=1 일 때만 돈다(키만 있어서는 과금되지 않게).
 //   SINCLAIR_AGENT_LIVE=1 ANTHROPIC_API_KEY=... npx vitest run packages/agent/test/claude-live.test.ts
 // 사내망(SSL 인터셉션)에서는 NODE_EXTRA_CA_CERTS=$HOME/.certs/all-system-certs.pem 을 함께 준다.
+import Anthropic from '@anthropic-ai/sdk';
 import { describe, expect, it } from 'vitest';
 import { loginScenario } from '@sinclair/protocol/testing';
-import { agentFromEnv, judgeAssert, judgeExtract, renderLedger, runAct, type StepExecutor } from '../src/index.ts';
+import { agentFromEnv, estimateTokens, judgeAssert, judgeExtract, renderLedger, renderObservation, runAct, DEFAULT_AGENT_MODEL, type StepExecutor } from '../src/index.ts';
+import { LOGIN_SCREEN } from '@sinclair/protocol/testing';
 
 const live = process.env.SINCLAIR_AGENT_LIVE === '1' && !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_PROFILE);
 
@@ -38,4 +40,15 @@ describe.skipIf(!live)('Claude 실행기 · 실제 모델(opt-in)', () => {
     expect(title).toMatchObject({ ok: true, value: expect.stringMatching(/Sinclair 로그인/) });
     expect(secret.ok).toBe(false);
   }, 180_000);
+
+  it('Ledger 의 토큰 추정은 실제(countTokens)보다 작지 않다 — 한글 문장·트리 문법', async () => {
+    const client = new Anthropic();
+    const model = process.env.SINCLAIR_AGENT_MODEL ?? DEFAULT_AGENT_MODEL;
+    const samples = ['아이디 qa, 비밀번호로 로그인하고 설정에서 알림을 끈 뒤 홈으로 돌아와라. '.repeat(20), renderObservation(LOGIN_SCREEN).repeat(10)];
+    for (const text of samples) {
+      const { input_tokens } = await client.messages.countTokens({ model, messages: [{ role: 'user', content: text }] });
+      console.log(JSON.stringify({ chars: text.length, estimate: estimateTokens(text), actual: input_tokens }));
+      expect(estimateTokens(text)).toBeGreaterThanOrEqual(input_tokens - 10); // 메시지 틀 몫(수 토큰)은 뺀다
+    }
+  }, 60_000);
 });
