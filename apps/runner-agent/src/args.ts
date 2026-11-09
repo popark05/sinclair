@@ -116,6 +116,8 @@ const AGENT_ENV_HELP = `agent.act(모델) 환경변수:
   SINCLAIR_AGENT_MODEL_MAX_TOKENS   요청 하나의 최대 출력 토큰 (기본 8192)
   SINCLAIR_AGENT_MODEL_PIXELS       1 이면 화면 이미지도 보낸다 (기본 0: 접근성 트리만)
   SINCLAIR_AGENT_ACT_MAX_TURNS      act 하나의 턴 한도 (기본 20)
+  SINCLAIR_AGENT_LEDGER_BUDGET      한 턴 요청(user 메시지)의 추정 토큰 예산 (기본 8000). 넘으면 오래된 턴 요약·사유 자르기·최근 턴 줄이기·화면 자르기 순
+  SINCLAIR_AGENT_LEDGER_SUMMARY_MODEL  접힌 8턴 묶음을 요약할 모델 (예: claude-haiku-5-5, 기본 없음 = 결정적 요약)
   SINCLAIR_AGENT_ACT_TIMEOUT_MS     act 하나의 시간 한도 (기본 120000)
   SINCLAIR_AGENT_ACT_PERMISSION     권한 요청 창 자동 복구: allow(기본, 앱 사용 중에만 허용) | deny
   SINCLAIR_AGENT_ACT_SAFETY_PIXELS  1 이면 액션 전 안전망이 대상 영역의 픽셀 변화(트리에 없는 덮개)도 본다 (기본 0)

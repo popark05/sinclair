@@ -164,3 +164,13 @@ describe('runAct · 던질 때도 남는 사용량(리뷰 반영)', () => {
     expect(actProgressOf(new Error('x'))).toBeUndefined();
   });
 });
+
+describe('runAct · 화면 변화(Ledger)', () => {
+  it('실행 뒤 화면이 바뀐 부분이 그 턴의 기록에 붙는다(이전 관찰을 통째로 싣지 않는다)', async () => {
+    const exec = scriptedExecutor(script);
+    await runAct(login(), '로그인', { executor: exec });
+    const tapTurn = exec.requests[3]!.history[2]!;
+    expect(tapTurn).toMatchObject({ call: { name: 'tap' }, change: expect.stringMatching(/\+ "환영합니다".*− .*"로그인"/) });
+    expect(exec.requests[1]!.history[0]).not.toHaveProperty('change'); // 아이디 입력은 글자만 바뀌어 이름 변화 없음
+  });
+});

@@ -193,6 +193,37 @@ describe('createClaudeExecutor · judge(판정 동사)', () => {
   });
 });
 
+describe('createClaudeExecutor · Ledger', () => {
+  const longHistory = (n: number) => Array.from({ length: n }, (_, i) => ({ call: { name: 'tap', input: { ref: `@e${i + 1}` } }, result: 'ok' as const }));
+  const textReply = (text: string): Reply => ({ body: { id: 's', type: 'message', role: 'assistant', model: 'claude-haiku-5-5', stop_reason: 'end_turn', stop_sequence: null, usage: usage(200, 30), content: [{ type: 'text', text }] } });
+
+  it('프롬프트는 Ledger 로: 오래된 턴은 묶음 요약, 예산을 넘지 않는다', async () => {
+    const api = await fakeApi([toolUse('done', { summary: 'x' })]);
+    await createClaudeExecutor(opts(api.baseURL, { ledgerBudget: 3000 })).next({ goal: '목표', observation: '@r root', history: longHistory(30), tools: [] }, new AbortController().signal);
+    const prompt = JSON.stringify(api.captured[0]!.body.messages);
+    expect(prompt).toMatch(/턴 1–8 요약: tap 8\(ok 8\)/);
+    expect(prompt).toContain('30. tap @e30');
+  });
+
+  it('요약 모델을 설정하면 접힌 묶음을 그 모델이 요약하고(한 번만), 쓴 토큰이 그 턴에 더해진다', async () => {
+    const api = await fakeApi([(c) => (c.body.model === 'claude-haiku-5-5' ? textReply('설정 앱에서 알림 메뉴까지 갔다') : toolUse('done', { summary: 'x' }, usage(1000, 10)))]);
+    const exec = createClaudeExecutor(opts(api.baseURL, { ledgerSummaryModel: 'claude-haiku-5-5' }));
+    const first = await exec.next({ goal: '목표', observation: '@r root', history: longHistory(17), tools: [] }, new AbortController().signal);
+    expect(api.captured.map((c) => c.body.model)).toEqual(['claude-haiku-5-5', 'claude-sonnet-5-5']);
+    expect(JSON.stringify(api.captured[1]!.body.messages)).toMatch(/턴 1–8 요약: 설정 앱에서 알림 메뉴까지 갔다/);
+    expect(first.usage).toMatchObject({ inputTokens: 1200, outputTokens: 40 });
+    await exec.next({ goal: '목표', observation: '@r root', history: longHistory(18), tools: [] }, new AbortController().signal);
+    expect(api.captured.map((c) => c.body.model)).toEqual(['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-sonnet-5-5']); // 같은 묶음은 다시 요약하지 않는다
+  });
+
+  it('요약 모델이 실패하면 결정적 요약으로 돌아가고 턴은 계속된다', async () => {
+    const api = await fakeApi([(c) => (c.body.model === 'claude-haiku-5-5' ? { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'x' } } } : toolUse('done', { summary: 'x' }))]);
+    const r = await createClaudeExecutor(opts(api.baseURL, { ledgerSummaryModel: 'claude-haiku-5-5' })).next({ goal: '목표', observation: '@r root', history: longHistory(17), tools: [] }, new AbortController().signal);
+    expect(r.call).toMatchObject({ name: 'done' });
+    expect(JSON.stringify(api.captured.at(-1)!.body.messages)).toMatch(/턴 1–8 요약: tap 8/);
+  });
+});
+
 describe('createClaudeExecutor · Incident', () => {
   it('자동 복구하지 못한 Incident 는 그 턴의 프롬프트에 먼저 해결하라고 실린다', async () => {
     const api = await fakeApi([toolUse('done', { summary: 'x' })]);
@@ -225,6 +256,8 @@ describe('claudeOptionsFromEnv', () => {
     expect(claudeOptionsFromEnv({})).toEqual({});
     expect(claudeOptionsFromEnv({ SINCLAIR_AGENT_MODEL: 'claude-opus-5-5', SINCLAIR_AGENT_MODEL_EFFORT: 'high', SINCLAIR_AGENT_MODEL_TIMEOUT_MS: '30000', SINCLAIR_AGENT_MODEL_RETRIES: '0', SINCLAIR_AGENT_MODEL_MAX_TOKENS: '4096', SINCLAIR_AGENT_MODEL_PIXELS: '1' }))
       .toEqual({ model: 'claude-opus-5-5', effort: 'high', requestTimeoutMs: 30000, maxRetries: 0, maxTokens: 4096, pixels: true });
+    expect(claudeOptionsFromEnv({ SINCLAIR_AGENT_LEDGER_BUDGET: '12000', SINCLAIR_AGENT_LEDGER_SUMMARY_MODEL: 'claude-haiku-5-5' })).toEqual({ ledgerBudget: 12000, ledgerSummaryModel: 'claude-haiku-5-5' });
+    expect(() => claudeOptionsFromEnv({ SINCLAIR_AGENT_LEDGER_BUDGET: '10' })).toThrow(/SINCLAIR_AGENT_LEDGER_BUDGET/);
   });
 
   it('잘못된 값은 어느 변수인지 밝힌 설정 오류', () => {

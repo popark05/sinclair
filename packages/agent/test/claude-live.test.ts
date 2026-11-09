@@ -3,7 +3,7 @@
 // 사내망(SSL 인터셉션)에서는 NODE_EXTRA_CA_CERTS=$HOME/.certs/all-system-certs.pem 을 함께 준다.
 import { describe, expect, it } from 'vitest';
 import { loginScenario } from '@sinclair/protocol/testing';
-import { agentFromEnv, judgeAssert, judgeExtract, runAct } from '../src/index.ts';
+import { agentFromEnv, judgeAssert, judgeExtract, renderLedger, runAct, type StepExecutor } from '../src/index.ts';
 
 const live = process.env.SINCLAIR_AGENT_LIVE === '1' && !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_PROFILE);
 
@@ -11,7 +11,11 @@ describe.skipIf(!live)('Claude 실행기 · 실제 모델(opt-in)', () => {
   it('FakeEngine 로그인 화면에서 아이디·비밀번호를 입력하고 로그인해 환영 화면을 본 뒤 done', async () => {
     const engine = loginScenario();
     const setup = agentFromEnv(process.env);
-    const r = await runAct(engine, '아이디 qa, 비밀번호 qa-pass 로 로그인해줘', setup);
+    // Ledger 추정과 실제 input 토큰 비교(02 의 사용량): 추정은 user 메시지만, 실제는 system·툴까지라 실제가 더 크다
+    let estimated = 0;
+    const measured: StepExecutor = { ...setup.executor, next: (req, s) => { estimated += renderLedger(req).estimatedTokens; return setup.executor.next(req, s); } };
+    const r = await runAct(engine, '아이디 qa, 비밀번호 qa-pass 로 로그인해줘', { ...setup, executor: measured });
+    console.log(JSON.stringify({ ledgerEstimate: estimated, actualInput: (r.usage?.inputTokens ?? 0) + (r.usage?.cacheReadTokens ?? 0) + (r.usage?.cacheWriteTokens ?? 0) }));
     // 증거: 호출 수·토큰(키·입력값은 싣지 않는다)
     console.log(JSON.stringify({ model: process.env.SINCLAIR_AGENT_MODEL ?? 'claude-sonnet-5-5', ok: r.ok, turns: r.turns, modelCalls: r.modelCalls, usage: r.usage, tools: r.history.map((h) => `${h.call?.name ?? '(없음)'}:${h.result}`), reason: r.reason }));
     expect(r.ok).toBe(true);

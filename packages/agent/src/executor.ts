@@ -10,6 +10,8 @@ export interface AgentTurn {
   retargeted?: string;
   /** 안전망이 실행을 막은 이유: 대상이 사라짐·애매함·영역이 덮임 */
   guard?: 'gone' | 'ambiguous' | 'covered';
+  /** 이 턴 뒤 화면이 바뀐 부분(Ledger 가 이전 관찰 대신 싣는다) */
+  change?: string;
 }
 
 export interface StepRequest {

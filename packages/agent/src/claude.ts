@@ -6,7 +6,9 @@
 // 사내망(SSL 인터셉션)은 NODE_EXTRA_CA_CERTS 로 CA 묶음을 주면 Node 의 fetch 가 신뢰한다.
 import Anthropic from '@anthropic-ai/sdk';
 import type { StepUsage } from '@sinclair/protocol';
-import { ModelCallError, ModelConfigError, type AgentTurn, type JudgeReply, type JudgeRequest, type StepExecutor, type StepReply, type StepRequest } from './executor.ts';
+import { renderLedger, renderTurn, LEDGER_BLOCK, DEFAULT_LEDGER_BUDGET, DEFAULT_RECENT_TURNS } from './ledger.ts';
+import { addUsage } from './usage.ts';
+import { ModelCallError, ModelConfigError, type JudgeReply, type JudgeRequest, type StepExecutor, type StepReply, type StepRequest } from './executor.ts';
 
 export const DEFAULT_AGENT_MODEL = 'claude-sonnet-5-5';
 /** 여러 단계 툴 사용의 권장값. 쉬운 화면 조작에 high 는 느리고 비싸다 */
@@ -36,7 +38,13 @@ export interface ClaudeExecutorOptions {
   apiKey?: string;
   /** 주지 않으면 ANTHROPIC_BASE_URL 또는 공식 API */
   baseURL?: string;
+  /** Ledger 예산(user 메시지 추정 토큰, 기본 8000) */
+  ledgerBudget?: number;
+  /** 설정하면 접힌 8턴 묶음을 이 모델이 요약한다(예: claude-haiku-5-5). 없으면 결정적 요약 */
+  ledgerSummaryModel?: string;
 }
+
+const SUMMARY_SYSTEM = '너는 모바일 앱 테스트 에이전트의 지난 턴 기록을 요약한다. 무엇을 시도했고 화면이 어떻게 바뀌었고 무엇이 실패했는지 한국어 한두 문장으로만 쓴다. 입력 값은 적지 않는다.';
 
 const SYSTEM = [
   '너는 모바일·웹 앱을 조작해 사용자가 준 목표를 이루는 테스트 에이전트다.',
@@ -55,34 +63,6 @@ const JUDGE_SYSTEM = [
   '추출(extract)은 찾는 값을 value 에, 값을 읽은 노드의 @ref 를 sourceRefs 에 적는다. 화면에 없으면 found 를 false 로 한다. 짐작으로 값을 지어내지 않는다.',
   'secure 로 표시된 칸의 값은 보이지 않으며 추출 대상이 아니다.',
 ].join('\n');
-
-/** 지난 턴 한 줄. type 의 글자는 가린다(비밀번호일 수 있다 — 모델이 쓴 값이라도 되돌려 보내지 않는다) */
-function renderTurn(turn: AgentTurn, i: number): string {
-  const c = turn.call;
-  let what = '(툴 호출 없음)';
-  if (c) {
-    const input = (c.input && typeof c.input === 'object' ? c.input : {}) as Record<string, unknown>;
-    const parts = Object.entries(input).map(([k, v]) => (k === 'ref' ? String(v) : k === 'text' ? `text=<입력함 ${typeof v === 'string' ? v.length : 0}자>` : `${k}=${JSON.stringify(v)}`));
-    what = [c.name, ...parts].join(' ');
-  }
-  const moved = turn.retargeted ? ` (안전망이 같은 대상을 ${turn.retargeted} 에서 다시 찾아 실행)` : '';
-  return `${i + 1}. ${what} → ${turn.result}${moved}${turn.detail ? `: ${turn.detail}` : ''}`;
-}
-
-function renderPrompt(req: StepRequest): string {
-  return [
-    `목표: ${req.goal}`,
-    ...(req.incident ? ['', `⚠ ${req.incident}`] : []),
-    '',
-    '지난 턴:',
-    req.history.length ? req.history.map(renderTurn).join('\n') : '(없음)',
-    '',
-    '지금 화면:',
-    req.observation,
-    '',
-    '다음 툴 하나를 불러라.',
-  ].join('\n');
-}
 
 const mediaType = (b: Uint8Array): 'image/png' | 'image/jpeg' => (b[0] === 0xff && b[1] === 0xd8 ? 'image/jpeg' : 'image/png');
 
@@ -165,16 +145,43 @@ export function createClaudeExecutor(options: ClaudeExecutorOptions = {}): StepE
     return res;
   }
 
+  /** 묶음 시작 턴(1부터) → 모델 요약. '' 는 실패(결정적 요약으로, 다시 묻지 않는다). 묶음은 한 번 접히면 바뀌지 않아 캐시가 맞다 */
+  const summaries = new Map<number, string>();
+  async function prefetchSummaries(req: StepRequest, signal: AbortSignal): Promise<ReturnType<typeof toUsage>> {
+    if (!options.ledgerSummaryModel) return undefined;
+    const n = req.history.length;
+    // renderLedger 와 같은 묶음 경계(최근 DEFAULT_RECENT_TURNS 턴을 뺀 꽉 찬 묶음)
+    const blockFold = n > DEFAULT_RECENT_TURNS ? Math.floor((n - DEFAULT_RECENT_TURNS) / LEDGER_BLOCK) * LEDGER_BLOCK : 0;
+    let used: ReturnType<typeof toUsage>;
+    for (let from = 0; from < blockFold; from += LEDGER_BLOCK) {
+      if (summaries.has(from + 1)) continue;
+      const lines = req.history.slice(from, from + LEDGER_BLOCK).map((t, i) => renderTurn(t, from + i, 120)).join('\n');
+      try {
+        const r = await getClient().messages.create({ model: options.ledgerSummaryModel, max_tokens: 400, system: SUMMARY_SYSTEM, messages: [{ role: 'user', content: `목표: ${req.goal}\n\n${lines}` }] }, { signal });
+        used = addUsage(used, toUsage(r.usage));
+        const text = r.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join(' ').trim();
+        summaries.set(from + 1, r.stop_reason === 'refusal' ? '' : text.slice(0, 400));
+      } catch (err) {
+        if (signal.aborted) throw err;
+        if (err instanceof Anthropic.APIError && (err.status === 401 || err.status === 403)) throw translateError(err, options.ledgerSummaryModel);
+        summaries.set(from + 1, ''); // 요약 실패는 턴을 막지 않는다
+      }
+    }
+    return used;
+  }
+
   return {
     ...(options.pixels ? { pixels: true } : {}),
     async next(req, signal): Promise<StepReply> {
+      const summaryUsage = await prefetchSummaries(req, signal);
+      const ledger = renderLedger(req, { budgetTokens: options.ledgerBudget ?? DEFAULT_LEDGER_BUDGET, blockSummary: (from) => summaries.get(from) || undefined });
       const res = await send(signal, {
         system: SYSTEM,
-        content: [...imageBlock(req.pixels), { type: 'text', text: renderPrompt(req) }],
+        content: [...imageBlock(req.pixels), { type: 'text', text: ledger.text }],
         // action spec 에서 만든 스키마 그대로 + strict(스키마를 지키는 입력만). 강제 tool_choice 는 Sonnet 5.5 에서 400 이라 auto + 지시
         extra: { tools: req.tools.map((t) => ({ ...t, strict: true })), tool_choice: { type: 'auto', disable_parallel_tool_use: true } },
       });
-      const usage = toUsage(res.usage);
+      const usage = addUsage(summaryUsage, toUsage(res.usage));
       const tool = res.content.find((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === 'tool_use');
       if (tool) return { call: { name: tool.name, input: tool.input }, ...(usage ? { usage } : {}) };
       if (res.stop_reason === 'max_tokens') throw new ModelCallError(`툴을 부르기 전에 max_tokens(${maxTokens})에서 잘림`, usage);
@@ -200,6 +207,7 @@ export function createClaudeExecutor(options: ClaudeExecutorOptions = {}): StepE
 const ENV = {
   model: 'SINCLAIR_AGENT_MODEL', effort: 'SINCLAIR_AGENT_MODEL_EFFORT', requestTimeoutMs: 'SINCLAIR_AGENT_MODEL_TIMEOUT_MS',
   maxRetries: 'SINCLAIR_AGENT_MODEL_RETRIES', maxTokens: 'SINCLAIR_AGENT_MODEL_MAX_TOKENS', pixels: 'SINCLAIR_AGENT_MODEL_PIXELS',
+  ledgerBudget: 'SINCLAIR_AGENT_LEDGER_BUDGET', ledgerSummaryModel: 'SINCLAIR_AGENT_LEDGER_SUMMARY_MODEL',
 } as const;
 
 /** 정수 환경변수(비면 미설정). 범위 밖·정수 아님은 변수 이름을 밝힌 설정 오류 */
@@ -226,6 +234,9 @@ export function claudeOptionsFromEnv(env: Record<string, string | undefined> = p
   if (retries !== undefined) out.maxRetries = retries;
   const tokens = envInt(env, ENV.maxTokens, 256, 64_000);
   if (tokens !== undefined) out.maxTokens = tokens;
+  const budget = envInt(env, ENV.ledgerBudget, 1000, 200_000);
+  if (budget !== undefined) out.ledgerBudget = budget;
+  if (env[ENV.ledgerSummaryModel]) out.ledgerSummaryModel = env[ENV.ledgerSummaryModel]!;
   const pixels = env[ENV.pixels];
   if (pixels) {
     if (pixels !== '1' && pixels !== '0') throw new ModelConfigError(`${ENV.pixels}=${JSON.stringify(pixels)}: 1 또는 0 이어야 함`);

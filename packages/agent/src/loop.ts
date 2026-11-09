@@ -9,6 +9,7 @@ import { addUsage } from './usage.ts';
 import { SecretBox } from './secrets.ts';
 import { describeTarget, relocate } from './relocate.ts';
 import { regionDiff, COVER_DIFF_THRESHOLD } from './pixels.ts';
+import { screenChange } from './ledger.ts';
 import { appPackageOf, detectIncident, type IncidentKind, type IncidentPolicy, type IncidentRecovery } from './incidents.ts';
 
 /** 기본 턴 한도: 로그인·화면 이동 같은 목표는 대개 10턴 안에 끝난다. 20 이면 헤매는 모델을 멈추면서 정상 목표는 넉넉하다 */
@@ -103,6 +104,7 @@ const hide = (t: string): string => (secrets ? secrets.redact(t) : t);
   let note: string | undefined;
   const addNote = (n: string): void => { note = note ? `${note}\n${n}` : n; };
   let lastFailedCall: string | undefined;
+  let prevShown: SemanticNode | undefined;
   let failedInRow = 0;
   const record = (kind: IncidentKind, rawAction: string, countAttempt = true): void => {
     const action = hide(rawAction);
@@ -177,7 +179,15 @@ const hide = (t: string): string => (secrets ? secrets.redact(t) : t);
         }
       }
       // 트리의 문자열 잎을 가린 뒤 그린다(그린 글에 가리면 JSON 이스케이프된 값을 놓친다)
-      const observation = renderObservation(secrets ? secrets.redactTree(observed.root) : observed.root);
+      const shown = secrets ? secrets.redactTree(observed.root) : observed.root;
+      // Ledger: 앞 턴이 실행한 뒤 화면이 바뀐 부분을 그 턴의 기록에 붙인다(이전 관찰을 통째로 싣는 대신)
+      const prevTurn = history.at(-1);
+      if (prevShown && prevTurn?.call && prevTurn.result !== 'rejected' && !prevTurn.change) {
+        const change = screenChange(prevShown, shown);
+        if (change) prevTurn.change = change;
+      }
+      prevShown = shown;
+      const observation = renderObservation(shown);
       // 관찰하는 사이 한도가 지났으면 묻지 않는다(abort 가 리스너보다 먼저 와서 영영 기다리는 일이 없게 raceAbort 도 같은 검사를 한다)
       if (aborter.signal.aborted) return fail(`시간 한도 ${timeoutMs}ms 에 닿음`);
       let reply: StepReply;
