@@ -288,6 +288,25 @@ describe('createClaudeExecutor · 화면 개인정보', () => {
   });
 });
 
+describe('createClaudeExecutor · 화면 개인정보 · 변화·오류·요약 입력', () => {
+  it('화면 변화·엔진 오류 문구·요약 모델 입력에도 원래 값이 없다', async () => {
+    const api = await fakeApi([(c) => (c.body.model === 'claude-haiku-5-5' ? { body: { id: 's', type: 'message', role: 'assistant', model: 'claude-haiku-5-5', stop_reason: 'end_turn', stop_sequence: null, usage: usage(10, 5), content: [{ type: 'text', text: '요약' }] } } : toolUse('scroll', { ref: '@r', direction: 'down' }))]);
+    let i = 0;
+    const engine = new FakeEngine({ root: { ref: '@r', role: 'root', children: [{ ref: '@a', role: 'text', text: '시작' }] } });
+    const observe = engine.observe.bind(engine);
+    engine.observe = async (o) => { i++; if (i === 3) engine.setRoot({ ref: '@r', role: 'root', children: [{ ref: '@b', role: 'text', text: '담당자 qa.lead@example.com' }] }); return observe(o); };
+    const perform = engine.perform.bind(engine);
+    let n = 0;
+    engine.perform = async (ref, a, arg) => { if (++n === 4) throw new (await import('@sinclair/protocol')).EngineError('not-actionable', '연락처 010-2222-3333 칸이 비활성'); return perform(ref, a, arg); };
+    await runAct(engine, '목표', { executor: createClaudeExecutor(opts(api.baseURL, { ledgerSummaryModel: 'claude-haiku-5-5' })), maxTurns: 18 });
+    const all = api.captured.map((c) => c.raw).join('\n');
+    expect(api.captured.some((c) => c.body.model === 'claude-haiku-5-5')).toBe(true);
+    expect(all).not.toContain('qa.lead@example.com');
+    expect(all).not.toContain('2222-3333');
+    expect(all).toContain('<이메일>');
+  });
+});
+
 describe('createClaudeExecutor · 비밀값', () => {
   it('비밀번호 칸이 secure 가 아니어도 요청 본문(목표·관찰·지난 턴)에는 자리표시만, 엔진에는 실제 값', async () => {
     const VALUE = 'Tr0ub4dor&3';

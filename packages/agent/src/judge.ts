@@ -7,7 +7,7 @@ import { raceAbort, recordProgress } from './loop.ts';
 import { renderObservation } from './observe.ts';
 import { addUsage } from './usage.ts';
 import type { SecretBox } from './secrets.ts';
-import { DEFAULT_PII, type PiiFilter } from './pii.ts';
+import { DEFAULT_PII, PII_PLACEHOLDER, type PiiFilter } from './pii.ts';
 
 /** assert·extract 한 번의 기한: 모델 호출 하나(재시도 포함)에 넉넉하게 */
 export const DEFAULT_JUDGE_TIMEOUT_MS = 60_000;
@@ -119,7 +119,8 @@ class Asker {
   async ask(kind: JudgeRequest['kind'], question: string, schema: Schema, obs: Awaited<ReturnType<Asker['observe']>>, signal: AbortSignal): Promise<{ answer: Record<string, unknown> } | { invalid: string }> {
     if (signal.aborted) throw signal.reason as Error; // 기한이 지났으면 부르지 않는다(호출 수도 세지 않는다)
     this.modelCalls++;
-    const req: JudgeRequest = { kind, question: this.hide(question), observation: obs.text, schema: structuredClone(schema), ...(this.pixels && obs.observed.pixels ? { pixels: obs.observed.pixels } : {}) };
+    // 질문은 작성자의 글이라 개인정보 가림을 하지 않는다: 가리면 "연락처가 010-… 이다" 가 화면의 다른 번호와도 <전화번호> 대 <전화번호> 로 참이 된다
+    const req: JudgeRequest = { kind, question: this.secrets ? this.secrets.redact(question) : question, observation: obs.text, schema: structuredClone(schema), ...(this.pixels && obs.observed.pixels ? { pixels: obs.observed.pixels } : {}) };
     try {
       const reply = await raceAbort(this.executor.judge!(req, signal), signal);
       this.usage = addUsage(this.usage, reply.usage);
@@ -207,6 +208,8 @@ export async function judgeExtract<T extends ExtractType>(engine: Engine, what: 
     if (unknown.length) return asker.result({ ok: false, failure: 'invalid', reason: `근거 노드가 화면에 없음: ${unknown.slice(0, 5).join(', ')}` });
     const secure = sourceRefs.find((r) => nodes.get(r)!.states?.secure);
     if (secure) throw new EngineError('secure-read', `${secure} 는 secure 노드라 내용을 추출할 수 없음`, { ref: secure });
+    // 개인정보 가림이 그 값을 가렸으면 자리표시를 값처럼 돌려주지 않는다
+    if (PII_PLACEHOLDER.test(typeof value === 'string' ? value : JSON.stringify(value))) return asker.result({ ok: false, failure: 'invalid', reason: '추출하려는 값이 화면 개인정보 가림으로 가려져 볼 수 없음 — 필요하면 SINCLAIR_AGENT_PII=off 또는 RunOptions.pii 로 조정' });
     return asker.result({ ok: true, reason, value: value as ExtractValue<T>, sourceRefs });
   } catch (err) {
     if (d.signal.aborted) return asker.result({ ok: false, failure: 'invalid', reason: `추출 기한 ${timeoutMs}ms 에 닿음(모델이 답하지 않음)` });

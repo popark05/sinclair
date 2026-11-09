@@ -43,7 +43,7 @@ export interface RunOptions {
   /** 취소 신호. abort 되면 진행 중 테스트는 끝까지 가고(러너는 테스트 중간 중단을 지원하지 않는다), 그 테스트의 남은 재시도와 다음 테스트들은 skipped 로 기록되며 run 은 cancelled 로 끝난다 */
   signal?: AbortSignal;
   /** agent.act 의 실행기(모델)와 한도. 없으면 agent.act 는 설정 오류로 실패한다 */
-  agent?: { executor: StepExecutor; maxTurns?: number; timeoutMs?: number; safetyNet?: { pixels?: boolean }; incidents?: { permission?: 'allow' | 'deny' } };
+  agent?: { executor: StepExecutor; maxTurns?: number; timeoutMs?: number; safetyNet?: { pixels?: boolean }; incidents?: { permission?: 'allow' | 'deny' }; pii?: PiiFilter | false };
   /** failed 테스트를 다시 돌리는 횟수(기본 0, 최대 5). 시도마다 새 Attempt(attemptNo 2, 3…)로 보고하고 재시도 전에 앱을 다시 띄운다. blocked·skipped 는 재시도하지 않는다 */
   retries?: number;
   /** locator 액션 기한(ms, 기본 10초). 판정(expect) 기한은 그 절반: 판정은 화면이 이미 그 상태여야 하므로 액션보다 짧게 잡아 실패를 빨리 드러낸다 */
@@ -130,15 +130,23 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
   // 이 run 에서 secret() 으로 쓴 값들. 러너의 모든 출구(이벤트·테스트 오류·경고·screen-tree)에서 값 일치로 자리표시로 가린다 — 앞 테스트가 입력한 값이 뒤 테스트 화면에 남아도
   const secretBox = new SecretBox();
   const secretStore = options.secrets ?? envSecretStore();
-  const pii = options.pii === false ? undefined : options.pii ?? DEFAULT_PII;
+  const piiOption = options.pii ?? options.agent?.pii;
+  const pii = piiOption === false ? undefined : piiOption ?? DEFAULT_PII;
   const hide = (t: string): string => { const a = secretBox.size ? secretBox.redact(t) : t; return pii ? pii.redact(a) : a; };
   // 문자열 잎만 가린다: 직렬화한 글을 가리면 숫자처럼 보이는 값(PIN)이 키·숫자를 바꿔 JSON 을 깬다
   const hideDeep = <T>(v: T): T => { const a = secretBox.redactDeep(v); return pii ? pii.redactDeep(a) : a; };
   // 화면 이미지는 가릴 수 없다: 이미지를 모델에 보내는 실행기면 한 번 알린다
   if (pii && options.agent?.executor.pixels) warnings.push('화면 이미지를 모델에 보내는 실행기라 개인정보 가림이 이미지에는 적용되지 않는다(SINCLAIR_AGENT_MODEL_PIXELS)');
   // 발생 즉시 Reporter 로 넘긴다. Reporter 의 실패·지연이 테스트 실행을 막지 않도록 기다리지 않고 run 끝에 모아서 기다린다
+  // 식별 필드는 가리지 않는다: testId(테스트 이름)의 번호가 가려지면 서로 다른 테스트가 control-plane 에서 하나로 합쳐진다
+  const IDENTITY = ['eventId', 'runId', 'attemptId', 'testId', 'cycleId', 'targetId', 'deviceId', 'agentId'] as const;
+  const hideEvent = <E extends RunEvent>(ev: E): E => {
+    const out = hideDeep(ev) as Record<string, unknown>;
+    for (const k of IDENTITY) if (k in ev) out[k] = (ev as unknown as Record<string, unknown>)[k];
+    return out as E;
+  };
   const emit = (raw: RunEvent): void => {
-    const event = hideDeep(raw);
+    const event = hideEvent(raw);
     events.push(event);
     const parsed = parseRunEvent(event);
     if (!parsed.ok) warnings.push(`이벤트 ${event.type} 검증 실패: ${parsed.errors.join(', ')}`);
@@ -234,7 +242,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
 
     const onStep = (step: StepEvent): void => {
       // 결과(TestResult.steps)와 이벤트가 같은 가린 객체를 쓴다
-      const ev: StepRecorded = hideDeep({
+      const ev: StepRecorded = hideEvent({
         ...base(), type: 'step.recorded' as const, attemptId, stepIndex: steps.length, kind: step.kind,
         instruction: step.error ? `${step.instruction} → 실패: ${step.error}` : step.instruction, modelCalls: step.modelCalls ?? 0, durationMs: step.durationMs,
         ...(step.usage ? { usage: step.usage } : {}),

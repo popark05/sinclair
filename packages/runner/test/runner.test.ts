@@ -550,5 +550,16 @@ describe('화면 개인정보 가림(러너 기록)', () => {
     const visual: StepExecutor = { pixels: true, next: (r, sg) => inner.next(r, sg) };
     const warned = await runTests([fixture('pii-screen.sinclair.ts')], { engine: screenWithPii(), timeoutMs: 300, agent: { executor: visual } });
     vexpect(warned.warnings?.join('\n')).toMatch(/화면 이미지.*개인정보/);
+    const plain = await runTests([fixture('pii-screen.sinclair.ts')], { engine: screenWithPii(), timeoutMs: 300, agent: { executor: scriptedExecutor([{ name: 'done', input: { summary: 'x' } }]) } });
+    vexpect(plain.warnings?.join('\n') ?? '').not.toMatch(/화면 이미지/);
+    const offWarn = await runTests([fixture('pii-screen.sinclair.ts')], { engine: screenWithPii(), timeoutMs: 300, agent: { executor: visual }, pii: false });
+    vexpect(offWarn.warnings?.join('\n') ?? '').not.toMatch(/화면 이미지/);
+  });
+
+  it('식별 필드(testId 등)는 가리지 않는다(이름의 번호가 가려져 다른 테스트가 합쳐지지 않게); agent.pii 도 따른다', async () => {
+    const report = await runTests([fixture('pii-names.sinclair.ts')], { engine: screenWithPii(), timeoutMs: 300 });
+    vexpect(report.events.filter((e) => e.type === 'attempt.started').map((e) => (e as { testId: string }).testId)).toEqual(['가입 010-1111-2222', '가입 010-3333-4444']);
+    const viaAgent = await runTests([fixture('pii-screen.sinclair.ts')], { engine: screenWithPii(), timeoutMs: 300, agent: { executor: scriptedExecutor([{ name: 'done', input: { summary: 'x' } }]), pii: createPiiFilter({ enabled: false }) } });
+    vexpect(viaAgent.tests[0]!.error).toContain('example.com');
   });
 });

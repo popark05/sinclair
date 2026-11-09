@@ -2,14 +2,14 @@
 import { describe, it, expect } from 'vitest';
 import { FakeEngine } from '@sinclair/protocol/testing';
 import type { SemanticNode } from '@sinclair/protocol';
-import { createPiiFilter, runAct, judgeAssert, scriptedExecutor, type StepExecutor } from '../src/index.ts';
+import { createPiiFilter, runAct, judgeAssert, judgeExtract, scriptedExecutor, type StepExecutor } from '../src/index.ts';
 
 const pii = createPiiFilter();
 
 describe('createPiiFilter · 패턴', () => {
   it.each([
     ['삼성 계정  •  qa*****@example.com', '삼성 계정  •  <이메일>'],
-    ['문의 qa.team+1@hyundai-autoever.com 으로', '문의 <이메일> 으로'],
+    ['문의 qa.team+1@mail.example.com 으로', '문의 <이메일> 으로'],
     ['전화 010-1234-5678', '전화 <전화번호>'],
     ['01012345678 로 인증', '<전화번호> 로 인증'],
     ['대표 02-123-4567', '대표 <전화번호>'],
@@ -68,5 +68,54 @@ describe('모델 요청에 개인정보가 없다', () => {
     const exec = scriptedExecutor([{ name: 'done', input: { summary: 'x' } }]);
     await runAct(new FakeEngine({ root: screen }), '목표', { executor: exec, pii: false });
     expect(JSON.stringify(exec.requests)).toContain('example.com');
+  });
+});
+
+describe('개인정보 가림 · 리뷰 반영', () => {
+  it.each([
+    ['010 1234 5678', '<전화번호>'], ['010.1234.5678', '<전화번호>'], ['(02) 123-4567', '<전화번호>'], ['02 123 4567', '<전화번호>'],
+    ['+82 (0)10-1234-5678', '<전화번호>'], ['010-****-5678', '<전화번호>'], ['010-12**-5678', '<전화번호>'],
+    ['900101 1234567', '<주민등록번호>'], ['900101 - 1234567', '<주민등록번호>'], ['9001011234567', '<주민등록번호>'],
+    ['홍길동@example.com', '<이메일>'], ['IMEI: 490154203237518', 'IMEI: <IMEI>'], ['카드 4111111111111111', '카드 <카드번호>'],
+  ])('형식 %j', (input, want) => {
+    expect(pii.redact(input)).toBe(want);
+  });
+
+  it.each(['주문번호 2026110912345678', '주문 0101234567', '송장 6091234567890', '2026.11.09', '192.168.0.1', 'AA:BB:CC:DD:EE:FF', '1,234,567원', '버전 5.1.0', '490154203237518'])('거짓 양성 아님: %j', (text) => {
+    expect(pii.redact(text)).toBe(text);
+  });
+
+  it('긴 글도 빠르다(왼쪽 경계 없는 정규식의 제곱 시간 없음)', () => {
+    const started = Date.now();
+    pii.redact('a.'.repeat(20000));
+    pii.redact('x'.repeat(40000));
+    expect(Date.now() - started).toBeLessThan(300);
+  });
+
+  it('목록: 라틴 글자는 단어 경계·대소문자 무시, 자리표시·비밀값 자리표시 안은 건드리지 않는다, 두 번 가려도 같다', () => {
+    const f = createPiiFilter({ terms: ['Kim', 'QA', '이메일', '010'] });
+    expect(f.redact('Kimchi / kim')).toBe('Kimchi / <개인정보>');
+    expect(f.redact('{{secret:QA_SEARCH}}')).toBe('{{secret:QA_SEARCH}}');
+    const once = f.redact('메일 qa*****@example.com');
+    expect(f.redact(once)).toBe(once);
+    expect(once).toBe('메일 <이메일>');
+  });
+
+  it('판정 질문·act 목표는 작성자의 글이라 개인정보 가림을 하지 않는다(값 판정이 늘 참이 되지 않게)', async () => {
+    const screen: SemanticNode = { ref: '@r', role: 'root', children: [{ ref: '@p', role: 'text', text: '연락처 010-9999-8888' }] };
+    const asked: string[] = [];
+    const judge: StepExecutor = { next: () => Promise.reject(new Error('x')), judge: async (req) => { asked.push(req.question); return { answer: { pass: false, reason: 'x' } }; } };
+    await judgeAssert(new FakeEngine({ root: screen }), '연락처가 010-1234-5678 이다', { executor: judge });
+    expect(asked[0]).toBe('연락처가 010-1234-5678 이다');
+    const exec = scriptedExecutor([{ name: 'done', input: { summary: 'x' } }]);
+    await runAct(new FakeEngine({ root: screen }), '이메일 칸에 qa.tester@example.com 을 입력', { executor: exec });
+    expect(exec.requests[0]!.goal).toContain('qa.tester@example.com');
+    expect(exec.requests[0]!.observation).not.toContain('9999');
+  });
+
+  it('extract 가 가려진 값을 받으면 값처럼 돌려주지 않고 이유와 함께 실패(invalid)', async () => {
+    const screen: SemanticNode = { ref: '@r', role: 'root', children: [{ ref: '@p', role: 'text', text: '연락처 010-9999-8888' }] };
+    const exec: StepExecutor = { next: () => Promise.reject(new Error('x')), judge: async () => ({ answer: { found: true, value: '<전화번호>', sourceRefs: ['@p'], reason: '연락처' } }) };
+    expect(await judgeExtract(new FakeEngine({ root: screen }), '연락처', 'string', { executor: exec })).toMatchObject({ ok: false, failure: 'invalid', reason: expect.stringMatching(/개인정보 가림.*SINCLAIR_AGENT_PII/) });
   });
 });

@@ -204,7 +204,8 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
         modelCalls++;
         // 실행기가 시간 한도를 넘기면 기다리지 않는다. 스키마는 매번 새로(실행기가 고쳐도 다음 턴에 영향 없게)
         const incident = note; note = undefined;
-        const request = { goal: hide(goal), ...(incident ? { incident: hide(incident) } : {}), observation, history: history.map((h) => ({ ...h })), tools: toolSchemas(), ...(pixels && observed.pixels ? { pixels: observed.pixels } : {}) };
+        // 목표는 작성자의 글이라 개인정보 가림을 하지 않는다(작성자가 쓴 이메일·번호를 입력하는 목표가 있다) — 비밀값만
+        const request = { goal: secrets ? secrets.redact(goal) : goal, ...(incident ? { incident: hide(incident) } : {}), observation, history: history.map((h) => ({ ...h })), tools: toolSchemas(), ...(pixels && observed.pixels ? { pixels: observed.pixels } : {}) };
         reply = await raceAbort(opts.executor.next(request, aborter.signal), aborter.signal);
       } catch (err) {
         if (err instanceof ModelConfigError) throw err; // 설정 문제는 테스트 실패가 아니다: 러너가 blocked 로 다룬다

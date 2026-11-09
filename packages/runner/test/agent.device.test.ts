@@ -96,6 +96,7 @@ describe.skipIf(!usb)(`실기기 agent.act·assert (${live ? '실제 모델' : '
         tests: report.tests.map((t) => ({ name: t.name, result: t.result, errorCode: t.errorCode, durationMs: t.durationMs, artifacts: t.artifacts.map((a) => a.kind), steps: steps(t), ...(t.errorCode === 'agent' ? { reason: /턴 한도 \d+/.exec(t.error ?? '')?.[0] } : {}) })),
         secret: Object.fromEntries(Object.entries(haystacks).map(([k, v]) => [k, { scanned: v.length > 0, valueFound: v.includes(SECRET) }])),
         // 화면 개인정보(설정 첫 화면의 계정 이메일·SINCLAIR_AGENT_PII_TERMS 의 이름): 값은 싣지 않고 찾았는지만
+        piiTermsGiven: TERMS.length, // 0 이면 이름 가림은 확인하지 않은 것
         pii: Object.fromEntries(Object.entries(haystacks).map(([k, v]) => [k, { emailFound: EMAIL.test(v), termsFound: TERMS.some((t) => v.includes(t)), placeholder: v.includes('<이메일>') }])),
       };
       const text = JSON.stringify(evidence, null, 2);
