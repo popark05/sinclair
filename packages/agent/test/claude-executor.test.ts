@@ -7,7 +7,7 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loginScenario, FakeEngine, LOGIN_SCREEN, HOME_SCREEN } from '@sinclair/protocol/testing';
 import type { SemanticNode } from '@sinclair/protocol';
-import { createClaudeExecutor, claudeOptionsFromEnv, runAct, judgeAssert, judgeExtract, SecretBox, secretPlaceholder, toolSchemas, DEFAULT_AGENT_MODEL, ModelConfigError, type ClaudeExecutorOptions } from '../src/index.ts';
+import { createClaudeExecutor, claudeOptionsFromEnv, probeClaude, runAct, judgeAssert, judgeExtract, SecretBox, secretPlaceholder, toolSchemas, DEFAULT_AGENT_MODEL, ModelConfigError, type ClaudeExecutorOptions } from '../src/index.ts';
 
 const KEY = 'sk-ant-test-0123456789abcdef';
 type Reply = { status?: number; body: unknown };
@@ -241,6 +241,28 @@ describe('createClaudeExecutor · Ledger', () => {
     const r = await createClaudeExecutor(opts(api.baseURL, { ledgerSummaryModel: 'claude-haiku-5-5' })).next({ goal: '목표', observation: '@r root', history: longHistory(17), tools: [] }, new AbortController().signal);
     expect(r.call).toMatchObject({ name: 'done' });
     expect(JSON.stringify(api.captured.at(-1)!.body.messages)).toMatch(/턴 1–8 요약: tap 8/);
+  });
+});
+
+describe('createClaudeExecutor · fetch 주입(증거 기록용)', () => {
+  it('주어진 fetch 로 요청을 보낸다 — 증거 스크립트가 요청 본문을 기록해 비밀값이 없음을 확인할 수 있게', async () => {
+    const api = await fakeApi([toolUse('done', { summary: 'x' })]);
+    const bodies: string[] = [];
+    const recording: typeof fetch = async (input, init) => { if (typeof init?.body === 'string') bodies.push(init.body); return fetch(input, init); };
+    await createClaudeExecutor(opts(api.baseURL, { fetch: recording })).next({ goal: '목표', observation: '@r root', history: [], tools: [] }, new AbortController().signal);
+    expect(bodies).toHaveLength(1);
+    expect(JSON.parse(bodies[0]!)).toMatchObject({ model: 'claude-sonnet-5-5' });
+  });
+});
+
+describe('probeClaude', () => {
+  it('닿으면 ok, 닿지 않으면 unreachable, 키가 거부되면 설정 오류', async () => {
+    const api = await fakeApi([{ body: { input_tokens: 3 } }]);
+    expect(await probeClaude(opts(api.baseURL))).toBe('ok');
+    expect(api.captured[0]!.url).toMatch(/count_tokens/);
+    expect(await probeClaude(opts('http://127.0.0.1:9'))).toBe('unreachable');
+    const denied = await fakeApi([{ status: 401, body: { type: 'error', error: { type: 'authentication_error', message: 'x' } } }]);
+    await expect(probeClaude(opts(denied.baseURL))).rejects.toBeInstanceOf(ModelConfigError);
   });
 });
 

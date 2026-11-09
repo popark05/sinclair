@@ -39,6 +39,8 @@ export interface ClaudeExecutorOptions {
   apiKey?: string;
   /** 주지 않으면 ANTHROPIC_BASE_URL 또는 공식 API */
   baseURL?: string;
+  /** HTTP 요청에 쓸 fetch(기본 전역 fetch). 실기기 증거 스크립트가 요청 본문을 기록할 때 */
+  fetch?: typeof fetch;
   /** Ledger 예산(user 메시지 추정 토큰, 기본 8000) */
   ledgerBudget?: number;
   /** 설정하면 접힌 8턴 묶음을 이 모델이 요약한다(예: claude-haiku-5-5). 없으면 결정적 요약 */
@@ -117,6 +119,7 @@ export function createClaudeExecutor(options: ClaudeExecutorOptions = {}): StepE
   const getClient = (): Anthropic => (client ??= new Anthropic({
     ...(options.apiKey !== undefined ? { apiKey: options.apiKey } : {}),
     ...(options.baseURL !== undefined ? { baseURL: options.baseURL } : {}),
+    ...(options.fetch ? { fetch: options.fetch } : {}),
     timeout: options.requestTimeoutMs ?? DEFAULT_AGENT_REQUEST_TIMEOUT_MS,
     maxRetries: options.maxRetries ?? DEFAULT_AGENT_MAX_RETRIES,
   }));
@@ -211,6 +214,21 @@ export function createClaudeExecutor(options: ClaudeExecutorOptions = {}): StepE
       }
     },
   };
+}
+
+/** 실호출 전 점검: 자격 증명·주소로 Claude API 에 닿는가(토큰 세기 한 번, 과금 없음). 닿지 않으면 'unreachable', 자격 증명 문제는 ModelConfigError */
+export async function probeClaude(options: ClaudeExecutorOptions = {}): Promise<'ok' | 'unreachable'> {
+  const client = new Anthropic({
+    ...(options.apiKey !== undefined ? { apiKey: options.apiKey } : {}), ...(options.baseURL !== undefined ? { baseURL: options.baseURL } : {}),
+    ...(options.fetch ? { fetch: options.fetch } : {}), timeout: 15_000, maxRetries: 0,
+  });
+  try {
+    await client.messages.countTokens({ model: options.model ?? DEFAULT_AGENT_MODEL, messages: [{ role: 'user', content: 'ping' }] });
+    return 'ok';
+  } catch (err) {
+    if (err instanceof Anthropic.APIConnectionError) return 'unreachable';
+    throw translateError(err, options.model ?? DEFAULT_AGENT_MODEL);
+  }
 }
 
 const ENV = {
