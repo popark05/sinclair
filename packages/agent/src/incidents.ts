@@ -29,7 +29,7 @@ const LAUNCHERS = new Set(['com.sec.android.app.launcher', 'com.google.android.a
 /** 시스템 창(다이얼로그 틀·상태 표시줄)은 앱이 바뀐 것으로 치지 않는다 */
 const SYSTEM_PACKAGES = new Set(['android', 'com.android.systemui']);
 /** 권한 버튼: 앞의 것부터. "이번만 허용" 은 다음 실행에 다시 물어 테스트가 매번 달라지므로 고르지 않는다 */
-const ALLOW_IDS = ['permission_allow_foreground_only_button', 'permission_allow_button', 'permission_allow_always_button'];
+const ALLOW_IDS = ['permission_allow_foreground_only_button', 'permission_allow_button', 'permission_allow_always_button', 'permission_allow_all_button'];
 const DENY_IDS = ['permission_deny_button', 'permission_deny_and_dont_ask_again_button'];
 const ALLOW_NAMES = ['앱 사용 중에만 허용', '허용', 'while using the app', 'allow'];
 const DENY_NAMES = ['허용 안함', '거부', "don't allow", 'deny'];
@@ -59,23 +59,27 @@ const sig = (kind: string, all: SemanticNode[]): string => `${kind}:${all.map((n
 export function detectIncident(root: SemanticNode, ctx: IncidentContext): Incident | undefined {
   const all = [...nodes(root)];
   // 권한 요청: 시스템 권한 창의 패키지
-  if (all.some((n) => PERMISSION_PACKAGES.has(pkgOf(n.testId) ?? ''))) {
+  const permissionNodes = all.filter((n) => PERMISSION_PACKAGES.has(pkgOf(n.testId) ?? ''));
+  if (permissionNodes.length) {
     const allow = (ctx.policy?.permission ?? 'allow') === 'allow';
-    const button = allow ? pick(all, ALLOW_IDS, ALLOW_NAMES) : pick(all, DENY_IDS, DENY_NAMES);
-    const message = all.find((n) => idOf(n.testId) === 'permission_message');
+    // 버튼은 시스템 권한 창의 노드에서만 고른다: 앱의 안내 화면이 같은 id·같은 문구("허용")를 써도 누르지 않게
+    const button = allow ? pick(permissionNodes, ALLOW_IDS, ALLOW_NAMES) : pick(permissionNodes, DENY_IDS, DENY_NAMES);
+    const message = permissionNodes.find((n) => idOf(n.testId) === 'permission_message');
     return {
       // 권한마다(카메라·마이크) 다른 창으로 센다: 버튼 id 는 같고 문구만 다르다
       kind: 'permission', signature: `${sig('permission', all)}|${message ? labelOf(message) : ''}`, summary: `권한 요청${message ? ` "${labelOf(message)}"` : ''}`,
       ...(button ? { recovery: { kind: 'tap' as const, ref: button.ref, label: labelOf(button) } } : {}),
     };
   }
+  // 앱 오류 다이얼로그(android:id/aerr_*). android:id/button1 만 쓰는 다른 시스템 창(USB 디버깅·배터리)은 앱 자신의 다이얼로그와 구별되지 않아 감지하지 않는다
   // 앱 오류 다이얼로그(android:id/aerr_*): 응답 없음(ANR)은 대기, 충돌은 닫고 앱을 다시 연다
   const aerr = all.filter((n) => pkgOf(n.testId) === 'android' && idOf(n.testId)?.startsWith('aerr_'));
   if (aerr.length) {
     const title = all.find((n) => idOf(n.testId) === 'alertTitle');
     const wait = aerr.find((n) => idOf(n.testId) === 'aerr_wait');
     const close = aerr.find((n) => idOf(n.testId) === 'aerr_close');
-    const recovery: IncidentRecovery | undefined = wait ? { kind: 'tap', ref: wait.ref, label: labelOf(wait) } : close ? { kind: 'tap-then-reopen', ref: close.ref, label: labelOf(close) } : undefined;
+    const restart = aerr.find((n) => idOf(n.testId) === 'aerr_restart'); // "앱 다시 열기": 시스템이 다시 띄운다
+    const recovery: IncidentRecovery | undefined = wait ? { kind: 'tap', ref: wait.ref, label: labelOf(wait) } : close ? { kind: 'tap-then-reopen', ref: close.ref, label: labelOf(close) } : restart ? { kind: 'tap', ref: restart.ref, label: labelOf(restart) } : undefined;
     return { kind: 'app-error', signature: sig('app-error', aerr), summary: `앱 오류${title ? ` "${labelOf(title)}"` : ''}`, ...(recovery ? { recovery } : {}) };
   }
   // 앱을 벗어남: 런처면 확실히 튕긴 것이라 다시 연다. 다른 앱(브라우저 로그인·공유 시트)은 목표의 일부일 수 있어 모델에게 알리기만

@@ -514,15 +514,15 @@ describe('액션 전 안전망이 스텝에 남는다', () => {
 });
 
 describe('Incident 복구가 스텝에 남는다', () => {
-  it('권한 요청을 자동으로 치우면 instruction 에 [Incident: permission→… ×1]', async () => {
+  it('권한 요청을 자동으로 치우면 instruction 에 [Incident: permission→… ×1](정책 deny 가 러너를 지난다)', async () => {
     const pid = (id: string) => `com.android.permissioncontroller:id/${id}`;
-    const permission: SemanticNode = { ref: '@r', role: 'root', children: [{ ref: '@p1', role: 'text', testId: pid('permission_message'), text: '카메라' }, { ref: '@p2', role: 'button', testId: pid('permission_allow_foreground_only_button'), name: '앱 사용 중에만 허용' }] };
+    const permission: SemanticNode = { ref: '@r', role: 'root', children: [{ ref: '@p1', role: 'text', testId: pid('permission_message'), text: '카메라' }, { ref: '@p2', role: 'button', testId: pid('permission_allow_foreground_only_button'), name: '앱 사용 중에만 허용' }, { ref: '@p3', role: 'button', testId: pid('permission_deny_button'), name: '허용 안함' }] };
     const app: SemanticNode = { ...LOGIN_SCREEN, children: LOGIN_SCREEN.children!.map((c) => ({ ...c, testId: c.testId ?? `com.app:id/${c.ref.slice(1)}` })) };
-    const engine = new FakeEngine({ root: app, onTap: (n) => (n.name === '로그인' ? permission : n.ref === '@p2' ? HOME_SCREEN : undefined) });
+    const engine = new FakeEngine({ root: app, onTap: (n) => (n.name === '로그인' ? permission : n.ref === '@p3' ? HOME_SCREEN : undefined) });
     const exec = scriptedExecutor([{ name: 'tap', input: { ref: '@e4' } }, { name: 'done', input: { summary: '환영합니다' } }]);
-    const report = await runTests([fixture('agent-login.sinclair.ts')], { engine, timeoutMs: 500, agent: { executor: exec, incidents: { permission: 'allow' } } });
+    const report = await runTests([fixture('agent-login.sinclair.ts')], { engine, timeoutMs: 500, agent: { executor: exec, incidents: { permission: 'deny' } } }); // 기본(allow)이 아닌 값으로 옵션이 러너를 지나는지 본다
     vexpect(report.tests[0]).toMatchObject({ result: 'passed' });
     const act = report.events.find((e): e is Extract<RunEvent, { type: 'step.recorded' }> => e.type === 'step.recorded' && e.kind === 'act');
-    vexpect(act!.instruction).toMatch(/\[Incident: permission→앱 사용 중에만 허용 ×1\]/);
+    vexpect(act!.instruction).toMatch(/\[Incident: permission→허용 안함 ×1\]/);
   });
 });

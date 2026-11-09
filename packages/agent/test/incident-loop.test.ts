@@ -55,7 +55,7 @@ describe('Incident 복구 · 루프', () => {
     const r = await runAct(engine, '결제', { executor: exec });
     expect(r.ok).toBe(true);
     expect(exec.requests[1]!.incident).toMatch(/권한/);
-    expect(r.incidents).toEqual([{ kind: 'permission', action: '앱 사용 중에만 허용', count: 3 }]);
+    expect(r.incidents).toEqual([{ kind: 'permission', action: '앱 사용 중에만 허용', count: 3 }, { kind: 'permission', action: '모델에 알림', count: 1 }]);
   });
 
   it('입력 뒤 탭이 실패하면 키보드를 내리고 같은 호출을 한 번 다시 한다', async () => {
@@ -77,5 +77,63 @@ describe('Incident 복구 · 루프', () => {
     const r = await runAct(engine, '결제', { executor: exec });
     expect(exec.requests[2]!.incident).toMatch(/같은 호출.*두 번/);
     expect(r).toMatchObject({ ok: false, reason: expect.stringMatching(/Incident.*tap @a2/) });
+  });
+});
+
+describe('Incident 복구 · 리뷰 반영', () => {
+  const chrome = (field: string): SemanticNode => ({ ref: '@r', role: 'root', children: [{ ref: '@u', role: 'textbox', testId: 'com.android.chrome:id/url_bar', name: 'accounts.example.com' }, { ref: '@f', role: 'textbox', testId: 'com.android.chrome:id/field', placeholder: field }, { ref: '@n', role: 'button', testId: 'com.android.chrome:id/next', name: '다음' }] });
+
+  it('다른 앱(브라우저 로그인)으로 넘어간 흐름은 여러 턴 이어져도 실패하지 않고, 알린 일이 기록된다', async () => {
+    let step = 0;
+    const engine = new FakeEngine({ root: APP, onTap: (n) => (n.ref === '@a2' ? chrome('이메일') : n.ref === '@n' ? (++step === 1 ? chrome('비밀번호') : DONE_SCREEN) : undefined) });
+    const exec = scriptedExecutor([pay, { name: 'tap', input: { ref: '@n' } }, { name: 'tap', input: { ref: '@n' } }, done]);
+    const r = await runAct(engine, '브라우저로 로그인하고 결제', { executor: exec });
+    expect(r).toMatchObject({ ok: true, incidents: [{ kind: 'left-app', action: '모델에 알림', count: 1 }] });
+    expect(exec.requests[1]!.incident).toMatch(/com.android.chrome/);
+    expect(exec.requests[2]).not.toHaveProperty('incident'); // 한 번만 알린다
+  });
+
+  it('키보드가 떠 있다는 근거가 없으면 뒤로(dismiss)를 누르지 않는다; 대상이 비활성이면 키보드 탓이 아니다', async () => {
+    const root: SemanticNode = { ref: '@r', role: 'root', children: [{ ref: '@f', role: 'textbox', testId: 'com.shop:id/q', placeholder: '검색' }, { ref: '@go', role: 'button', testId: 'com.shop:id/go', name: '검색', states: { disabled: true } }] };
+    const engine = new FakeEngine({ root });
+    let dismissed = 0;
+    engine.keyboard.dismiss = async () => { dismissed++; };
+    const r = await runAct(engine, '검색', { executor: scriptedExecutor([{ name: 'type', input: { ref: '@f', text: '사과' } }, { name: 'tap', input: { ref: '@go' } }, done]) });
+    expect(dismissed).toBe(0);
+    expect(r.history[1]).toMatchObject({ result: 'error' });
+    // shown 이 없는 엔진(키보드 상태를 모름)도 누르지 않는다
+    const unknown = new FakeEngine({ root: { ...root, children: [root.children![0]!, { ...root.children![1]!, states: {} }] } });
+    let d2 = 0;
+    Object.assign(unknown.keyboard, { shown: undefined, dismiss: async () => { d2++; } });
+    const perform = unknown.perform.bind(unknown);
+    unknown.perform = async (ref, a, arg) => { if (a === 'tap') throw new EngineError('not-found', '가려짐'); return perform(ref, a, arg); };
+    await runAct(unknown, '검색', { executor: scriptedExecutor([{ name: 'type', input: { ref: '@f', text: '사과' } }, { name: 'tap', input: { ref: '@go' } }, done]) });
+    expect(d2).toBe(0);
+  });
+
+  it('앱을 다시 열 때 act 시작 때의 앱 패키지로 연다', async () => {
+    const engine = new FakeEngine({ root: APP, onTap: (n) => (n.ref === '@a2' ? LAUNCHER : undefined) });
+    const opened: Array<string | undefined> = [];
+    const open = engine.session.open;
+    engine.session.open = async (t) => { opened.push(t); return open(t); };
+    await runAct(engine, '결제', { executor: scriptedExecutor([pay, done]) });
+    expect(opened).toEqual(['com.shop']);
+  });
+
+  it('모델이 고른 뒤 실행 전에 권한 창이 끼어들면 실행하지 않고, 다음 턴에 복구한다', async () => {
+    const engine = new FakeEngine({ root: APP, onTap: (n) => (n.ref === '@p2' ? APP : undefined) });
+    const exec = scriptedExecutor((_req, i) => { if (i === 0) { engine.setRoot(PERMISSION); return pay; } return done; });
+    const r = await runAct(engine, '결제', { executor: exec });
+    expect(r.history[0]).toMatchObject({ result: 'rejected', detail: expect.stringMatching(/끼어든 창.*권한 요청/) });
+    expect(engine.performed).toEqual([{ ref: '@p2', action: 'tap' }]);
+  });
+
+  it('권한 버튼은 시스템 권한 창의 노드에서만 고른다(앱의 같은 id·같은 문구는 고르지 않는다)', async () => {
+    const mixed: SemanticNode = { ref: '@r', role: 'root', children: [
+      { ref: '@x', role: 'button', testId: 'com.shop:id/permission_allow_foreground_only_button', name: '앱 사용 중에만 허용' },
+      ...PERMISSION.children!,
+    ] };
+    const { detectIncident } = await import('../src/index.ts');
+    expect(detectIncident(mixed, { appPackage: 'com.shop' })).toMatchObject({ recovery: { ref: '@p2' } });
   });
 });

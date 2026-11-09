@@ -212,6 +212,14 @@ export function engineContractSuite(name: string, { makeEngine, scenario, navTim
       if (e.session) await e.session.back();
     });
 
+    it('keyboard.shown 이 있으면 불리언을 돌려주고, dismiss 뒤에는 false 다', async () => {
+      const e = await fresh();
+      if (!e.keyboard?.shown) return; // 선택: 키보드 상태를 모르는 엔진은 구현하지 않는다(에이전트는 그러면 키보드 복구를 하지 않는다)
+      expect(typeof (await e.keyboard.shown())).toBe('boolean');
+      await e.keyboard.dismiss();
+      expect(await e.keyboard.shown()).toBe(false);
+    });
+
     it('dispose 뒤의 호출은 engine-closed 다', async () => {
       const e = await makeEngine();
       await e.dispose?.();

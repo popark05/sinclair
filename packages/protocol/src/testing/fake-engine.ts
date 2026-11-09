@@ -26,6 +26,8 @@ export class FakeEngine implements Engine {
   locateCalls = 0;
   /** session 호출 순서(러너가 테스트마다 open 하고 실패 뒤 restart 하는지 검증용). */
   readonly sessionCalls: string[] = [];
+  /** 화면 키보드가 떠 있는가(type 하면 true, dismiss 하면 false). 테스트가 직접 바꿔도 된다 */
+  keyboardShown = false;
   private root: SemanticNode;
   private closed = false;
   private sessionTarget: string | undefined;
@@ -77,6 +79,7 @@ export class FakeEngine implements Engine {
       case 'type': {
         if (!['textbox', 'searchbox', 'combobox'].includes(node.role)) throw new EngineError('not-actionable', `편집할 수 없는 노드: ${ref} (${node.role})`, { ref });
         live.value = (live.value ?? '') + (arg ?? '');
+        this.keyboardShown = true; // 입력 칸에 쓰면 키보드가 뜬다
         return;
       }
       case 'check': {
@@ -109,7 +112,8 @@ export class FakeEngine implements Engine {
   readonly keyboard = {
     type: async (text: string): Promise<void> => { this.assertOpen(); this.typed.push(text); },
     press: async (key: string): Promise<void> => { this.assertOpen(); this.pressed.push(key); },
-    dismiss: async (): Promise<void> => { this.assertOpen(); },
+    dismiss: async (): Promise<void> => { this.assertOpen(); this.keyboardShown = false; },
+    shown: async (): Promise<boolean> => { this.assertOpen(); return this.keyboardShown; },
   };
 
   private screenFor(target: string | undefined): SemanticNode {
