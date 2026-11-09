@@ -35,3 +35,6 @@ h2 { font-size: 16px; margin: 20px 0 8px; }
 .mark-guard { color: var(--warn); } .mark-retarget { color: var(--info); } .mark-incident { color: var(--bad); }
 .code { color: var(--bad); }
 .artifacts { font-size: 13px; }
+.top { display: flex; gap: 24px; align-items: center; }
+.nav { display: flex; gap: 14px; font-weight: 400; }
+.nav a { color: var(--info); }

@@ -4,12 +4,15 @@ import { useEffect, useState } from 'react';
 export const BASE = '/console';
 export const href = (path: string): string => `${BASE}${path}`;
 
-export type Route = { page: 'cycles' } | { page: 'cycle'; cycleId: string } | { page: 'case'; cycleId: string; testId: string; targetId: string } | { page: 'not-found'; path: string };
+export type Route = { page: 'cycles' } | { page: 'cycle'; cycleId: string } | { page: 'case'; cycleId: string; testId: string; targetId: string } | { page: 'fleet' } | { page: 'run'; runId: string } | { page: 'not-found'; path: string };
 
 export function parseRoute(pathname: string): Route {
   const rest = pathname.startsWith(BASE) ? pathname.slice(BASE.length) : pathname;
   const parts = rest.split('/').filter(Boolean).map(decodeURIComponent);
   if (parts.length === 0) return { page: 'cycles' };
+  if (parts[0] === 'fleet' && parts.length === 1) return { page: 'fleet' };
+  if (parts[0] === 'runs' && parts.length === 2) return { page: 'run', runId: parts[1]! };
+  if (parts[0] === 'cycles' && parts.length === 1) return { page: 'cycles' };
   if (parts[0] === 'cycles' && parts.length === 2) return { page: 'cycle', cycleId: parts[1]! };
   if (parts[0] === 'cycles' && parts[2] === 'cases' && parts.length === 5) return { page: 'case', cycleId: parts[1]!, testId: parts[3]!, targetId: parts[4]! };
   return { page: 'not-found', path: rest };

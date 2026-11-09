@@ -5,6 +5,8 @@ import { Link } from './components.tsx';
 import { CycleList } from './pages/CycleList.tsx';
 import { CycleView } from './pages/CycleView.tsx';
 import { CaseView } from './pages/CaseView.tsx';
+import { FleetPage } from './pages/FleetPage.tsx';
+import { RunRedirect } from './pages/RunRedirect.tsx';
 import { href, useRoute } from './route.ts';
 
 export function App({ api: given }: { api?: Api }) {
@@ -12,11 +14,16 @@ export function App({ api: given }: { api?: Api }) {
   const route = useRoute();
   return (
     <div className="app">
-      <header className="top"><Link to={href('/')}>Sinclair Console</Link></header>
+      <header className="top">
+        <Link to={href('/')}>Sinclair Console</Link>
+        <nav className="nav"><Link to={href('/cycles')}>Cycle</Link><Link to={href('/fleet')}>플릿</Link></nav>
+      </header>
       <main>
         {route.page === 'cycles' && (<><h1>Cycle</h1><CycleList api={api} /></>)}
         {route.page === 'cycle' && <CycleView api={api} cycleId={route.cycleId} />}
         {route.page === 'case' && <CaseView api={api} cycleId={route.cycleId} testId={route.testId} targetId={route.targetId} />}
+        {route.page === 'fleet' && (<><h1>플릿</h1><FleetPage api={api} /></>)}
+        {route.page === 'run' && <RunRedirect api={api} runId={route.runId} />}
         {route.page === 'not-found' && <p role="alert">없는 화면: {route.path}</p>}
       </main>
     </div>
