@@ -193,6 +193,15 @@ describe('createClaudeExecutor · judge(판정 동사)', () => {
   });
 });
 
+describe('createClaudeExecutor · Incident', () => {
+  it('자동 복구하지 못한 Incident 는 그 턴의 프롬프트에 먼저 해결하라고 실린다', async () => {
+    const api = await fakeApi([toolUse('done', { summary: 'x' })]);
+    const exec = createClaudeExecutor(opts(api.baseURL));
+    await exec.next({ goal: '결제', observation: '@a button "결제"', history: [], tools: [], incident: 'Incident: 다른 앱(com.android.chrome)으로 넘어감' }, new AbortController().signal);
+    expect(JSON.stringify(api.captured[0]!.body.messages)).toMatch(/Incident: 다른 앱\(com.android.chrome\)/);
+  });
+});
+
 describe('createClaudeExecutor · 비밀값', () => {
   it('비밀번호 칸이 secure 가 아니어도 요청 본문(목표·관찰·지난 턴)에는 자리표시만, 엔진에는 실제 값', async () => {
     const VALUE = 'Tr0ub4dor&3';
@@ -235,5 +244,7 @@ describe('agentFromEnv', () => {
     expect(agentFromEnv({ SINCLAIR_AGENT_MODEL_PIXELS: '1' }).executor.pixels).toBe(true);
     expect(agentFromEnv({ SINCLAIR_AGENT_ACT_SAFETY_PIXELS: '1' })).toMatchObject({ safetyNet: { pixels: true } });
     expect(() => agentFromEnv({ SINCLAIR_AGENT_ACT_SAFETY_PIXELS: 'on' })).toThrow(/SAFETY_PIXELS/);
+    expect(agentFromEnv({ SINCLAIR_AGENT_ACT_PERMISSION: 'deny' })).toMatchObject({ incidents: { permission: 'deny' } });
+    expect(() => agentFromEnv({ SINCLAIR_AGENT_ACT_PERMISSION: 'maybe' })).toThrow(/SINCLAIR_AGENT_ACT_PERMISSION/);
   });
 });

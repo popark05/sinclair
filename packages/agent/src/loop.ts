@@ -9,6 +9,7 @@ import { addUsage } from './usage.ts';
 import { SecretBox } from './secrets.ts';
 import { describeTarget, relocate } from './relocate.ts';
 import { regionDiff, COVER_DIFF_THRESHOLD } from './pixels.ts';
+import { appPackageOf, detectIncident, type IncidentKind, type IncidentPolicy, type IncidentRecovery } from './incidents.ts';
 
 /** 기본 턴 한도: 로그인·화면 이동 같은 목표는 대개 10턴 안에 끝난다. 20 이면 헤매는 모델을 멈추면서 정상 목표는 넉넉하다 */
 export const DEFAULT_MAX_TURNS = 20;
@@ -18,6 +19,8 @@ export const DEFAULT_ACT_TIMEOUT_MS = 120_000;
 /** 모델이 고칠 수 있는 엔진 오류: 다음 턴에 알려 다른 대상·행동을 고르게 한다. 그 밖(기기 없음·기기 오류 등)은 인프라 문제라 act 를 그 코드로 끝낸다 —
  *  턴을 태우다 agent 실패로 뭉개지 않게(Verdict 에서 blocked 로 보여야 한다) */
 const CORRECTABLE: ReadonlySet<EngineErrorCode> = new Set(['not-found', 'not-actionable', 'unsupported-action', 'ambiguous']);
+/** Incident 종류별 결정적 복구 상한(act 하나): 권한 요청은 카메라·마이크처럼 연달아 뜰 수 있어 3, 그 밖은 두 번 해도 안 되면 다른 원인이라 2 */
+const INCIDENT_LIMIT: Record<IncidentKind, number> = { permission: 3, 'app-error': 2, 'left-app': 2, keyboard: 2, 'action-failed': 0 };
 /** 모델에 돌려줄 오류 문구 상한 */
 const MAX_DETAIL = 300;
 
@@ -44,6 +47,8 @@ export function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<
 
 export interface ActOptions {
   executor: StepExecutor; maxTurns?: number; timeoutMs?: number;
+  /** Incident 결정적 복구 정책(권한 요청에 누를 버튼 등) */
+  incidents?: IncidentPolicy;
   /** 액션 전 안전망 설정. 대상 재탐색은 늘 켜져 있고, pixels 를 켜면 엔진이 픽셀을 줄 때 대상 영역의 변화(트리에 없는 덮개)도 본다(기본 꺼짐) */
   safetyNet?: { pixels?: boolean };
   /** 이 테스트가 등록한 비밀값. type 의 text 에 온 자리표시만 실제 값으로 바뀌고, 모델에 가는 관찰·오류 문구에서 값은 가려진다. 있으면 픽셀은 보내지 않는다 */
@@ -61,6 +66,8 @@ export interface ActResult {
   /** 실패 사유 */
   reason?: string;
   history: AgentTurn[];
+  /** 결정적으로 복구한 Incident(종류·복구 동작·횟수) */
+  incidents?: Array<{ kind: IncidentKind; action: string; count: number }>;
 }
 
 /** 에이전트 스텝(act·판정 동사)이 던질 때 그때까지 쓴 모델 호출 수·토큰. 오류 객체를 바꾸지 않고 옆에 둔다(러너가 실패 스텝에 싣는다) */
@@ -84,7 +91,21 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
   const history: AgentTurn[] = [];
   let modelCalls = 0;
   let usage: StepUsage | undefined;
-  const result = (r: Pick<ActResult, 'ok' | 'summary' | 'reason'>): ActResult => ({ ...r, turns: history.length, modelCalls, ...(usage ? { usage } : {}), history });
+  // Incident: 종류별 결정적 복구 시도 수, 복구 기록, 모델에게 알린 상황, 같은 호출의 연속 실패
+  const recovered = new Map<string, { kind: IncidentKind; action: string; count: number }>();
+  const attempts = new Map<IncidentKind, number>();
+  const informed = new Set<string>();
+  let appPackage: string | undefined;
+  let note: string | undefined;
+  let lastFailedCall: string | undefined;
+  let failedInRow = 0;
+  const record = (kind: IncidentKind, action: string): void => {
+    attempts.set(kind, (attempts.get(kind) ?? 0) + 1);
+    const key = `${kind}|${action}`;
+    const r = recovered.get(key);
+    if (r) r.count++; else recovered.set(key, { kind, action, count: 1 });
+  };
+  const result = (r: Pick<ActResult, 'ok' | 'summary' | 'reason'>): ActResult => ({ ...r, turns: history.length, modelCalls, ...(usage ? { usage } : {}), history, ...(recovered.size ? { incidents: [...recovered.values()] } : {}) });
   const secrets = opts.secrets;
   const goalSecrets = new Set(SecretBox.mentioned(goal));
   const hide = (t: string): string => (secrets ? secrets.redact(t) : t);
@@ -93,6 +114,21 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
   const pixels = opts.executor.pixels === true && !(secrets && secrets.size > 0);
   // 안전망의 픽셀 비교는 모델에 보내지 않고 로컬에서만 쓰므로 비밀값과 무관하다
   const guardPixels = opts.safetyNet?.pixels === true;
+  const observeNow = (withPixels: boolean) => raceAbort(engine.observe(withPixels ? { pixels: true } : undefined), aborter.signal);
+  /** 결정적 복구 하나. 엔진이 못 하면(session 없음) false. 고칠 수 있는 엔진 오류는 시도로 세고 넘어간다(다음 관찰이 다시 판단) */
+  const recover = async (r: IncidentRecovery): Promise<string | undefined> => {
+    try {
+      if (r.kind === 'tap') { await engine.perform(r.ref, 'tap'); return r.label; }
+      if (r.kind === 'tap-then-reopen') { if (!engine.session) return undefined; await engine.perform(r.ref, 'tap'); await engine.session.open(); return `${r.label} → 다시 열기`; }
+      if (r.kind === 'reopen') { if (!engine.session) return undefined; await engine.session.open(); return '다시 열기'; }
+      if (!engine.keyboard) return undefined;
+      await engine.keyboard.dismiss();
+      return '키보드 내림';
+    } catch (err) {
+      if (err instanceof EngineError && !CORRECTABLE.has(err.code)) throw err;
+      return r.kind === 'tap' || r.kind === 'tap-then-reopen' ? `${r.label}(실패)` : '복구 실패';
+    }
+  };
   try {
     for (let turn = 0; turn < maxTurns; turn++) {
       if (Date.now() >= deadline) return fail(`시간 한도 ${timeoutMs}ms 에 닿음`);
@@ -100,6 +136,32 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
       try { observed = await raceAbort(engine.observe(pixels || guardPixels ? { pixels: true } : undefined), aborter.signal); } catch (err) {
         if (aborter.signal.aborted) return fail(`시간 한도 ${timeoutMs}ms 에 닿음`);
         throw err;
+      }
+      // Incident: 모델에 묻기 전에 끼어든 화면을 알아보고 결정적 복구를 먼저 한다(모델 호출·턴 없음)
+      if (turn === 0) appPackage = appPackageOf(observed.root);
+      let lastRecovered: string | undefined;
+      let sameAfterRecovery = 0;
+      for (;;) {
+        const inc = detectIncident(observed.root, { ...(appPackage ? { appPackage } : {}), ...(opts.incidents ? { policy: opts.incidents } : {}) });
+        if (!inc) break;
+        // 모델에게 이미 알렸는데도 그대로면 복구하지 못한 것이다
+        if (informed.has(inc.signature)) return fail(`Incident 를 복구하지 못함: ${inc.summary}`);
+        sameAfterRecovery = inc.signature === lastRecovered ? sameAfterRecovery + 1 : 0;
+        const used = attempts.get(inc.kind) ?? 0;
+        const why = !inc.recovery ? '' : used >= INCIDENT_LIMIT[inc.kind] ? ` (자동 복구 ${used}번으로 상한)` : sameAfterRecovery >= 2 ? ' (자동 복구가 통하지 않음)' : undefined;
+        const action = why === undefined && inc.recovery ? await recover(inc.recovery) : undefined;
+        if (action === undefined) {
+          // 결정적 복구가 없거나 상한·무효: 모델에게 한 번 알리고 묻는다
+          informed.add(inc.signature);
+          note = `Incident: ${inc.summary}${why ?? ''} — 이 상황을 먼저 해결하라`;
+          break;
+        }
+        record(inc.kind, action);
+        lastRecovered = inc.signature;
+        try { observed = await observeNow(pixels || guardPixels); } catch (err) {
+          if (aborter.signal.aborted) return fail(`시간 한도 ${timeoutMs}ms 에 닿음`);
+          throw err;
+        }
       }
       // 트리의 문자열 잎을 가린 뒤 그린다(그린 글에 가리면 JSON 이스케이프된 값을 놓친다)
       const observation = renderObservation(secrets ? secrets.redactTree(observed.root) : observed.root);
@@ -109,7 +171,8 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
       try {
         modelCalls++;
         // 실행기가 시간 한도를 넘기면 기다리지 않는다. 스키마는 매번 새로(실행기가 고쳐도 다음 턴에 영향 없게)
-        const request = { goal: hide(goal), observation, history: history.map((h) => ({ ...h })), tools: toolSchemas(), ...(pixels && observed.pixels ? { pixels: observed.pixels } : {}) };
+        const incident = note; note = undefined;
+        const request = { goal: hide(goal), ...(incident ? { incident: hide(incident) } : {}), observation, history: history.map((h) => ({ ...h })), tools: toolSchemas(), ...(pixels && observed.pixels ? { pixels: observed.pixels } : {}) };
         reply = await raceAbort(opts.executor.next(request, aborter.signal), aborter.signal);
       } catch (err) {
         if (err instanceof ModelConfigError) throw err; // 설정 문제는 테스트 실패가 아니다: 러너가 blocked 로 다룬다
@@ -174,15 +237,34 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
         if (typed !== undefined && now && !(now.role === 'textbox' || now.states?.secure)) { history.push({ call, result: 'rejected', detail: `비밀값은 입력 칸(textbox)에만 넣을 수 있음: ${where.ref} 는 ${now.role}` }); continue; }
         if (where.kind === 'moved') { input.ref = where.ref; retargeted = where.ref; }
       }
+      const callKey = `${checked.call.name}${input.ref ? ` ${input.ref}` : ''}`;
+      const lastOk = [...history].reverse().find((h) => h.result === 'ok');
       try {
-        await spec.run(engine, input);
+        try {
+          await spec.run(engine, input);
+        } catch (err) {
+          // keyboard Incident: 입력 바로 뒤의 탭·스크롤이 실패하면 키보드가 가렸을 수 있다 — 내리고 같은 호출을 한 번 다시 한다
+          const keyboardSuspect = err instanceof EngineError && CORRECTABLE.has(err.code) && (checked.call.name === 'tap' || checked.call.name === 'scroll')
+            && lastOk?.call?.name === 'type' && history.at(-1) === lastOk && (attempts.get('keyboard') ?? 0) < INCIDENT_LIMIT.keyboard;
+          if (!keyboardSuspect) throw err;
+          const action = await recover({ kind: 'dismiss-keyboard' });
+          if (action === undefined) throw err;
+          record('keyboard', action);
+          await spec.run(engine, input);
+        }
       } catch (err) {
         // 인프라 오류는 모델이 고칠 수 없다: 그 코드 그대로 던져 러너가 blocked 등으로 다루게 한다
         if (err instanceof EngineError && !CORRECTABLE.has(err.code)) throw err;
         const raw = err instanceof EngineError ? `${err.code}: ${err.message}` : err instanceof Error ? err.message : String(err);
         history.push({ call, result: 'error', detail: scrubDetail(raw, input, hide), ...(retargeted ? { retargeted } : {}) });
+        // action-failed Incident: 같은 호출이 연달아 실패하면 두 번째에 모델에게 알리고, 세 번째면 멈춘다(같은 실패를 되풀이하는 루프)
+        failedInRow = callKey === lastFailedCall ? failedInRow + 1 : 1;
+        lastFailedCall = callKey;
+        if (failedInRow >= 3) return fail(`Incident: 같은 호출(${hide(callKey)})이 세 번 연달아 실패 — 복구하지 못함`);
+        if (failedInRow === 2) note = `Incident: 같은 호출(${hide(callKey)})이 두 번 연달아 실패 — 다른 대상이나 방법을 골라라`;
         continue;
       }
+      lastFailedCall = undefined; failedInRow = 0;
       history.push({ call, result: 'ok', ...(retargeted ? { retargeted } : {}) });
       if (spec.terminal) return result({ ok: true, ...(checked.call.input.summary ? { summary: checked.call.input.summary } : {}) });
     }

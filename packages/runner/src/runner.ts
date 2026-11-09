@@ -41,7 +41,7 @@ export interface RunOptions {
   /** 취소 신호. abort 되면 진행 중 테스트는 끝까지 가고(러너는 테스트 중간 중단을 지원하지 않는다), 그 테스트의 남은 재시도와 다음 테스트들은 skipped 로 기록되며 run 은 cancelled 로 끝난다 */
   signal?: AbortSignal;
   /** agent.act 의 실행기(모델)와 한도. 없으면 agent.act 는 설정 오류로 실패한다 */
-  agent?: { executor: StepExecutor; maxTurns?: number; timeoutMs?: number; safetyNet?: { pixels?: boolean } };
+  agent?: { executor: StepExecutor; maxTurns?: number; timeoutMs?: number; safetyNet?: { pixels?: boolean }; incidents?: { permission?: 'allow' | 'deny' } };
   /** failed 테스트를 다시 돌리는 횟수(기본 0, 최대 5). 시도마다 새 Attempt(attemptNo 2, 3…)로 보고하고 재시도 전에 앱을 다시 띄운다. blocked·skipped 는 재시도하지 않는다 */
   retries?: number;
   /** locator 액션 기한(ms, 기본 10초). 판정(expect) 기한은 그 절반: 판정은 화면이 이미 그 상태여야 하므로 액션보다 짧게 잡아 실패를 빨리 드러낸다 */
@@ -288,7 +288,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
           const started = Date.now();
           let r;
           try {
-            r = await runAct(engine, goal, { executor: options.agent.executor, secrets: secretBox, ...(options.agent.safetyNet ? { safetyNet: options.agent.safetyNet } : {}), ...(options.agent.maxTurns !== undefined ? { maxTurns: options.agent.maxTurns } : {}), ...(options.agent.timeoutMs !== undefined ? { timeoutMs: options.agent.timeoutMs } : {}) });
+            r = await runAct(engine, goal, { executor: options.agent.executor, secrets: secretBox, ...(options.agent.safetyNet ? { safetyNet: options.agent.safetyNet } : {}), ...(options.agent.incidents ? { incidents: options.agent.incidents } : {}), ...(options.agent.maxTurns !== undefined ? { maxTurns: options.agent.maxTurns } : {}), ...(options.agent.timeoutMs !== undefined ? { timeoutMs: options.agent.timeoutMs } : {}) });
           } catch (err) {
             // 관찰 실패·인프라 오류(기기 없음 등)로 루프가 던져도 act 스텝은 남긴다(act 하나 = 스텝 하나). 오류는 그대로 올려 엔진 코드가 errorCode 가 된다
             const p = actProgressOf(err); // 던지기 전까지 쓴 모델 호출·토큰도 비용으로 남긴다
@@ -306,7 +306,9 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
             if (h.retargeted) return `${head}→${safeRef(h.retargeted) || '?'}(다시 찾음)`;
             return `${head}${h.result === 'ok' ? '' : `(${h.result})`}`;
           }).join(', ');
-          const instruction = `act ${JSON.stringify(goal)} → ${tools || '(툴 없음)'} (${r.turns}턴)`;
+          // 자동 복구한 Incident: 종류→복구 동작 ×횟수(버튼 문구는 시스템 창의 것이라 비밀값이 아니지만 길이를 묶는다)
+          const incidents = r.incidents?.length ? ` [Incident: ${r.incidents.map((i) => `${i.kind}→${i.action.slice(0, 40)} ×${i.count}`).join(', ')}]` : '';
+          const instruction = `act ${JSON.stringify(goal)} → ${tools || '(툴 없음)'} (${r.turns}턴)${incidents}`;
           onStep({ kind: 'act', instruction, durationMs: Date.now() - started, modelCalls: r.modelCalls, ...(r.usage ? { usage: r.usage } : {}), ...(r.ok ? {} : { error: r.reason ?? '실패' }) });
           if (!r.ok) throw new AgentActError(`agent.act ${JSON.stringify(goal)} 실패: ${r.reason}`);
         },

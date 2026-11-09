@@ -9,3 +9,4 @@ export { judgeAssert, judgeWaitFor, judgeExtract, DEFAULT_JUDGE_TIMEOUT_MS, DEFA
 export { SecretBox, secretPlaceholder, SECRET_NAME, MIN_SECRET_LENGTH } from './secrets.ts';
 export { describeTarget, relocate, RELOCATE_THRESHOLD, RELOCATE_MARGIN, type TargetDescriptor, type Relocation } from './relocate.ts';
 export { decodePng, regionDiff, COVER_DIFF_THRESHOLD, type Bitmap } from './pixels.ts';
+export { detectIncident, packageOf, appPackageOf, type Incident, type IncidentKind, type IncidentRecovery, type IncidentPolicy, type IncidentContext } from './incidents.ts';

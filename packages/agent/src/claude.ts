@@ -43,6 +43,7 @@ const SYSTEM = [
   '매 턴 지금 화면(접근성 트리, 한 줄에 노드 하나: @ref 역할 "이름" 속성 (상태))과 지난 턴의 결과를 받는다.',
   '한 턴에 툴을 정확히 하나 부른다. 대상은 지금 화면에 있는 @ref 로만 고른다(지난 화면의 ref 는 바뀌었을 수 있다).',
   '지난 턴이 rejected·error 면 그 사유를 읽고 다른 대상이나 행동을 고른다. 같은 실패를 되풀이하지 않는다.',
+  'Incident(끼어든 창·같은 호출의 연속 실패) 알림이 있으면 그 상황부터 해결한다.',
   '목표를 이뤘음을 지금 화면으로 확인했을 때만 done 을 부르고, summary 에 화면의 근거를 적는다.',
   'secure 로 표시된 칸의 값은 보이지 않는다. 입력할 값은 목표에 주어진 것만 쓴다.',
 ].join('\n');
@@ -71,6 +72,7 @@ function renderTurn(turn: AgentTurn, i: number): string {
 function renderPrompt(req: StepRequest): string {
   return [
     `목표: ${req.goal}`,
+    ...(req.incident ? ['', `⚠ ${req.incident}`] : []),
     '',
     '지난 턴:',
     req.history.length ? req.history.map(renderTurn).join('\n') : '(없음)',

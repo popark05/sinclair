@@ -512,3 +512,17 @@ describe('액션 전 안전망이 스텝에 남는다', () => {
     vexpect(act!.instruction).toMatch(/tap @e4\(안전망: 사라짐\), type @e2, tap @e4→@x9\(다시 찾음\), done/);
   });
 });
+
+describe('Incident 복구가 스텝에 남는다', () => {
+  it('권한 요청을 자동으로 치우면 instruction 에 [Incident: permission→… ×1]', async () => {
+    const pid = (id: string) => `com.android.permissioncontroller:id/${id}`;
+    const permission: SemanticNode = { ref: '@r', role: 'root', children: [{ ref: '@p1', role: 'text', testId: pid('permission_message'), text: '카메라' }, { ref: '@p2', role: 'button', testId: pid('permission_allow_foreground_only_button'), name: '앱 사용 중에만 허용' }] };
+    const app: SemanticNode = { ...LOGIN_SCREEN, children: LOGIN_SCREEN.children!.map((c) => ({ ...c, testId: c.testId ?? `com.app:id/${c.ref.slice(1)}` })) };
+    const engine = new FakeEngine({ root: app, onTap: (n) => (n.name === '로그인' ? permission : n.ref === '@p2' ? HOME_SCREEN : undefined) });
+    const exec = scriptedExecutor([{ name: 'tap', input: { ref: '@e4' } }, { name: 'done', input: { summary: '환영합니다' } }]);
+    const report = await runTests([fixture('agent-login.sinclair.ts')], { engine, timeoutMs: 500, agent: { executor: exec, incidents: { permission: 'allow' } } });
+    vexpect(report.tests[0]).toMatchObject({ result: 'passed' });
+    const act = report.events.find((e): e is Extract<RunEvent, { type: 'step.recorded' }> => e.type === 'step.recorded' && e.kind === 'act');
+    vexpect(act!.instruction).toMatch(/\[Incident: permission→앱 사용 중에만 허용 ×1\]/);
+  });
+});
