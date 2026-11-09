@@ -18,6 +18,8 @@ const usb = process.env.SINCLAIR_TEST_USB;
 const hasKey = !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_PROFILE);
 const live = process.env.SINCLAIR_AGENT_LIVE === '1' && hasKey;
 const SECRET = 'qaZ9srch';
+const EMAIL = /[A-Za-z0-9._%+*-]+@[A-Za-z0-9-]+\.[A-Za-z]{2,}/;
+const TERMS = (process.env.SINCLAIR_AGENT_PII_TERMS ?? '').split(',').map((t) => t.trim()).filter((t) => t.length >= 2);
 const APPROVAL_WAIT_MS = 60_000;
 
 /** 모델 없이 배관을 보는 대본 실행기: 관찰 글자로 목표별 다음 툴을 고르고, 판정은 화면 글자로. 실제 모델 증명이 아니다 */
@@ -79,7 +81,7 @@ describe.skipIf(!usb)(`실기기 agent.act·assert (${live ? '실제 모델' : '
       const started = Date.now();
       const report = await runTests([path.resolve(import.meta.dirname, 'fixtures/agent-device.sinclair.ts')], {
         engine, artifactsDir, timeoutMs: 10_000, deviceId: `…${deviceId.slice(-4)}`,
-        agent: { ...base, executor, maxTurns: 12 }, secrets: { get: (n) => (n === 'QA_SEARCH' ? SECRET : undefined) },
+        agent: { ...base, executor, maxTurns: 12 }, ...(base.pii ? { pii: base.pii } : {}), secrets: { get: (n) => (n === 'QA_SEARCH' ? SECRET : undefined) },
       });
 
       // 증거: 스텝 종류·호출 수·토큰·시간. 판정 근거 문구는 화면 글자(계정 이름 등)를 옮길 수 있어 싣지 않는다
@@ -93,9 +95,12 @@ describe.skipIf(!usb)(`실기기 agent.act·assert (${live ? '실제 모델' : '
         totals: { modelCalls: report.tests.flatMap((t) => t.steps).reduce((a, s) => a + s.modelCalls, 0), requests: live ? bodies.length : scriptedRequests.length },
         tests: report.tests.map((t) => ({ name: t.name, result: t.result, errorCode: t.errorCode, durationMs: t.durationMs, artifacts: t.artifacts.map((a) => a.kind), steps: steps(t), ...(t.errorCode === 'agent' ? { reason: /턴 한도 \d+/.exec(t.error ?? '')?.[0] } : {}) })),
         secret: Object.fromEntries(Object.entries(haystacks).map(([k, v]) => [k, { scanned: v.length > 0, valueFound: v.includes(SECRET) }])),
+        // 화면 개인정보(설정 첫 화면의 계정 이메일·SINCLAIR_AGENT_PII_TERMS 의 이름): 값은 싣지 않고 찾았는지만
+        pii: Object.fromEntries(Object.entries(haystacks).map(([k, v]) => [k, { emailFound: EMAIL.test(v), termsFound: TERMS.some((t) => v.includes(t)), placeholder: v.includes('<이메일>') }])),
       };
       const text = JSON.stringify(evidence, null, 2);
       vexpect(text).not.toContain(SECRET);
+      for (const t of TERMS) vexpect(text).not.toContain(t);
       for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']) if (process.env[k]) vexpect(text).not.toContain(process.env[k]);
       const dir = path.resolve(import.meta.dirname, '../../../.scratch/agent-layer/evidence');
       await fs.mkdir(dir, { recursive: true });
@@ -106,6 +111,8 @@ describe.skipIf(!usb)(`실기기 agent.act·assert (${live ? '실제 모델' : '
       vexpect(report.tests[2]!.artifacts.map((a) => a.kind).sort()).toEqual(['screen-tree', 'screenshot']);
       for (const [k, v] of Object.entries(haystacks)) { vexpect(v.length, `${k} 가 비어 있음`).toBeGreaterThan(0); vexpect(v.includes(SECRET), `${k} 에 비밀값`).toBe(false); }
       vexpect(report.tests[0]!.steps.map((s) => s.kind)).toEqual(['act', 'assert']);
+      for (const [k, v] of Object.entries(haystacks)) { vexpect(EMAIL.test(v), `${k} 에 이메일`).toBe(false); for (const t of TERMS) vexpect(v.includes(t), `${k} 에 목록의 개인정보`).toBe(false); }
+      vexpect(haystacks.modelRequests).toContain('<이메일>'); // 설정 첫 화면의 계정 이메일이 자리표시로 갔다
     } finally {
       await backend.terminateApp((await backend.listDevices())[0]?.id ?? '', 'com.android.settings').catch(() => undefined);
       await backend.button((await backend.listDevices())[0]?.id ?? '', 'home').catch(() => undefined);

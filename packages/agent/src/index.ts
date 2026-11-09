@@ -11,3 +11,4 @@ export { describeTarget, relocate, RELOCATE_THRESHOLD, RELOCATE_MARGIN, type Tar
 export { decodePng, regionDiff, COVER_DIFF_THRESHOLD, type Bitmap } from './pixels.ts';
 export { detectIncident, packageOf, appPackageOf, type Incident, type IncidentKind, type IncidentRecovery, type IncidentPolicy, type IncidentContext } from './incidents.ts';
 export { renderLedger, renderTurn, summarizeTurns, screenChange, estimateTokens, DEFAULT_LEDGER_BUDGET, DEFAULT_RECENT_TURNS, MIN_RECENT_TURNS, LEDGER_BLOCK, type LedgerOptions, type LedgerResult } from './ledger.ts';
+export { createPiiFilter, piiFromEnv, mapStrings, DEFAULT_PII, type PiiFilter, type PiiOptions } from './pii.ts';

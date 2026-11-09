@@ -275,6 +275,19 @@ describe('createClaudeExecutor · Incident', () => {
   });
 });
 
+describe('createClaudeExecutor · 화면 개인정보', () => {
+  it('요청 본문에 화면의 이메일·전화번호가 없고 종류 자리표시만 있다(기본 켜짐)', async () => {
+    const api = await fakeApi([toolUse('done', { summary: 'x' })]);
+    const root: SemanticNode = { ref: '@r', role: 'root', children: [{ ref: '@a', role: 'text', text: '삼성 계정  •  qa*****@example.com' }, { ref: '@b', role: 'text', text: '연락처 010-1234-5678' }] };
+    await runAct(new FakeEngine({ root }), '계정 확인', { executor: createClaudeExecutor(opts(api.baseURL)) });
+    const raw = api.captured[0]!.raw;
+    expect(raw).not.toContain('example.com');
+    expect(raw).not.toContain('1234-5678');
+    expect(raw).toContain('<이메일>');
+    expect(raw).toContain('<전화번호>');
+  });
+});
+
 describe('createClaudeExecutor · 비밀값', () => {
   it('비밀번호 칸이 secure 가 아니어도 요청 본문(목표·관찰·지난 턴)에는 자리표시만, 엔진에는 실제 값', async () => {
     const VALUE = 'Tr0ub4dor&3';
@@ -313,7 +326,10 @@ describe('claudeOptionsFromEnv', () => {
 describe('agentFromEnv', () => {
   it('act 한도(SINCLAIR_AGENT_ACT_*)와 실행기를 한 벌로 만든다. 잘못된 한도는 설정 오류', async () => {
     const { agentFromEnv } = await import('../src/index.ts');
-    expect(agentFromEnv({})).toEqual({ executor: expect.any(Object) });
+    expect(agentFromEnv({})).toEqual({ executor: expect.any(Object), pii: expect.objectContaining({ enabled: true }) });
+    expect(agentFromEnv({ SINCLAIR_AGENT_PII: 'off' }).pii!.enabled).toBe(false);
+    expect(agentFromEnv({ SINCLAIR_AGENT_PII_TERMS: '홍길동, QA Tester' }).pii!.redact('홍길동 / QA Tester')).toBe('<개인정보> / <개인정보>');
+    expect(() => agentFromEnv({ SINCLAIR_AGENT_PII: 'maybe' })).toThrow(/SINCLAIR_AGENT_PII/);
     expect(agentFromEnv({ SINCLAIR_AGENT_ACT_MAX_TURNS: '8', SINCLAIR_AGENT_ACT_TIMEOUT_MS: '60000' })).toMatchObject({ maxTurns: 8, timeoutMs: 60000 });
     expect(() => agentFromEnv({ SINCLAIR_AGENT_ACT_MAX_TURNS: '0' })).toThrow(/SINCLAIR_AGENT_ACT_MAX_TURNS/);
     expect(agentFromEnv({ SINCLAIR_AGENT_MODEL_PIXELS: '1' }).executor.pixels).toBe(true);

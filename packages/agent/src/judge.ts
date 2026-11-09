@@ -7,6 +7,7 @@ import { raceAbort, recordProgress } from './loop.ts';
 import { renderObservation } from './observe.ts';
 import { addUsage } from './usage.ts';
 import type { SecretBox } from './secrets.ts';
+import { DEFAULT_PII, type PiiFilter } from './pii.ts';
 
 /** assert·extract 한 번의 기한: 모델 호출 하나(재시도 포함)에 넉넉하게 */
 export const DEFAULT_JUDGE_TIMEOUT_MS = 60_000;
@@ -37,6 +38,8 @@ export interface JudgeOptions {
   executor: StepExecutor; timeoutMs?: number;
   /** 있으면 관찰에서 값을 가리고 픽셀을 보내지 않는다 */
   secrets?: SecretBox;
+  /** 화면 개인정보 가림(기본 켜짐). false 면 끔 */
+  pii?: PiiFilter | false;
 }
 export interface WaitOptions extends JudgeOptions { intervalMs?: number }
 
@@ -98,14 +101,17 @@ class Asker {
   usage: StepUsage | undefined;
   private readonly pixels: boolean;
   get pixelsOn(): boolean { return this.pixels; }
-  constructor(private readonly engine: Engine, private readonly executor: StepExecutor, private readonly secrets?: SecretBox) {
+  private readonly pii: PiiFilter | undefined;
+  constructor(private readonly engine: Engine, private readonly executor: StepExecutor, private readonly secrets?: SecretBox, pii?: PiiFilter | false) {
+    this.pii = pii === false ? undefined : pii ?? DEFAULT_PII;
     if (!executor.judge) throw new ModelConfigError('판정 동사(agent.assert·waitFor·extract)를 쓰려면 실행기에 judge 가 필요함');
     this.pixels = executor.pixels === true && !(secrets && secrets.size > 0); // 픽셀은 가릴 수 없다
   }
-  hide(t: string): string { return this.secrets ? this.secrets.redact(t) : t; }
+  hide(t: string): string { const a = this.secrets ? this.secrets.redact(t) : t; return this.pii ? this.pii.redact(a) : a; }
   async observe() {
     const observed = await this.engine.observe(this.pixels ? { pixels: true } : undefined);
-    return { observed, text: renderObservation(this.secrets ? this.secrets.redactTree(observed.root) : observed.root) };
+    const a = this.secrets ? this.secrets.redactTree(observed.root) : observed.root;
+    return { observed, text: renderObservation(this.pii ? this.pii.redactTree(a) : a) };
   }
   /** 답이 스키마에 맞으면 answer, 아니면 invalid 사유. 호출 실패(거절 등)도 invalid 사유로 */
   /** 실행 도중 던진 오류에 진행(호출 수·토큰)을 붙여 러너가 실패 스텝에도 비용을 남기게 한다 */
@@ -138,7 +144,7 @@ function deadline(ms: number): { signal: AbortSignal; clear: () => void } {
 }
 
 export async function judgeAssert(engine: Engine, question: string, opts: JudgeOptions): Promise<JudgeResult> {
-  const asker = new Asker(engine, opts.executor, opts.secrets);
+  const asker = new Asker(engine, opts.executor, opts.secrets, opts.pii);
   const timeoutMs = opts.timeoutMs ?? DEFAULT_JUDGE_TIMEOUT_MS;
   const d = deadline(timeoutMs);
   try {
@@ -152,7 +158,7 @@ export async function judgeAssert(engine: Engine, question: string, opts: JudgeO
 }
 
 export async function judgeWaitFor(engine: Engine, question: string, opts: WaitOptions): Promise<JudgeResult> {
-  const asker = new Asker(engine, opts.executor, opts.secrets);
+  const asker = new Asker(engine, opts.executor, opts.secrets, opts.pii);
   const timeoutMs = opts.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS;
   const intervalMs = opts.intervalMs ?? DEFAULT_WAIT_INTERVAL_MS;
   const d = deadline(timeoutMs);
@@ -186,7 +192,7 @@ export async function judgeWaitFor(engine: Engine, question: string, opts: WaitO
 
 /** 근거 ref 가 secure 노드면 EngineError('secure-read') 로 던진다(러너의 secure 읽기 규칙과 같다) */
 export async function judgeExtract<T extends ExtractType>(engine: Engine, what: string, type: T, opts: JudgeOptions): Promise<JudgeResult<ExtractValue<T>>> {
-  const asker = new Asker(engine, opts.executor, opts.secrets);
+  const asker = new Asker(engine, opts.executor, opts.secrets, opts.pii);
   const timeoutMs = opts.timeoutMs ?? DEFAULT_JUDGE_TIMEOUT_MS;
   const d = deadline(timeoutMs);
   try {

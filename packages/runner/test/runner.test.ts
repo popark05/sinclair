@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import { EngineError, RUN_EVENT_TYPES, parseRunEvent, type Engine, type RunEvent, type SemanticNode } from '@sinclair/protocol';
 import { FakeEngine, HOME_SCREEN, LOGIN_SCREEN, withDeviceUnavailable } from '@sinclair/protocol/testing';
 import { runTests, MAX_RETRIES, type Reporter } from '../src/index.ts';
-import { scriptedExecutor, ModelConfigError, type JudgeRequest, type StepExecutor } from '@sinclair/agent';
+import { scriptedExecutor, ModelConfigError, createPiiFilter, type JudgeRequest, type StepExecutor } from '@sinclair/agent';
 
 const SETTINGS_SCREEN: SemanticNode = {
   ref: '@s0', role: 'root', rect: { x: 0, y: 0, width: 1080, height: 2400 }, children: [
@@ -524,5 +524,31 @@ describe('Incident 복구가 스텝에 남는다', () => {
     vexpect(report.tests[0]).toMatchObject({ result: 'passed' });
     const act = report.events.find((e): e is Extract<RunEvent, { type: 'step.recorded' }> => e.type === 'step.recorded' && e.kind === 'act');
     vexpect(act!.instruction).toMatch(/\[Incident: permission→허용 안함 ×1\]/);
+  });
+});
+
+describe('화면 개인정보 가림(러너 기록)', () => {
+  const screenWithPii = (): FakeEngine => new FakeEngine({ root: { ref: '@r', role: 'root', children: [
+    { ref: '@n', role: 'text', text: '홍길동' },
+    { ref: '@m', role: 'text', text: '삼성 계정  •  qa*****@example.com' },
+  ] } });
+
+  it('이벤트·TestResult·screen-tree·모델 요청에 이메일·목록의 이름이 없다(기본 켜짐 + 목록)', async () => {
+    const exec = scriptedExecutor([{ name: 'done', input: { summary: 'x' } }]);
+    const report = await runTests([fixture('pii-screen.sinclair.ts')], { engine: screenWithPii(), artifactsDir, timeoutMs: 300, agent: { executor: exec }, pii: createPiiFilter({ terms: ['홍길동'] }) });
+    vexpect(report.tests[0]).toMatchObject({ result: 'failed', errorCode: 'assertion' });
+    vexpect(report.tests[0]!.error).toContain('<이메일>');
+    const trees = fs.readdirSync(artifactsDir).filter((f) => f.endsWith('.screen-tree.json')).map((f) => fs.readFileSync(path.join(artifactsDir, f), 'utf8')).join('');
+    vexpect(trees).toContain('<개인정보>');
+    for (const text of [JSON.stringify(report), trees, JSON.stringify(exec.requests)]) { vexpect(text).not.toContain('example.com'); vexpect(text).not.toContain('홍길동'); }
+  });
+
+  it('pii: false 면 원문, 화면 이미지를 모델에 보내는 실행기면 경고', async () => {
+    const off = await runTests([fixture('pii-screen.sinclair.ts')], { engine: screenWithPii(), timeoutMs: 300, agent: { executor: scriptedExecutor([{ name: 'done', input: { summary: 'x' } }]) }, pii: false });
+    vexpect(off.tests[0]!.error).toContain('example.com');
+    const inner = scriptedExecutor([{ name: 'done', input: { summary: 'x' } }]);
+    const visual: StepExecutor = { pixels: true, next: (r, sg) => inner.next(r, sg) };
+    const warned = await runTests([fixture('pii-screen.sinclair.ts')], { engine: screenWithPii(), timeoutMs: 300, agent: { executor: visual } });
+    vexpect(warned.warnings?.join('\n')).toMatch(/화면 이미지.*개인정보/);
   });
 });

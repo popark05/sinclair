@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { runAct, actProgressOf, judgeAssert, judgeWaitFor, judgeExtract, ModelConfigError, SecretBox, SECRET_NAME, secretPlaceholder, type JudgeResult, type StepExecutor } from '@sinclair/agent';
+import { runAct, actProgressOf, judgeAssert, judgeWaitFor, judgeExtract, ModelConfigError, SecretBox, SECRET_NAME, secretPlaceholder, DEFAULT_PII, type JudgeResult, type PiiFilter, type StepExecutor } from '@sinclair/agent';
 import { EngineError, parseRunEvent, type AttemptFinished, type AttemptResult, type Engine, type RunEvent, type StepRecorded } from '@sinclair/protocol';
 import { createScreen, type StepEvent } from './screen.ts';
 import { expect as makeExpect, AssertionError } from './expect.ts';
@@ -32,6 +32,8 @@ export interface RunOptions {
   engine: Engine;
   /** secret(이름) 의 값을 찾는 곳(기본 envSecretStore()) */
   secrets?: SecretStore;
+  /** 화면 개인정보 가림(기본 켜짐: 이메일·전화번호 등 패턴). 모델 요청과 러너의 기록(이벤트·테스트 오류·screen-tree) 모두. false 면 끔 */
+  pii?: PiiFilter | false;
   /** 이벤트 수신자. 없으면 리포트의 events[] 에만 쌓인다 */
   reporter?: Reporter;
   /** reporter.flush 와 보류 중인 onEvent 를 기다리는 기한(ms, 기본 10초). 넘기면 경고를 남기고 리포트를 돌려준다 */
@@ -128,9 +130,12 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
   // 이 run 에서 secret() 으로 쓴 값들. 러너의 모든 출구(이벤트·테스트 오류·경고·screen-tree)에서 값 일치로 자리표시로 가린다 — 앞 테스트가 입력한 값이 뒤 테스트 화면에 남아도
   const secretBox = new SecretBox();
   const secretStore = options.secrets ?? envSecretStore();
-  const hide = (t: string): string => (secretBox.size ? secretBox.redact(t) : t);
+  const pii = options.pii === false ? undefined : options.pii ?? DEFAULT_PII;
+  const hide = (t: string): string => { const a = secretBox.size ? secretBox.redact(t) : t; return pii ? pii.redact(a) : a; };
   // 문자열 잎만 가린다: 직렬화한 글을 가리면 숫자처럼 보이는 값(PIN)이 키·숫자를 바꿔 JSON 을 깬다
-  const hideDeep = <T>(v: T): T => secretBox.redactDeep(v);
+  const hideDeep = <T>(v: T): T => { const a = secretBox.redactDeep(v); return pii ? pii.redactDeep(a) : a; };
+  // 화면 이미지는 가릴 수 없다: 이미지를 모델에 보내는 실행기면 한 번 알린다
+  if (pii && options.agent?.executor.pixels) warnings.push('화면 이미지를 모델에 보내는 실행기라 개인정보 가림이 이미지에는 적용되지 않는다(SINCLAIR_AGENT_MODEL_PIXELS)');
   // 발생 즉시 Reporter 로 넘긴다. Reporter 의 실패·지연이 테스트 실행을 막지 않도록 기다리지 않고 run 끝에 모아서 기다린다
   const emit = (raw: RunEvent): void => {
     const event = hideDeep(raw);
@@ -288,7 +293,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
           const started = Date.now();
           let r;
           try {
-            r = await runAct(engine, goal, { executor: options.agent.executor, secrets: secretBox, ...(options.agent.safetyNet ? { safetyNet: options.agent.safetyNet } : {}), ...(options.agent.incidents ? { incidents: options.agent.incidents } : {}), ...(options.agent.maxTurns !== undefined ? { maxTurns: options.agent.maxTurns } : {}), ...(options.agent.timeoutMs !== undefined ? { timeoutMs: options.agent.timeoutMs } : {}) });
+            r = await runAct(engine, goal, { executor: options.agent.executor, secrets: secretBox, pii: pii ?? false, ...(options.agent.safetyNet ? { safetyNet: options.agent.safetyNet } : {}), ...(options.agent.incidents ? { incidents: options.agent.incidents } : {}), ...(options.agent.maxTurns !== undefined ? { maxTurns: options.agent.maxTurns } : {}), ...(options.agent.timeoutMs !== undefined ? { timeoutMs: options.agent.timeoutMs } : {}) });
           } catch (err) {
             // 관찰 실패·인프라 오류(기기 없음 등)로 루프가 던져도 act 스텝은 남긴다(act 하나 = 스텝 하나). 오류는 그대로 올려 엔진 코드가 errorCode 가 된다
             const p = actProgressOf(err); // 던지기 전까지 쓴 모델 호출·토큰도 비용으로 남긴다
@@ -312,9 +317,9 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
           onStep({ kind: 'act', instruction, durationMs: Date.now() - started, modelCalls: r.modelCalls, ...(r.usage ? { usage: r.usage } : {}), ...(r.ok ? {} : { error: r.reason ?? '실패' }) });
           if (!r.ok) throw new AgentActError(`agent.act ${JSON.stringify(goal)} 실패: ${r.reason}`);
         },
-        assert: (statement) => judgeStep('assert', 'agent.assert', statement, (executor) => judgeAssert(engine, statement, { executor, secrets: secretBox })).then(() => undefined),
-        waitFor: (condition, o) => judgeStep('waitFor', 'agent.waitFor', condition, (executor) => judgeWaitFor(engine, condition, { executor, secrets: secretBox, ...o })).then(() => undefined),
-        extract: (what, type) => judgeStep('extract', 'agent.extract', what, (executor) => judgeExtract(engine, what, type, { executor, secrets: secretBox })).then((r) => r.value!),
+        assert: (statement) => judgeStep('assert', 'agent.assert', statement, (executor) => judgeAssert(engine, statement, { executor, secrets: secretBox, pii: pii ?? false })).then(() => undefined),
+        waitFor: (condition, o) => judgeStep('waitFor', 'agent.waitFor', condition, (executor) => judgeWaitFor(engine, condition, { executor, secrets: secretBox, pii: pii ?? false, ...o })).then(() => undefined),
+        extract: (what, type) => judgeStep('extract', 'agent.extract', what, (executor) => judgeExtract(engine, what, type, { executor, secrets: secretBox, pii: pii ?? false })).then((r) => r.value!),
       },
       attemptNo,
       secret(name) {
@@ -360,7 +365,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
       await fs.mkdir(options.artifactsDir, { recursive: true });
       const treeKey = `${id}.screen-tree.json`;
       // 트리는 값 일치로 가린다(secure 가 아닌 칸에 입력한 비밀값). 스크린샷 픽셀은 가릴 수 없다 — 아티팩트 디렉터리는 비밀로 다룬다
-      await fs.writeFile(path.join(options.artifactsDir, treeKey), JSON.stringify({ root: secretBox.redactTree(obs.root), atomic: obs.atomic ?? null }, null, 2));
+      await fs.writeFile(path.join(options.artifactsDir, treeKey), JSON.stringify({ root: hideDeep(obs.root), atomic: obs.atomic ?? null }, null, 2));
       artifacts.push({ kind: 'screen-tree', key: treeKey });
       if (obs.pixels) {
         const shotKey = `${id}.screenshot.png`;

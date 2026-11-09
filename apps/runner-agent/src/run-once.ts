@@ -94,7 +94,7 @@ export async function executeRun(args: RunArgs, run: RegisteredRun, files: strin
     // Reporter 가 재시도 예산을 알려 주면 러너의 flush 기한을 그에 맞춘다(기본 10초면 스풀의 60초 예산이 무의미해진다)
     const flushBudgetMs = (reporter as { flushBudgetMs?: number }).flushBudgetMs;
     const report = await runTests(files, {
-      engine: handle.engine, reporter, runId: run.runId, cycleId: run.cycleId, targetId: run.targetId, agentId, agent,
+      engine: handle.engine, reporter, runId: run.runId, cycleId: run.cycleId, targetId: run.targetId, agentId, agent, ...(agent.pii ? { pii: agent.pii } : {}),
       ...(flushBudgetMs !== undefined ? { reporterFlushTimeoutMs: flushBudgetMs } : {}),
       ...(handle.deviceId ? { deviceId: handle.deviceId } : {}), ...(args.artifacts ? { artifactsDir: args.artifacts } : {}), ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}), ...(args.retries !== undefined ? { retries: args.retries } : {}), ...(deps.signal ? { signal: deps.signal } : {}),
     });

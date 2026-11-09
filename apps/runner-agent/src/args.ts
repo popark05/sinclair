@@ -122,6 +122,8 @@ const AGENT_ENV_HELP = `agent.act(모델) 환경변수:
   SINCLAIR_AGENT_ACT_PERMISSION     권한 요청 창 자동 복구: allow(기본, 앱 사용 중에만 허용) | deny
   SINCLAIR_AGENT_ACT_SAFETY_PIXELS  1 이면 액션 전 안전망이 대상 영역의 픽셀 변화(트리에 없는 덮개)도 본다 (기본 0)
   SINCLAIR_SECRET_<이름>            테스트의 secret('<이름>') 값. 모델·이벤트·로그·screen-tree 에는 자리표시 {{secret:<이름>}} 만 남는다. 없으면 그 테스트는 blocked(secret-missing)
+  SINCLAIR_AGENT_PII                화면 개인정보 가림 on(기본)|off — 이메일·전화번호·주민등록번호·카드번호·IMEI 를 모델 요청과 기록에서 <종류> 로
+  SINCLAIR_AGENT_PII_TERMS          패턴으로 못 찾는 개인정보(기기 소유자 이름·계정명 등), 쉼표 구분
   NODE_EXTRA_CA_CERTS               사내망(SSL 인터셉션)이면 CA 묶음 PEM (예: $HOME/.certs/all-system-certs.pem)
 `;
 

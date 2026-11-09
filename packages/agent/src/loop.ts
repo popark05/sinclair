@@ -10,6 +10,7 @@ import { SecretBox } from './secrets.ts';
 import { describeTarget, relocate } from './relocate.ts';
 import { regionDiff, COVER_DIFF_THRESHOLD } from './pixels.ts';
 import { screenChange } from './ledger.ts';
+import { DEFAULT_PII, type PiiFilter } from './pii.ts';
 import { appPackageOf, detectIncident, type IncidentKind, type IncidentPolicy, type IncidentRecovery } from './incidents.ts';
 
 /** 기본 턴 한도: 로그인·화면 이동 같은 목표는 대개 10턴 안에 끝난다. 20 이면 헤매는 모델을 멈추면서 정상 목표는 넉넉하다 */
@@ -54,6 +55,8 @@ export interface ActOptions {
   incidents?: IncidentPolicy;
   /** 액션 전 안전망 설정. 대상 재탐색은 늘 켜져 있고, pixels 를 켜면 엔진이 픽셀을 줄 때 대상 영역의 변화(트리에 없는 덮개)도 본다(기본 꺼짐) */
   safetyNet?: { pixels?: boolean };
+  /** 화면 개인정보 가림(기본 켜짐: 패턴만). false 면 끔 */
+  pii?: PiiFilter | false;
   /** 이 테스트가 등록한 비밀값. type 의 text 에 온 자리표시만 실제 값으로 바뀌고, 모델에 가는 관찰·오류 문구에서 값은 가려진다. 있으면 픽셀은 보내지 않는다 */
   secrets?: SecretBox;
 }
@@ -95,7 +98,10 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
   let modelCalls = 0;
   let usage: StepUsage | undefined;
   const secrets = opts.secrets;
-const hide = (t: string): string => (secrets ? secrets.redact(t) : t);
+  const pii = opts.pii === false ? undefined : opts.pii ?? DEFAULT_PII;
+  // 모델에 가는 글: 비밀값(값 일치) 다음 개인정보(모양·목록)
+  const hide = (t: string): string => { const a = secrets ? secrets.redact(t) : t; return pii ? pii.redact(a) : a; };
+  const hideTree = (root: SemanticNode): SemanticNode => { const a = secrets ? secrets.redactTree(root) : root; return pii ? pii.redactTree(a) : a; };
   // Incident: 종류별 결정적 복구 시도 수, 복구 기록, 모델에게 알린 상황, 같은 호출의 연속 실패
   const recovered = new Map<string, { kind: IncidentKind; action: string; count: number }>();
   const attempts = new Map<IncidentKind, number>();
@@ -181,7 +187,7 @@ const hide = (t: string): string => (secrets ? secrets.redact(t) : t);
         }
       }
       // 트리의 문자열 잎을 가린 뒤 그린다(그린 글에 가리면 JSON 이스케이프된 값을 놓친다)
-      const shown = secrets ? secrets.redactTree(observed.root) : observed.root;
+      const shown = hideTree(observed.root);
       // Ledger: 앞 턴이 실행한 뒤 화면이 바뀐 부분을 그 턴의 기록에 붙인다(이전 관찰을 통째로 싣는 대신)
       const prevTurn = history.at(-1);
       if (prevShown && prevTurn?.call && prevTurn.result !== 'rejected' && !prevTurn.change) {
