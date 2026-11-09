@@ -4,15 +4,19 @@ import { useEffect, useState } from 'react';
 export const BASE = '/console';
 export const href = (path: string): string => `${BASE}${path}`;
 
-export type Route = { page: 'cycles' } | { page: 'cycle'; cycleId: string } | { page: 'not-found'; path: string };
+export type Route = { page: 'cycles' } | { page: 'cycle'; cycleId: string } | { page: 'case'; cycleId: string; testId: string; targetId: string } | { page: 'not-found'; path: string };
 
 export function parseRoute(pathname: string): Route {
   const rest = pathname.startsWith(BASE) ? pathname.slice(BASE.length) : pathname;
   const parts = rest.split('/').filter(Boolean).map(decodeURIComponent);
   if (parts.length === 0) return { page: 'cycles' };
   if (parts[0] === 'cycles' && parts.length === 2) return { page: 'cycle', cycleId: parts[1]! };
+  if (parts[0] === 'cycles' && parts[2] === 'cases' && parts.length === 5) return { page: 'case', cycleId: parts[1]!, testId: parts[3]!, targetId: parts[4]! };
   return { page: 'not-found', path: rest };
 }
+
+export const cycleHref = (cycleId: string): string => href(`/cycles/${encodeURIComponent(cycleId)}`);
+export const caseHref = (cycleId: string, testId: string, targetId: string): string => `${cycleHref(cycleId)}/cases/${encodeURIComponent(testId)}/${encodeURIComponent(targetId)}`;
 
 /** 링크 클릭을 가로채 새로 읽지 않고 화면만 바꾼다 */
 export function navigate(to: string): void {

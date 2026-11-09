@@ -12,3 +12,17 @@ h1 { font-size: 20px; margin: 4px 0 12px; }
 .muted { color: var(--muted); }
 .error { color: var(--bad); }
 .progress { font-variant-numeric: tabular-nums; }
+h2 { font-size: 16px; margin: 20px 0 8px; }
+.cycle-head h1 { display: inline; margin-right: 10px; }
+.warnings { color: var(--warn); font-size: 13px; }
+.matrix td { text-align: center; }
+.test-name { text-align: left; font-weight: 500; }
+.req { color: var(--info); font-size: 11px; margin-left: 4px; }
+.cell { font-size: 13px; }
+.cell a { color: inherit; text-decoration: none; display: block; }
+.cell-passed { background: #dafbe1; } .cell-passed-flaky { background: #fff8c5; } .cell-failed { background: #ffebe9; color: var(--bad); }
+.cell-blocked { background: #ffe2cc; } .cell-skipped, .cell-waived { background: #f6f8fa; color: var(--muted); } .cell-pending { background: #fff; color: var(--muted); }
+.legend { display: flex; gap: 6px; list-style: none; padding: 0; margin: 8px 0; }
+.legend li { padding: 2px 8px; border: 1px solid var(--line); border-radius: 4px; }
+.replaced { color: var(--muted); text-decoration: line-through; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
