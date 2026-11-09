@@ -1,0 +1,117 @@
+{
+  "at": "2026-11-09T13:06:42.317Z",
+  "mode": "실제 모델(claude-sonnet-5-5)",
+  "device": "SM-N981N (…XLZW) Android 13",
+  "durationMs": 70861,
+  "summary": {
+    "passed": 2,
+    "failed": 1,
+    "blocked": 0,
+    "skipped": 0
+  },
+  "totals": {
+    "modelCalls": 25,
+    "requests": 25
+  },
+  "tests": [
+    {
+      "name": "에이전트가 설정에서 휴대전화 정보 화면을 연다",
+      "result": "passed",
+      "durationMs": 21418,
+      "artifacts": [],
+      "steps": [
+        {
+          "kind": "act",
+          "instruction": "act \"설정 앱에서 \\\"휴대전화 정보\\\" 화면을 연다\" → scroll @e5, scroll @e5, scroll @e5, tap @e27, tap @e28(안전망: 사라짐), done (6턴)",
+          "modelCalls": 6,
+          "usage": {
+            "inputTokens": 6722,
+            "outputTokens": 596,
+            "cacheReadTokens": 6760,
+            "cacheWriteTokens": 1352
+          },
+          "durationMs": 17814
+        },
+        {
+          "kind": "assert",
+          "instruction": "agent.assert \"휴대전화 정보 화면이 열려 있다\" → 참",
+          "modelCalls": 1,
+          "usage": {
+            "inputTokens": 744,
+            "outputTokens": 146,
+            "cacheWriteTokens": 632
+          },
+          "durationMs": 3230
+        }
+      ]
+    },
+    {
+      "name": "비밀값을 설정 검색창에 입력한다",
+      "result": "passed",
+      "durationMs": 15976,
+      "artifacts": [],
+      "steps": [
+        {
+          "kind": "act",
+          "instruction": "act \"설정 검색을 열고 검색창에 {{secret:QA_SEARCH}} 를 입력한다\" → tap @e4, tap @e4(안전망: 사라짐), type @e5, done(rejected), done (5턴) [Incident: left-app→모델에 알림 ×1]",
+          "modelCalls": 5,
+          "usage": {
+            "inputTokens": 4130,
+            "outputTokens": 520,
+            "cacheReadTokens": 6760
+          },
+          "durationMs": 12789
+        },
+        {
+          "kind": "assert",
+          "instruction": "agent.assert \"검색창에 검색어가 입력되어 있다\" → 참",
+          "modelCalls": 1,
+          "usage": {
+            "inputTokens": 317,
+            "outputTokens": 132,
+            "cacheReadTokens": 632
+          },
+          "durationMs": 2648
+        }
+      ]
+    },
+    {
+      "name": "이룰 수 없는 목표는 사유와 함께 실패한다",
+      "result": "failed",
+      "errorCode": "agent",
+      "durationMs": 33457,
+      "artifacts": [
+        "screen-tree",
+        "screenshot"
+      ],
+      "steps": [
+        {
+          "kind": "act",
+          "instruction": "act \"설정 앱에서 \\\"우주선 조종\\\" 메뉴를 열어 엔진을 켠다\" → tap @e4, tap @e4(안전망: 사라짐), back, type @e5, back, tap @e5, tap @e5, tap @e6, tap @e5, type @e5, type @e5, tap @e6 (12턴) [Incident: left-app→모델에 알림 ×1] → 실패",
+          "modelCalls": 12,
+          "usage": {
+            "inputTokens": 12827,
+            "outputTokens": 1688,
+            "cacheReadTokens": 16224
+          },
+          "durationMs": 32342
+        }
+      ],
+      "reason": "턴 한도 12"
+    }
+  ],
+  "secret": {
+    "report": {
+      "scanned": true,
+      "valueFound": false
+    },
+    "modelRequests": {
+      "scanned": true,
+      "valueFound": false
+    },
+    "screenTrees": {
+      "scanned": true,
+      "valueFound": false
+    }
+  }
+}

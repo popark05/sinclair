@@ -8,10 +8,10 @@ const turn = (i: number, extra: Partial<AgentTurn> = {}): AgentTurn => ({ call: 
 const req = (n: number, observation = '@e0 root\n  @e1 button "다음"', goal = '설정에서 알림을 끄고 돌아와라'): StepRequest => ({ goal, observation, history: Array.from({ length: n }, (_, i) => turn(i + 1)), tools: [] });
 
 describe('estimateTokens', () => {
-  it('한글은 글자당 1, 영문 글자는 3자당 1, 숫자·기호는 2자당 1, 10% 여유', () => {
-    expect(estimateTokens('가나다')).toBe(4); // 3 × 1.1
-    expect(estimateTokens('abcdef')).toBe(3); // 2 × 1.1
-    expect(estimateTokens('@123')).toBe(3); // 4/2 × 1.1
+  it('한글은 글자당 1.35(실측 약 1.15), 영문 글자는 2.5자당 1, 숫자·기호는 1.8자당 1, 10% 여유(countTokens 실측보다 크게)', () => {
+    expect(estimateTokens('가나다')).toBe(5); // 3 × 1.35 × 1.1
+    expect(estimateTokens('abcde')).toBe(3); // 5/2.5 × 1.1
+    expect(estimateTokens('@123')).toBe(3); // 4/1.8 × 1.1
   });
 });
 
@@ -49,14 +49,14 @@ describe('renderLedger', () => {
   it('줄이는 순서: 사유 문구 자르기 → 최근 턴 줄이기(최소 3) → 관찰 자르기', () => {
     const full = renderLedger(req(14));
     expect(full.text).toMatch(/(자세한 사유 ){15}/);
-    const r1 = renderLedger(req(14), { budgetTokens: 400 }); // 사유만 자르면 들어간다
+    const r1 = renderLedger(req(14), { budgetTokens: 500 }); // 사유만 자르면 들어간다
     expect(r1).toMatchObject({ recentTurns: 14, truncatedObservation: false });
     expect(r1.text).not.toMatch(/(자세한 사유 ){15}/);
-    const r2 = renderLedger(req(14), { budgetTokens: 300 }); // 최근 턴도 줄여야 들어간다
+    const r2 = renderLedger(req(14), { budgetTokens: 380 }); // 최근 턴도 줄여야 들어간다
     expect(r2.recentTurns).toBeLessThan(14);
     expect(r2.recentTurns).toBeGreaterThanOrEqual(3);
     expect(r2.truncatedObservation).toBe(false);
-    expect(r2.estimatedTokens).toBeLessThanOrEqual(300);
+    expect(r2.estimatedTokens).toBeLessThanOrEqual(380);
   });
 
   it('모델 요약이 주어지면 그 묶음은 모델 요약으로', () => {

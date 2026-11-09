@@ -20,22 +20,23 @@ const INCIDENT_CAP = 300;
 const GOAL_SHARE = 0.25;
 /** 요약 영역이 커지면(긴 세션) 최근 묶음 이만큼만 따로 두고 그 앞은 집계 한 줄로 합친다 */
 const KEEP_BLOCKS = 2;
-/** 관찰 생략 표시 몫(토큰) */
-const MARKER_TOKENS = 45;
+const omitted = (n: number): string => `… (${n}줄 생략: 화면이 예산보다 크다 — 누를 수 있는 노드를 먼저 남김)`;
 const EDITABLE = new Set(['textbox', 'searchbox', 'combobox']);
 const INTERACTIVE = new Set(['button', 'textbox', 'searchbox', 'combobox', 'checkbox', 'switch', 'radio', 'link', 'tab', 'menuitem', 'slider']);
 
-/** 보수적 토큰 추정: 비ASCII(한글 등)는 3바이트당 1, ASCII 글자는 3자당 1, 숫자·기호·공백은 2자당 1(트리 문법 @e123·id·따옴표는 잘게 쪼개진다), 전체에 10% 여유.
+/** 보수적 토큰 추정: 비ASCII(한글 등)는 글자당 1.35, ASCII 글자는 2.5자당 1, 숫자·기호·공백은 1.8자당 1(트리 문법 @e123·id·따옴표는 잘게 쪼개진다), 전체에 10% 여유.
+ *  2026-11-09 countTokens 실측: 한글 문장 860자 987 토큰(추정 1008+), 화면 트리 2590자 1498 토큰(추정 1545) — 둘 다 실제 이상.
  *  실제 토크나이저보다 크게 잡아 예산을 넘지 않게(opt-in 실호출이 countTokens 와 비교한다) */
 export function estimateTokens(text: string): number {
   let letters = 0, others = 0, wide = 0;
   for (const ch of text) {
     const c = ch.codePointAt(0)!;
-    if (c > 0x7f) wide += Buffer.byteLength(ch, 'utf8');
+    // 한글은 실제로 글자당 약 1.15 토큰(860자 문장 → countTokens 987, 2026-11-09 실측) — 3바이트당 1 로는 모자라 글자당 1.35 로 센다
+    if (c > 0x7f) wide += Math.max(1.35, Buffer.byteLength(ch, 'utf8') / 3);
     else if ((c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a)) letters++;
     else others++;
   }
-  return Math.ceil((wide / 3 + letters / 3 + others / 2) * 1.1);
+  return Math.ceil((wide + letters / 2.5 + others / 1.8) * 1.1);
 }
 
 const cut = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n)}…` : s);
@@ -92,9 +93,10 @@ function cutToTokens(text: string, tokens: number): string {
 /** 관찰을 예산에 맞게 자른다: 누를 수 있는 노드를 먼저, 그다음 나머지를 문서 순서대로. 첫 줄(루트)은 늘 남긴다 */
 function fitObservation(observation: string, budget: number): { text: string; truncated: boolean } {
   if (estimateTokens(observation) <= budget) return { text: observation, truncated: false };
-  const room = budget - MARKER_TOKENS;
-  if (room <= 0) return { text: '(화면 생략: 예산 부족)', truncated: true };
   const lines = observation.split('\n');
+  // 생략 표시 몫은 그 문구 자체로(줄 수 자리까지) 센다 — 고정값은 추정 규칙이 바뀌면 어긋난다
+  const room = budget - estimateTokens(omitted(lines.length)) - 2;
+  if (room <= 0) return { text: '(화면 생략: 예산 부족)', truncated: true };
   const keep = new Map<number, string>();
   let used = 0;
   const roleOf = (l: string) => l.trim().split(' ')[1] ?? '';
@@ -108,7 +110,7 @@ function fitObservation(observation: string, budget: number): { text: string; tr
     keep.set(i, line); used += estimateTokens(line) + 1;
   }
   const kept = [...keep].sort((a, b) => a[0] - b[0]).map(([, l]) => l);
-  return { text: `${kept.join('\n')}\n… (${lines.length - kept.length}줄 생략: 화면이 예산보다 크다 — 누를 수 있는 노드를 먼저 남김)`, truncated: true };
+  return { text: `${kept.join('\n')}\n${omitted(lines.length - kept.length)}`, truncated: true };
 }
 
 export function renderLedger(req: StepRequest, opts: LedgerOptions = {}): LedgerResult {

@@ -25,3 +25,4 @@
 - 남긴 것: 스트리밍 안 씀(턴 출력이 작다). fallback 이 돌았는지(`usage.iterations`) 는 기록하지 않음.
 - 리뷰 반영(should-fix 6 + nit): (S1) act 가 던져도 그때까지의 modelCalls·usage 를 `actProgressOf(err)` 로 읽어 실패 스텝에 싣는다. (S2) 400·413·422 는 결정적이라 `ModelConfigError`(blocked) + API 사유 200자. (S3) 자격 증명 사슬의 그 밖 SDK 오류(없는 프로필 등)도 설정 오류. (S4) 캐시 표시는 두되 지금 접두 크기가 최소 캐시 길이에 못 미칠 수 있음을 주석·spec 에 밝히고 적중은 실호출 usage 로 확인. (S5) GLOSSARY blocked 정의에 모델 실행기 설정. (S6) 요청 기한 초과는 기한으로 알리고 CA 안내를 붙이지 않음; 연결 실패에는 원인 코드(SELF_SIGNED… 등)를 실어 CA 테스트가 TLS 원인을 확인. nit: 404 는 모델 또는 주소, `stop_details` 캐스트 제거, `envInt` 하나로, main 의 env 를 runOnce 까지, executeRun 에서 설정이 틀리면 엔진 실패와 같이 run.started + infra-failed 로 닫음, 키 누출 검사를 로그·요청 본문·Run 뷰로.
 - 04(비밀값)에 넘김: 러너 act 스텝 instruction 의 목표 문자열(`act "…"`)에 사용자가 쓴 값이 그대로 남는다(04 의 기준 "스텝 instruction·이벤트에 값이 없음" 이 다룬다).
+- 2026-11-09 실제 키로 opt-in 실호출 통과(FakeEngine 로그인 4턴, 모델 호출 4, 입력 1278·출력 ~310·캐시 읽기 5408 토큰). 프롬프트 캐시가 실제로 적중한다(리뷰 S4 의 걱정은 실측상 해당 없음 — system+툴 접두가 최소 길이를 넘는다).

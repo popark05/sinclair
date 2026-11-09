@@ -21,3 +21,4 @@
 - opt-in 실호출(`claude-live.test.ts`)에 판정 동사 케이스를 더했다. 이 머신에는 키가 없어 돌리지 못함(02 와 같다).
 - 리뷰 반영(should-fix 5 + nit): (1) extract 성공 스텝에 근거 문구 대신 근거 ref 만(`→ 추출함 (@h1)`): 실제 모델은 근거에 값을 쓴다 — 테스트 대본도 근거에 값을 넣고 스텝 전체에 값이 없음을 확인. (2) secure 거부 등 판정이 던져도 그때까지의 modelCalls·usage 를 실패 스텝에(`recordProgress`/`actProgressOf` 공용). (3) assert·extract 의 기한 초과는 화면 판정이 아니라 모델 문제라 invalid(→ agent); timeout(→ assertion)은 waitFor 만. (4) waitFor 재호출 판단은 트리 + 위치 + (pixels 실행기면) 이미지 해시. (5) 판정이 조작하지 않음을 performed·typed·pressed 까지 확인. nit: 간격 타이머 정리, 기한이 지났으면 judge 를 부르지 않음, extract 타입 객체의 빈 키·`__proto__`·잘못된 스칼라 거부, test.ts import 순서.
 - 남긴 것: 판정 기한을 runTests·환경변수로 바꾸는 설정은 없음(기본 60초/30초, waitFor 는 호출별 옵션). 추출값이 근거 노드의 글자에 실제로 있는지 대조하지 않음(환각 값 + 실제 ref 는 통과) — 필요하면 05(안전망)에서.
+- 2026-11-09 실제 키로 판정 동사 실호출 통과: 로그인 화면 assert 참, 홈 화면 문장 거짓, 제목 extract "Sinclair 로그인", 비밀번호 칸 추출은 모델이 secure 라 not-found 로 답함.
