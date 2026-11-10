@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-10T10:38:15.116Z",
+  "at": "2026-11-10T10:47:11.955Z",
   "ok": true,
   "chrome": "Google Chrome",
   "pages": [
@@ -18,7 +18,7 @@
         }
       ],
       "screenshot": ".e2e/verify-console/cycles.png",
-      "screenshotBytes": 23600
+      "screenshotBytes": 23602
     },
     {
       "page": "cycle",
@@ -26,24 +26,24 @@
       "ok": true,
       "checks": [
         {
-          "text": "매트릭스",
+          "text": "class=\"cell cell-failed\"><a",
           "found": true
         },
         {
-          "text": "실패",
-          "found": true
-        },
-        {
-          "text": "통과",
+          "text": "class=\"cell cell-passed\"><a",
           "found": true
         },
         {
           "text": "verify-node",
           "found": true
+        },
+        {
+          "text": "…fake",
+          "found": true
         }
       ],
       "screenshot": ".e2e/verify-console/cycle.png",
-      "screenshotBytes": 45187
+      "screenshotBytes": 45795
     },
     {
       "page": "case",
@@ -72,7 +72,7 @@
         }
       ],
       "screenshot": ".e2e/verify-console/case.png",
-      "screenshotBytes": 62260
+      "screenshotBytes": 61956
     },
     {
       "page": "fleet",
@@ -94,10 +94,14 @@
         {
           "text": "쓸 수 있음",
           "found": true
+        },
+        {
+          "text": "없음: FAKE00001234",
+          "found": true
         }
       ],
       "screenshot": ".e2e/verify-console/fleet.png",
-      "screenshotBytes": 31645
+      "screenshotBytes": 31704
     },
     {
       "page": "tests",
@@ -105,11 +109,15 @@
       "ok": true,
       "checks": [
         {
-          "text": "안정성 이력",
+          "text": "없는 문구를 찾다 실패한다",
           "found": true
         },
         {
-          "text": "없는 문구를 찾다 실패한다",
+          "text": "spark cell-failed",
+          "found": true
+        },
+        {
+          "text": "spark cell-passed",
           "found": true
         }
       ],

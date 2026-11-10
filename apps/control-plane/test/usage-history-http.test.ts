@@ -24,9 +24,17 @@ function run(runId: string, cycleId: string, targetId: string, tests: Array<{ te
 }
 
 describe('GET /cycles/:id/usage', () => {
-  it('모델 호출·토큰을 Cycle 합계·타깃별·테스트별로(대체된 Run 포함), 캐시 적중률 = 읽기/(입력+읽기+쓰기)', async () => {
-    server = await serveControlPlane(createMemoryEventStore());
+  it('모델 호출·토큰을 Cycle 합계·타깃별·테스트별로(대체된 Run 포함), 캐시 적중률 = 읽기/(입력+읽기+쓰기); 요약의 진행률은 대체된 Run 을 뺀다', async () => {
+    let now = Date.parse('2026-11-09T00:00:00Z');
+    server = await serveControlPlane(createMemoryEventStore(), { now: () => now, leaseTtlMs: 1000 });
     await post('/cycles', { cycleId: 'c1', build: '1.0', targets: ['android', 'ios'] });
+    // r-dead: 클레임해 시도 하나(모델 1회)를 보고하고 죽는다 → lease 만료 + 유예 뒤 조회 때 버려져 retry:r-dead 로 대체
+    await post('/cycles/c1/runs', { targetId: 'android', runId: 'r-dead' });
+    expect((await post('/runs/claim', { targetId: 'android', agentId: 'n1' })).status).toBe(200);
+    await post('/ingest', run('r-dead', 'c1', 'android', [{ testId: '로그인', results: ['failed'], usage: { modelCalls: 1, inputTokens: 100, outputTokens: 10 } }]).slice(0, -1));
+    now += 5000;
+    const swept = (await (await fetch(url('/cycles/c1'))).json()) as { runs: Array<{ runId: string; replacedBy?: string }> };
+    expect(swept.runs.find((r) => r.runId === 'r-dead')!.replacedBy).toBe('retry:r-dead');
     await post('/cycles/c1/runs', { targetId: 'android', runId: 'ra' });
     await post('/cycles/c1/runs', { targetId: 'ios', runId: 'ri' });
     await post('/ingest', [
@@ -36,13 +44,16 @@ describe('GET /cycles/:id/usage', () => {
     const res = await fetch(url('/cycles/c1/usage'));
     expect(res.status).toBe(200);
     const u = (await res.json()) as CycleUsage;
-    // 손 계산: android 로그인 두 시도 × (4 호출, 1000/100/3000/1000) + ios 로그인 (2, 500/50)
-    expect(u.total).toEqual({ modelCalls: 10, inputTokens: 2500, outputTokens: 250, cacheReadTokens: 6000, cacheWriteTokens: 2000, cacheHitRate: 6000 / 10500 });
-    expect(u.byTarget.android!).toMatchObject({ modelCalls: 8, inputTokens: 2000, cacheHitRate: 6000 / 10000 });
+    // 손 계산: r-dead (1, 100/10) + android 로그인 두 시도 × (4, 1000/100/3000/1000) + ios 로그인 (2, 500/50)
+    expect(u.total).toEqual({ modelCalls: 11, inputTokens: 2600, outputTokens: 260, cacheReadTokens: 6000, cacheWriteTokens: 2000, cacheHitRate: 6000 / 10600 });
+    expect(u.byTarget.android!).toMatchObject({ modelCalls: 9, inputTokens: 2100, cacheHitRate: 6000 / 10100 });
     expect(u.byTarget.ios!).toMatchObject({ modelCalls: 2, cacheHitRate: 0 });
-    expect(u.byTest['로그인']!).toMatchObject({ modelCalls: 10 });
+    expect(u.byTest['로그인']!).toMatchObject({ modelCalls: 11 });
     expect(u.byTest['검색']!).toMatchObject({ modelCalls: 0, cacheHitRate: null }); // 분모 0 이면 null
     expect((await fetch(url('/cycles/none/usage'))).status).toBe(404);
+    // 요약의 진행률: 대체된 r-dead 는 빼고 retry:r-dead(대기)·ra·ri 만
+    const summary = (await (await fetch(url('/cycles/summary'))).json()) as Array<{ cycleId: string; runs: { total: number; finished: number } }>;
+    expect(summary.find((c) => c.cycleId === 'c1')!.runs).toEqual({ total: 3, finished: 2 });
   });
 });
 

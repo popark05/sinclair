@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // 05 모델 사용(Cycle 화면의 절: 합계·타깃·테스트별, 호출 0 이면 숨김)과 06 안정성 이력(/console/tests: 색 칸 줄, flaky 비율, testId 거르기, 케이스 상세에서 링크).
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, cleanup, within } from '@testing-library/react';
 import type { CycleUsage, HistoryView, CycleViewWithWarnings } from '@sinclair/control-plane';
 import { UsageSection } from '../src/pages/UsageSection.tsx';
@@ -34,9 +34,11 @@ describe('UsageSection', () => {
     expect(within(byTest).getAllByRole('row')[2]!.textContent).toMatch(/검색.*0.*—/); // 분모 0 이면 —
   });
 
-  it('모델을 한 번도 안 불렀으면 절을 숨긴다', async () => {
-    const { container } = render(<UsageSection api={{ ...base, usage: async () => ({ cycleId: 'c1', total: t(0, 0, 0, 0, 0), byTarget: {}, byTest: {} }) }} cycleId="c1" />);
-    await new Promise((r) => setTimeout(r, 20));
+  it('모델을 한 번도 안 불렀으면 절을 숨긴다(불러온 뒤에도)', async () => {
+    let loaded = false;
+    const { container } = render(<UsageSection api={{ ...base, usage: async () => { loaded = true; return { cycleId: 'c1', total: t(0, 0, 0, 0, 0), byTarget: {}, byTest: {} }; } }} cycleId="c1" />);
+    await vi.waitFor(() => expect(loaded).toBe(true));
+    await new Promise((r) => setTimeout(r, 0));
     expect(container.textContent).toBe('');
   });
 });

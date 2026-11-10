@@ -4,7 +4,8 @@ import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { createMemoryEventStore, serveControlPlane, parseConfig, type ControlPlaneServer } from '../src/index.ts';
+import * as http from 'node:http';
+import { createMemoryEventStore, serveControlPlane, parseConfig, resolveConsoleFile, type ControlPlaneServer } from '../src/index.ts';
 import { base } from './fixtures.ts';
 
 let server: ControlPlaneServer | undefined;
@@ -42,6 +43,9 @@ describe('GET /cycles/summary', () => {
     const view = (await (await fetch(url('/cycles/new'))).json()) as { runs: Array<{ runId: string; agentId?: string; deviceId?: string }> };
     expect(view.runs.find((r) => r.runId === 'r2')).toMatchObject({ agentId: 'node-9', deviceId: 'SERIAL9' });
     expect((await fetch(url('/cycles/summary?limit=0'))).status).toBe(400);
+    expect((await fetch(url('/cycles/summary?limit=101'))).status).toBe(400); // 상한 100: Cycle 마다 이벤트를 읽는다
+    // 예약어: summary 라는 cycleId 는 만들 수 없다(GET /cycles/summary 와 겹친다)
+    expect((await post('/cycles', { cycleId: 'summary', build: 'b', targets: ['a'] })).status).toBe(400);
   });
 });
 
@@ -73,20 +77,39 @@ describe('Console 정적 서빙', () => {
     expect(root.headers.get('location')).toBe('/console/');
   });
 
-  it('경로 탈출(../, 인코딩된 %2e%2e)은 거부한다', async () => {
+  it('경로 탈출: 정규화되지 않은 원시 요청(%2f·%5c·..)으로도 밖의 파일을 주지 않는다; 해석기는 Windows 구분자도 막는다', async () => {
     server = await serveControlPlane(createMemoryEventStore(), { consoleDir: dir() });
-    for (const p of ['/console/../secret-outside.txt', '/console/%2e%2e/secret-outside.txt', '/console/assets/%2e%2e/%2e%2e/secret-outside.txt']) {
+    // fetch 는 ../ 를 미리 정규화하므로 원시 HTTP 로 보낸다
+    const raw = (p: string) => new Promise<string>((resolve) => { http.get({ host: '127.0.0.1', port: server!.port, path: p }, (res) => { let t = ''; res.on('data', (d) => { t += d; }); res.on('end', () => resolve(t)); }); });
+    for (const p of ['/console/../secret-outside.txt', '/console/..%2fsecret-outside.txt', '/console/assets/..%2f..%2fsecret-outside.txt', '/console/..%5csecret-outside.txt']) expect(await raw(p)).not.toContain('nope');
+    const nodePath = await import('node:path');
+    expect(resolveConsoleFile('C:\\console', '/..\\..\\secret', nodePath.win32)).toBeUndefined();
+    expect(resolveConsoleFile('/srv/console', '/../../etc/passwd', nodePath.posix)).toBeUndefined(); // .. 조각은 아예 받지 않는다
+    expect(resolveConsoleFile('/srv/console', '/assets/app.js', nodePath.posix)).toBe('/srv/console/assets/app.js');
+  });
+
+  it('점이 든 경로(app-1.2.3 같은 Cycle id)도 화면이면 index.html, 실제 파일만 자산, assets/ 아래 없는 파일은 404; HEAD 도 된다', async () => {
+    server = await serveControlPlane(createMemoryEventStore(), { consoleDir: dir() });
+    for (const p of ['/console/cycles/app-1.2.3', '/console/cycles/x/cases/login/ios-17.4', '/console/runs/run.1']) {
       const r = await fetch(url(p));
-      expect(await r.text()).not.toContain('nope');
+      expect(r.status, p).toBe(200);
+      expect(await r.text()).toContain('id="root"');
     }
+    expect((await fetch(url('/console/assets/missing.js'))).status).toBe(404);
+    const head = await fetch(url('/console/assets/app.js'), { method: 'HEAD' });
+    expect(head.status).toBe(200);
+    expect(head.headers.get('content-type')).toMatch(/javascript/);
+    expect((await fetch(url('/console/'), { method: 'HEAD' })).status).toBe(200);
   });
 
   it('consoleDir 가 없으면 /console 은 404(API 만 있는 서버), 설정은 --console-dir·SINCLAIR_CP_CONSOLE_DIR', async () => {
     server = await serveControlPlane(createMemoryEventStore());
     expect((await fetch(url('/console'))).status).toBe(404);
-    const c = parseConfig(['--console-dir', '/opt/console'], {});
-    expect(c).toMatchObject({ consoleDir: '/opt/console' });
-    expect(parseConfig([], { SINCLAIR_CP_CONSOLE_DIR: '/x' })).toMatchObject({ consoleDir: '/x' });
+    const given = dir();
+    expect(parseConfig(['--console-dir', given], {})).toMatchObject({ consoleDir: path.resolve(given) });
+    expect(parseConfig([], { SINCLAIR_CP_CONSOLE_DIR: given })).toMatchObject({ consoleDir: path.resolve(given) });
+    // 직접 준 디렉터리에 index.html 이 없으면 조용히 404 만 내지 않고 기동 때 설정 오류
+    expect(() => parseConfig(['--console-dir', path.join(given, 'assets')], {})).toThrow(/index\.html/);
     // 설치본: 자산 디렉터리(SINCLAIR_RESOURCES_DIR, 기본은 번들 옆 resources/)에 console/index.html 이 있으면 기본으로, none 이면 끈다
     const res = fs.mkdtempSync(path.join(os.tmpdir(), 'sinclair-res-'));
     fs.mkdirSync(path.join(res, 'console'));

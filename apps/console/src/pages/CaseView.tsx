@@ -1,6 +1,6 @@
 // 케이스 상세(공유 링크 /console/cycles/:id/cases/:test/:target): 그 타깃의 Run 들(대체된 Run 포함)에서 그 테스트의 시도를 시간 순으로,
 // 시도마다 결과·errorCode·소요 시간·스텝(종류·instruction·시간·모델 호출·토큰, 실패·안전망·Incident 표지)·아티팩트 키.
-import type { Api, RunView } from '../api.ts';
+import { ApiError, type Api, type RunView } from '../api.ts';
 import { Badge, Failure, Link, useLoad } from '../components.tsx';
 import { CELL_LABEL, type CellKind, type Tone } from '../labels.ts';
 import { cycleHref, href } from '../route.ts';
@@ -22,8 +22,12 @@ const marks = (text: string) => ({
 export function CaseView({ api, cycleId, testId, targetId }: { api: Api; cycleId: string; testId: string; targetId: string }) {
   const load = useLoad(async () => {
     const cycle = await api.cycle(cycleId);
-    const targetRuns = cycle.runs.filter((r) => r.targetId === targetId);
-    const views = await Promise.all(targetRuns.map((r) => api.run(r.runId).then((v) => ({ v, replaced: !!r.replacedBy }))));
+    // 대기 Run(이벤트가 아직 없음 — 막 등록된 대체 Run 등)은 묻지 않고, 그 사이 404 가 나도 그 Run 만 뺀다(공유 링크가 통째로 실패하지 않게)
+    const targetRuns = cycle.runs.filter((r) => r.targetId === targetId && r.state !== 'queued');
+    const views = (await Promise.all(targetRuns.map((r) => api.run(r.runId).then((v) => ({ v, replaced: !!r.replacedBy }), (err: unknown) => {
+      if (err instanceof ApiError && err.status === 404) return undefined;
+      throw err;
+    })))).filter((x) => x !== undefined);
     const attempts: Attempt[] = views.flatMap(({ v, replaced }) => v.attempts.filter((a) => a.testId === testId).map((a) => ({ ...a, runId: v.runId, replaced })));
     attempts.sort((a, b) => (a.startedAt ?? '').localeCompare(b.startedAt ?? '') || (a.attemptNo ?? 0) - (b.attemptNo ?? 0));
     const cell = cycle.matrix[testId]?.[targetId];
@@ -51,7 +55,7 @@ function AttemptPanel({ a }: { a: Attempt }) {
       <h2>시도 {a.attemptNo ?? '?'} <Badge tone={tone}>{label}</Badge>{a.errorCode ? <code className="code"> {a.errorCode}</code> : null} <span className="muted">{seconds(a.startedAt, a.finishedAt)} · {a.runId}{a.replaced ? ' (대체된 Run)' : ''}</span></h2>
       {a.steps.length ? (
         <table className="table steps">
-          <thead><tr><th>#</th><th>종류</th><th>instruction</th><th>시간</th><th>모델</th><th>토큰 입력 / 출력 / 캐시 읽기</th></tr></thead>
+          <thead><tr><th>#</th><th>종류</th><th>지시</th><th>시간</th><th>모델</th><th>토큰 입력 / 출력 / 캐시 읽기</th></tr></thead>
           <tbody>{a.steps.map((s) => <StepRow key={s.stepIndex} s={s} />)}</tbody>
         </table>
       ) : <p className="muted">스텝 없음</p>}

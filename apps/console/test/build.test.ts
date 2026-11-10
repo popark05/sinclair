@@ -12,6 +12,11 @@ describe('Console 빌드', () => {
     await build({ root: path.resolve(import.meta.dirname, '..'), logLevel: 'silent', build: { outDir, emptyOutDir: true } });
     const html = fs.readFileSync(path.join(outDir, 'index.html'), 'utf8');
     expect(html).toMatch(/src="\/console\/assets\/[^"]+\.js"/);
-    expect(fs.readdirSync(path.join(outDir, 'assets')).some((f) => f.endsWith('.js'))).toBe(true);
+    const js = fs.readdirSync(path.join(outDir, 'assets')).filter((f) => f.endsWith('.js'));
+    expect(js.length).toBeGreaterThan(0);
+    // control-plane 의 타입만 가져왔는지: 번들에 Node 내장 모듈·서버 코드가 없다
+    const code = js.map((f) => fs.readFileSync(path.join(outDir, 'assets', f), 'utf8')).join('');
+    expect(code).not.toMatch(/node:(fs|http|sqlite|path)|serveControlPlane|projectRun/);
+    fs.rmSync(outDir, { recursive: true, force: true });
   }, 60_000);
 });

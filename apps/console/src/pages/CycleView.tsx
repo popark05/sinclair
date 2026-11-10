@@ -1,7 +1,7 @@
 // Cycle 화면: 머리(빌드·상태·Verdict·경고), 테스트 × 타깃 매트릭스, Run 행. 끝나지 않은 Cycle 은 주기적으로 새로 고친다.
 import type { Api, CycleViewWithWarnings } from '../api.ts';
-import { Badge, Failure, Link, usePolling } from '../components.tsx';
-import { CELL_LABEL, CELL_ORDER, CYCLE_STATE_LABEL, CYCLE_VERDICT_LABEL, STATE_TONE, VERDICT_TONE, maskDevice, type CellKind } from '../labels.ts';
+import { Badge, Failure, Link, Stale, usePolling } from '../components.tsx';
+import { CELL_LABEL, CELL_ORDER, RUN_STATE_LABEL, CYCLE_STATE_LABEL, CYCLE_VERDICT_LABEL, STATE_TONE, VERDICT_TONE, maskDevice, type CellKind } from '../labels.ts';
 import { caseHref } from '../route.ts';
 import { UsageSection } from './UsageSection.tsx';
 
@@ -16,6 +16,7 @@ export function CycleView({ api, cycleId }: { api: Api; cycleId: string }) {
   const v = load.data;
   return (
     <>
+      <Stale message={load.stale} />
       <header aria-label="Cycle" className="cycle-head">
         <h1>{v.build}</h1>
         <Badge tone={STATE_TONE[v.state]}>{CYCLE_STATE_LABEL[v.state]}</Badge>{' '}
@@ -24,7 +25,7 @@ export function CycleView({ api, cycleId }: { api: Api; cycleId: string }) {
       </header>
       {v.warnings?.length ? <ul aria-label="경고" className="warnings">{v.warnings.map((w) => <li key={w}>{w}</li>)}</ul> : null}
       <Matrix v={v} />
-      <UsageSection api={api} cycleId={v.cycleId} />
+      <UsageSection api={api} cycleId={v.cycleId} live={!DONE.has(v.state)} />
       <Runs v={v} />
     </>
   );
@@ -74,7 +75,7 @@ function Runs({ v }: { v: CycleViewWithWarnings }) {
           {v.runs.map((r) => (
             <tr key={r.runId} className={r.replacedBy ? 'replaced' : ''}>
               <td>{r.targetId}</td>
-              <td>{r.state}</td>
+              <td>{RUN_STATE_LABEL[r.state]}</td>
               <td>{maskDevice(r.lease?.deviceId ?? r.deviceId)}</td>
               <td>{r.lease?.agentId ?? r.agentId ?? '—'}</td>
               <td>

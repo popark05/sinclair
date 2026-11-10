@@ -88,5 +88,7 @@ export function parseConfig(argv: string[], env: NodeJS.ProcessEnv, platform: No
   const bundled = path.join(env.SINCLAIR_RESOURCES_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'resources'), 'console');
   const chosen = resolve('console-dir', existsSync(path.join(bundled, 'index.html')) ? bundled : '');
   const consoleDir = chosen === 'none' ? '' : chosen;
+  // 직접 준 디렉터리가 Console 빌드가 아니면 조용히 404 만 내지 말고 기동 때 알린다
+  if (consoleDir && !existsSync(path.join(consoleDir, 'index.html'))) throw new ConfigError(`console-dir 에 index.html 이 없음: ${consoleDir} (pnpm --filter @sinclair/console build 의 산출물 apps/console/dist 를 준다)`);
   return { host, port, store: store as ControlPlaneConfig['store'], db, leaseTtlMs, ...(consoleDir ? { consoleDir: path.resolve(consoleDir) } : {}) };
 }

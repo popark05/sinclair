@@ -5,7 +5,7 @@ import { render, screen, cleanup, within } from '@testing-library/react';
 import type { CycleViewWithWarnings, RunView } from '@sinclair/control-plane';
 import { CaseView } from '../src/pages/CaseView.tsx';
 import { App } from '../src/App.tsx';
-import type { Api } from '../src/api.ts';
+import { ApiError, type Api } from '../src/api.ts';
 import { STUBS } from './stubs.ts';
 
 afterEach(() => { cleanup(); window.history.pushState({}, '', '/'); });
@@ -30,6 +30,17 @@ const runs: Record<string, RunView> = {
   ] },
 };
 const api: Api = { ...STUBS, cycleSummaries: async () => [], fleet: async () => { throw new Error('x'); }, cycle: async () => cycle, run: async (id) => { const r = runs[id]; if (!r) throw new Error(`404 ${id}`); return r; } };
+
+describe('CaseView · 리뷰 반영', () => {
+  it('이벤트가 아직 없는 대기 Run(대체 Run 이 막 등록됨)이 있어도 다른 Run 의 시도를 보인다', async () => {
+    const withQueued = { ...cycle, runs: [...cycle.runs, { runId: 'retry:r1', targetId: 'android', state: 'queued' as const, replaces: 'r1' }] };
+    const asked: string[] = [];
+    const api2: Api = { ...api, cycle: async () => withQueued, run: async (id) => { asked.push(id); if (id.startsWith('retry:')) throw new ApiError('404 모르는 run', 404); return api.run(id); } };
+    render(<CaseView api={api2} cycleId="c1" testId={T} targetId="android" />);
+    expect((await screen.findAllByRole('region', { name: /시도/ })).length).toBe(3);
+    expect(asked).not.toContain('retry:r1'); // 대기 Run 은 묻지도 않는다
+  });
+});
 
 describe('CaseView', () => {
   it('대체된 Run 의 시도까지 시간 순, 셀 판정·결과·errorCode·소요 시간', async () => {

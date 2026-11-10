@@ -163,7 +163,8 @@ ${TARGETS[target].win ? windowsNotes() : ''}`;
 /** Console(웹 대시보드) 정적 빌드. 한 번 만들어 여러 타깃이 같이 쓴다(플랫폼과 무관한 파일) */
 export function buildConsole(log = console.log) {
   const r = spawnSync('pnpm', ['--filter', '@sinclair/console', 'build'], { cwd: root, encoding: 'utf8', shell: process.platform === 'win32' });
-  if (r.status !== 0) throw new Error(`Console 빌드 실패(pnpm --filter @sinclair/console build):\n${r.stdout}\n${r.stderr}`);
+  if (r.error) throw new Error(`Console 빌드를 시작하지 못함(pnpm 실행 실패: ${r.error.message}) — pnpm 을 설치하고 리포 루트에서 다시 실행`);
+  if (r.status !== 0) throw new Error(`Console 빌드 실패(pnpm --filter @sinclair/console build, 종료 ${r.status}):\n${r.stdout ?? ''}\n${r.stderr ?? ''}`);
   const dir = path.join(root, 'apps', 'console', 'dist');
   if (!existsSync(path.join(dir, 'index.html'))) throw new Error(`Console 빌드 산출물이 없음: ${dir}`);
   log('[console] apps/console/dist 빌드');

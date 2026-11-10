@@ -43,3 +43,4 @@ h2 { font-size: 16px; margin: 20px 0 8px; }
 .card dt { color: var(--muted); font-size: 12px; } .card dd { margin: 0; font-size: 18px; font-variant-numeric: tabular-nums; }
 .sparkline { display: flex; gap: 2px; }
 .spark { display: inline-block; width: 12px; height: 18px; border-radius: 2px; border: 1px solid var(--line); }
+.stale { color: var(--warn); font-size: 13px; }

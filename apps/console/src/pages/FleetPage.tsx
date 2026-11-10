@@ -1,6 +1,6 @@
 // 플릿 상태: 노드마다 온라인 여부·마지막 보고, 기기 표(상태·사유·헬퍼·잠김). 사용 중 기기는 그 Run(→ Cycle)으로 간다.
 import type { Api, FleetView } from '../api.ts';
-import { Badge, Failure, Link, usePolling } from '../components.tsx';
+import { Badge, Failure, Link, Stale, usePolling } from '../components.tsx';
 import { maskDevice, type Tone } from '../labels.ts';
 import { href } from '../route.ts';
 
@@ -17,6 +17,7 @@ export function FleetPage({ api }: { api: Api }) {
   if (load.data.nodes.length === 0) return <p className="muted">보고한 노드가 없음 — 기기 노드에서 <code>sinclair-agent daemon</code> 을 띄운다</p>;
   return (
     <>
+      <Stale message={load.stale} />
       {load.data.nodes.map((n) => (
         <section key={n.agentId} aria-label={`노드 ${n.agentId}`} className="attempt">
           <h2>{n.agentId} <Badge tone={n.online ? 'good' : 'bad'}>{n.online ? '온라인' : '끊김'}</Badge> <span className="muted">마지막 보고 {new Date(n.reportedAt).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'medium' })}</span></h2>

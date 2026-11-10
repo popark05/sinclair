@@ -1,13 +1,17 @@
 // Cycle 의 모델 사용: 합계와 타깃·테스트별(호출 많은 순). 토큰만 보인다 — 단가는 바뀌고 요약 모델 토큰이 본 모델과 섞여 있어 달러로 바꾸지 않는다.
 import type { Api, CycleUsage } from '../api.ts';
-import { Failure, useLoad } from '../components.tsx';
+import { Failure, usePolling } from '../components.tsx';
+
+/** 진행 중 Cycle 의 사용량 새로 고침 간격(Cycle 화면과 같은 박자) */
+const USAGE_REFRESH_MS = 5_000;
 
 type Totals = CycleUsage['total'];
 const n = (x: number): string => x.toLocaleString('en-US');
 const rate = (r: number | null): string => (r === null ? '—' : `${(r * 100).toFixed(1)}%`);
 
-export function UsageSection({ api, cycleId }: { api: Api; cycleId: string }) {
-  const load = useLoad(() => api.usage(cycleId), [api, cycleId]);
+export function UsageSection({ api, cycleId, live = false }: { api: Api; cycleId: string; live?: boolean }) {
+  // 진행 중이면 Cycle 화면과 함께 새로 고친다(에이전트 스텝이 쌓이는 동안 비용이 보이게)
+  const load = usePolling(() => api.usage(cycleId), [api, cycleId, live], USAGE_REFRESH_MS, () => live);
   if (load.state === 'loading') return null;
   if (load.state === 'error') return <Failure message={load.message} />;
   const u = load.data;

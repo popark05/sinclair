@@ -8,5 +8,5 @@ export default defineConfig({
   base: '/console/',
   plugins: [react()],
   build: { outDir: 'dist', emptyOutDir: true },
-  server: { proxy: Object.fromEntries(['/cycles', '/runs', '/fleet', '/health'].map((p) => [p, api])) },
+  server: { proxy: Object.fromEntries(['/cycles', '/runs', '/fleet', '/tests', '/health'].map((p) => [p, api])) },
 });

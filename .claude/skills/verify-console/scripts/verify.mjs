@@ -27,14 +27,16 @@ if (!process.argv.includes('--no-build')) {
 const cp = spawn(process.execPath, [path.join(repo, 'apps/control-plane/bin/sinclair-control-plane.mjs'), '--port', '0', '--store', 'memory', '--console-dir', path.join(repo, 'apps/console/dist')], { stdio: ['ignore', 'pipe', 'pipe'] });
 let cpOut = '';
 cp.stdout.on('data', (d) => { cpOut += d; }); cp.stderr.on('data', (d) => { cpOut += d; });
-const port = await new Promise((resolve, reject) => {
-  const t = setTimeout(() => reject(new Error(`control-plane READY 대기 초과: ${cpOut}`)), 30_000);
-  const check = () => { const m = /READY .*port=(\d+)/.exec(cpOut); if (m) { clearTimeout(t); resolve(Number(m[1])); } };
-  cp.stdout.on('data', check);
-});
-const base = `http://127.0.0.1:${port}`;
 const results = [];
 try {
+  // 기동 대기도 try 안: 실패해도 아래 finally 가 서버·임시 디렉터리를 정리한다. 일찍 죽으면 30초를 기다리지 않는다
+  const port = await new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`control-plane READY 대기 초과: ${cpOut}`)), 30_000);
+    cp.on('exit', (code) => { clearTimeout(t); reject(new Error(`control-plane 이 READY 전에 종료(code ${code}): ${cpOut}`)); });
+    const check = () => { const m = /READY .*port=(\d+)/.exec(cpOut); if (m) { clearTimeout(t); resolve(Number(m[1])); } };
+    cp.stdout.on('data', check);
+  });
+  const base = `http://127.0.0.1:${port}`;
   // 2) Cycle + 가짜 에이전트 run(통과 1·실패 1) + 노드 보고
   const cycleId = `verify-${Date.now()}`;
   await fetch(`${base}/cycles`, { method: 'POST', body: JSON.stringify({ cycleId, build: 'verify-1.0', targets: ['android'] }) });
@@ -43,14 +45,16 @@ try {
   await fetch(`${base}/fleet/nodes/verify-node`, { method: 'PUT', body: JSON.stringify({ devices: [{ id: 'FAKE00001234', platform: 'android', model: 'FakeEngine', osVersion: '0', connection: 'device', helper: 'ready', locked: false }] }) });
   const view = await (await fetch(`${base}/cycles/${cycleId}`)).json();
   const failing = Object.keys(view.matrix).find((t) => view.matrix[t].android?.verdict === 'failed');
+  if (!failing) throw new Error(`실패 케이스가 매트릭스에 없음: ${JSON.stringify(view.matrix)}`);
 
   // 3) 화면들: 렌더된 DOM(가상 시간 예산 동안 fetch·렌더가 끝난다)과 스크린샷
   const pages = [
     { name: 'cycles', path: '/console/', expect: ['verify-1.0', '끝남'] },
-    { name: 'cycle', path: `/console/cycles/${cycleId}`, expect: ['매트릭스', '실패', '통과', 'verify-node'] },
+    // 셀 클래스로 판정한다(머리말·범례의 '실패'·'통과' 글자는 매트릭스가 비어도 늘 있다)
+    { name: 'cycle', path: `/console/cycles/${cycleId}`, expect: ['class="cell cell-failed"><a', 'class="cell cell-passed"><a', 'verify-node', '…fake'] },
     { name: 'case', path: `/console/cycles/${cycleId}/cases/${encodeURIComponent(failing)}/android`, expect: ['시도 1', 'not-found', 'locator', '→ 실패', '이 테스트의 이력'] },
-    { name: 'fleet', path: '/console/fleet', expect: ['verify-node', '온라인', '…1234', '쓸 수 있음'] },
-    { name: 'tests', path: '/console/tests', expect: ['안정성 이력', failing] },
+    { name: 'fleet', path: '/console/fleet', expect: ['verify-node', '온라인', '…1234', '쓸 수 있음'], absent: ['FAKE00001234'] }, // 원시 시리얼은 화면에 없다
+    { name: 'tests', path: '/console/tests', expect: [failing, 'spark cell-failed', 'spark cell-passed'] },
   ];
   for (const p of pages) {
     const url = `${base}${p.path}`;
@@ -58,7 +62,7 @@ try {
     const dom = execFileSync(chrome, [...common, '--dump-dom', url], { encoding: 'utf8', timeout: 60_000, stdio: ['ignore', 'pipe', 'ignore'] });
     const shot = path.join(shots, `${p.name}.png`);
     execFileSync(chrome, [...common, `--screenshot=${shot}`, url], { timeout: 60_000, stdio: 'ignore' });
-    const checks = p.expect.filter(Boolean).map((text) => ({ text, found: dom.includes(text) }));
+    const checks = [...p.expect.map((text) => ({ text, found: dom.includes(text) })), ...(p.absent ?? []).map((text) => ({ text: `없음: ${text}`, found: !dom.includes(text) }))];
     const error = /role="alert"[^>]*>([^<]*)/.exec(dom)?.[1];
     results.push({ page: p.name, path: p.path.replace(cycleId, '<cycle>'), ok: checks.every((c) => c.found) && !error, checks, ...(error ? { error } : {}), screenshot: path.relative(repo, shot), screenshotBytes: fs.statSync(shot).size });
   }

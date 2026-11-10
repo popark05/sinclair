@@ -53,7 +53,17 @@ export interface CycleSummary {
   runs: { total: number; finished: number };
 }
 const DEFAULT_SUMMARY_LIMIT = 50;
-const MAX_SUMMARY_LIMIT = 500;
+/** 요약은 Cycle 마다 모든 Run 의 이벤트를 읽어 투영한다(인증 없는 서버에서 한 요청이 이벤트 루프를 오래 붙잡지 않게) */
+const MAX_SUMMARY_LIMIT = 100;
+/** GET 경로와 겹쳐 Cycle id 로 쓸 수 없는 이름 */
+const RESERVED_CYCLE_IDS = new Set(['summary']);
+
+/** Console 정적 파일 경로 해석: 루트 안의 절대 경로, 아니면 undefined. 역슬래시·NUL·.. 조각은 받지 않는다(Windows 구분자로 루트를 벗어나지 못하게) */
+export function resolveConsoleFile(root: string, rel: string, p: typeof nodePath = nodePath): string | undefined {
+  if (/[\\\0]/.test(rel) || rel.split('/').some((seg) => seg === '..')) return undefined;
+  const file = p.resolve(root, `.${p.posix.normalize(`/${rel}`)}`);
+  return file === p.resolve(root) || file.startsWith(p.resolve(root) + p.sep) ? file : undefined;
+}
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.map': 'application/json',
@@ -119,17 +129,25 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
     }
     try { return { body: JSON.parse(Buffer.concat(chunks).toString('utf8')) }; } catch { json(res, 400, { error: 'JSON 파싱 실패' }); return undefined; }
   };
-  /** Console 정적 파일. 디렉터리 밖으로 나가는 경로는 거부하고, 확장자 없는 경로(SPA 화면)는 index.html, 없는 자산은 404 */
+  /** Console 정적 파일. 실제 파일이 있으면 그것(자산), 없으면 화면 경로로 보고 index.html — 점이 든 경로(app-1.2.3 같은 Cycle id)도 화면이다.
+   *  assets/ 아래의 없는 파일만 404(빌드가 바뀐 뒤 옛 자산 요청). 심링크로 루트 밖을 가리키는 파일은 주지 않는다 */
   const consoleRoot = opts.consoleDir ? nodePath.resolve(opts.consoleDir) : undefined;
-  const serveConsole = async (res: http.ServerResponse, rel: string): Promise<void> => {
-    const file = nodePath.resolve(consoleRoot!, `.${nodePath.posix.normalize(`/${rel}`)}`);
-    if (file !== consoleRoot && !file.startsWith(consoleRoot! + nodePath.sep)) return json(res, 404, { error: '없음' });
-    const ext = nodePath.extname(file);
-    const target = !ext || ext === '.html' ? (ext ? file : nodePath.join(consoleRoot!, 'index.html')) : file;
+  const serveConsole = async (req: http.IncomingMessage, res: http.ServerResponse, rel: string): Promise<void> => {
+    const root = consoleRoot!;
+    const file = resolveConsoleFile(root, rel);
+    if (!file) return json(res, 404, { error: '없음' });
+    const isFile = await fs.stat(file).then((st) => st.isFile(), () => false);
+    if (!isFile && rel.startsWith('/assets/')) return json(res, 404, { error: '없음' });
+    const target = isFile ? file : nodePath.join(root, 'index.html');
     try {
-      const body = await fs.readFile(target);
-      // 해시가 붙은 자산은 오래 캐시, index.html 은 늘 새로(새 배포가 바로 보이게)
-      res.writeHead(200, { 'content-type': MIME[nodePath.extname(target)] ?? 'application/octet-stream', 'cache-control': target.endsWith('index.html') ? 'no-cache' : 'public, max-age=31536000, immutable' }).end(body);
+      const real = await fs.realpath(target);
+      const realRoot = await fs.realpath(root);
+      if (real !== realRoot && !real.startsWith(realRoot + nodePath.sep)) return json(res, 404, { error: '없음' });
+      const body = await fs.readFile(real);
+      // 해시가 붙은 assets/ 만 오래 캐시, 그 밖(index.html 등)은 늘 새로 — 새 배포가 바로 보이게
+      const immutable = rel.startsWith('/assets/') && isFile;
+      res.writeHead(200, { 'content-type': MIME[nodePath.extname(target)] ?? 'application/octet-stream', 'cache-control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache', 'content-length': body.length });
+      res.end(req.method === 'HEAD' ? undefined : body);
     } catch {
       json(res, 404, { error: '없음' });
     }
@@ -137,12 +155,12 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-      if (consoleRoot && req.method === 'GET') {
+      if (consoleRoot && (req.method === 'GET' || req.method === 'HEAD')) {
         if (url.pathname === '/') { res.writeHead(302, { location: '/console/' }).end(); return; }
         if (url.pathname === '/console' || url.pathname.startsWith('/console/')) {
           let rel: string;
           try { rel = decodeURIComponent(url.pathname.slice('/console'.length)); } catch { return json(res, 400, { error: '경로 인코딩이 잘못됨' }); }
-          return serveConsole(res, rel);
+          return serveConsole(req, res, rel);
         }
       }
       let parts: string[];
@@ -162,6 +180,7 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         const targets = parseCycleTargets(b.targets);
         if (!targets.ok) return json(res, 400, { error: 'targets 가 올바르지 않음', errors: targets.errors });
         if (b.requiredTags !== undefined && !isStringArray(b.requiredTags)) return json(res, 400, { error: 'requiredTags 는 문자열 배열이어야 함' });
+        if (typeof b.cycleId === 'string' && RESERVED_CYCLE_IDS.has(b.cycleId)) return json(res, 400, { error: `cycleId ${b.cycleId} 는 쓸 수 없음(예약어)` });
         if (!optionalId(b.cycleId)) return json(res, 400, { error: 'cycleId 는 비어 있지 않은 문자열이어야 함' });
         if (b.suite !== undefined && (!isRecord(b.suite) || typeof b.suite.tests !== 'string' || !b.suite.tests || (b.suite.tags !== undefined && !isStringArray(b.suite.tags)))) return json(res, 400, { error: 'suite 는 { tests: 문자열, tags?: 문자열 배열, retries?: 정수 } 이어야 함' });
         if (isRecord(b.suite) && b.suite.retries !== undefined && (typeof b.suite.retries !== 'number' || !Number.isInteger(b.suite.retries) || b.suite.retries < 0 || b.suite.retries > MAX_SUITE_RETRIES)) return json(res, 400, { error: `suite.retries 는 0~${MAX_SUITE_RETRIES} 의 정수여야 함` });
@@ -206,7 +225,7 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
       if (req.method === 'GET' && url.pathname === '/tests/history') {
         const limitText = url.searchParams.get('limit') ?? '20';
         const limit = Number(limitText);
-        if (!/^\d+$/.test(limitText) || limit < 1 || limit > 200) return json(res, 400, { error: 'limit 는 1~200 정수여야 함' });
+        if (!/^\d+$/.test(limitText) || limit < 1 || limit > 50) return json(res, 400, { error: 'limit 는 1~50 정수여야 함(Cycle 마다 이벤트를 읽는다)' });
         const testId = url.searchParams.get('testId') ?? undefined;
         return json(res, 200, await testHistory(store, cycles, { limit, ...(testId ? { testId } : {}) }));
       }
