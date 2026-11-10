@@ -27,6 +27,18 @@ describe('IssuesPage', () => {
     expect(within(rows[1]!).getByRole('link', { name: '티켓' }).getAttribute('href')).toBe('https://jira.example.com/QA-2');
   });
 
+  it('주소의 #<id> 인 Issue 행을 강조한다(케이스 상세에서 온 링크)', async () => {
+    window.history.pushState({}, '', '/console/issues#bbbbbbbbbbbb');
+    try {
+      render(<IssuesPage api={apiWith([])} />);
+      const rows = (await screen.findAllByRole('row')).slice(1);
+      expect(rows[1]!.className).toMatch(/issue-target/);
+      expect(rows[1]!.getAttribute('aria-current')).toBe('true');
+      expect(rows[0]!.className).not.toMatch(/issue-target/);
+      expect(rows[0]!.id).toBe('issue-aaaaaaaaaaaa');
+    } finally { window.history.pushState({}, '', '/'); }
+  });
+
   it('분류·메모·티켓을 고르고 저장하면 PUT 한다', async () => {
     const saved: unknown[] = [];
     render(<IssuesPage api={apiWith(saved)} />);

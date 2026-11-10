@@ -61,15 +61,18 @@ try {
   const shotRes = shotKey ? await fetch(`${base}/artifacts/${view.runs[0].runId}/${shotKey}`) : undefined;
   results.push({ page: 'artifact', path: '/artifacts/<run>/<key>', ok: shotRes?.status === 200 && shotRes.headers.get('content-type') === 'image/png', checks: [{ text: 'screenshot 업로드·서빙', found: shotRes?.status === 200 }] });
 
+  const issueId = (await (await http(`${base}/issues`)).json())[0]?.id;
+  if (!issueId) throw new Error('Issue 가 없음(실패 1개가 묶여야 함)');
   // 3) 화면들: 렌더된 DOM(가상 시간 예산 동안 fetch·렌더가 끝난다)과 스크린샷
   const pages = [
     { name: 'cycles', path: '/console/', expect: ['verify-1.0', '끝남'] },
     // 셀 클래스로 판정한다(머리말·범례의 '실패'·'통과' 글자는 매트릭스가 비어도 늘 있다)
     { name: 'cycle', path: `/console/cycles/${cycleId}`, expect: ['class="cell cell-failed"><a', 'class="cell cell-passed"><a', 'verify-node', '…fake'] },
-    { name: 'case', path: `/console/cycles/${cycleId}/cases/${encodeURIComponent(failing)}/android`, expect: ['시도 1', 'not-found', 'locator', '→ 실패', '이 테스트의 이력', 'alt="시도 1 의 마지막 화면"', '.screen-tree.json</a>'] },
+    { name: 'case', path: `/console/cycles/${cycleId}/cases/${encodeURIComponent(failing)}/android`, expect: ['시도 1', 'not-found', 'locator', '→ 실패', '이 테스트의 이력', 'alt="시도 1 의 마지막 화면"', '.screen-tree.json</a>', 'href="/console/issues#', '같은 원인의 Issue'] },
     // 원시 시리얼은 화면에 없다. 끊긴 노드에만 지우기 버튼(온라인 노드는 바로 앞에 다시 보고해 TTL 안에 둔다)
     { name: 'fleet', path: '/console/fleet', before: reportNode, expect: ['verify-node', '온라인', '…1234', '쓸 수 있음', 'verify-gone', '끊김', '>지우기</button>'], absent: ['FAKE00001234'] },
-    { name: 'issues', path: '/console/issues', expect: ['not-found', failing, 'aria-label="분류"', '미분류'] },
+    // 케이스 상세의 링크처럼 #<id> 로 열면 그 행이 강조된다
+    { name: 'issues', path: `/console/issues#${issueId}`, expect: ['not-found', failing, 'aria-label="분류"', '미분류', `id="issue-${issueId}" class="issue-target"`] },
     { name: 'tests', path: '/console/tests', expect: [failing, 'spark cell-failed', 'spark cell-passed'] },
   ];
   for (const p of pages) {
@@ -81,7 +84,7 @@ try {
     execFileSync(chrome, [...common, `--screenshot=${shot}`, url], { timeout: 60_000, stdio: 'ignore' });
     const checks = [...p.expect.map((text) => ({ text, found: dom.includes(text) })), ...(p.absent ?? []).map((text) => ({ text: `없음: ${text}`, found: !dom.includes(text) }))];
     const error = /role="alert"[^>]*>([^<]*)/.exec(dom)?.[1];
-    results.push({ page: p.name, path: p.path.replace(cycleId, '<cycle>'), ok: checks.every((c) => c.found) && !error, checks, ...(error ? { error } : {}), screenshot: path.relative(repo, shot), screenshotBytes: fs.statSync(shot).size });
+    results.push({ page: p.name, path: p.path.replace(cycleId, '<cycle>').replace(issueId, '<issue>'), ok: checks.every((c) => c.found) && !error, checks, ...(error ? { error } : {}), screenshot: path.relative(repo, shot), screenshotBytes: fs.statSync(shot).size });
   }
   // 4) 지우기 버튼이 부르는 API: 끊긴 노드는 204 로 지워져 플릿에서 빠지고, 온라인 노드는 409
   await reportNode();

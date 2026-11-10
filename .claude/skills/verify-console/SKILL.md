@@ -43,6 +43,7 @@ node .claude/skills/verify-console/scripts/verify.mjs --no-build
 
 ## 검증 이력
 
+- 2026-11-10: 케이스 상세 → Issue 링크(followups 07) — 케이스 상세에 `같은 원인의 Issue` 링크, `/console/issues#<id>` 로 열면 그 행이 `issue-target` 으로 강조되는지 확인.
 - 2026-11-10: 노드 정리(followups 06) — 서버를 `--lease-ttl-ms 8000` 으로 띄워 끊긴 노드 `verify-gone` 을 만들고, 플릿에 끊김·지우기 버튼이 보이는지, `DELETE /fleet/nodes/:agentId` 가 끊긴 노드 204·온라인 노드 409 인지 확인(검사 8개). Chrome 을 동기로 부르는 동안 유휴 keep-alive 소켓이 닫혀 다음 요청이 ECONNRESET 나는 스크립트 문제를 한 번 재시도로 막음.
 - 2026-11-10: Issue 화면(followups 04) 추가 — 검사 7개.
 - 2026-11-10: 아티팩트 업로드(followups 01) — 에이전트가 올린 실패 스크린샷을 서버가 주고 케이스 상세가 그림·트리 링크로 보이는지 확인(검사 6개).

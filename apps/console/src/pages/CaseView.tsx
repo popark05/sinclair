@@ -1,7 +1,8 @@
 // 케이스 상세(공유 링크 /console/cycles/:id/cases/:test/:target): 그 타깃의 Run 들(대체된 Run 포함)에서 그 테스트의 시도를 시간 순으로,
-// 시도마다 결과·errorCode·소요 시간·스텝(종류·instruction·시간·모델 호출·토큰, 실패·안전망·Incident 표지)·아티팩트 키.
+// 시도마다 결과·errorCode·소요 시간·스텝(종류·instruction·시간·모델 호출·토큰, 실패·안전망·Incident 표지)·아티팩트 키, 실패면 그 Issue 링크.
 import { ApiError, type Api, type RunView } from '../api.ts';
 import { Badge, Failure, Link, useLoad } from '../components.tsx';
+import { ISSUE_CYCLES } from './IssuesPage.tsx';
 import { CELL_LABEL, type CellKind, type Tone } from '../labels.ts';
 import { cycleHref, href } from '../route.ts';
 
@@ -33,9 +34,16 @@ export function CaseView({ api, cycleId, testId, targetId }: { api: Api; cycleId
     const cell = cycle.matrix[testId]?.[targetId];
     return { cycle, attempts, kind: (cell?.verdict ?? 'pending') as CellKind };
   }, [api, cycleId, testId, targetId]);
+  // 시도 → Issue id: 서명 규칙은 서버(issueSignature)에만 있으므로 Issue 목록의 발생(runId·attemptId)으로 찾는다. 못 불러오면 링크만 없다
+  const issues = useLoad(async () => {
+    const byAttempt = new Map<string, string>();
+    for (const i of await api.issues(ISSUE_CYCLES)) for (const o of i.occurrences) byAttempt.set(`${o.runId}/${o.attemptId}`, i.id);
+    return byAttempt;
+  }, [api]);
   if (load.state === 'loading') return <p className="muted">불러오는 중…</p>;
   if (load.state === 'error') return <Failure message={load.message} />;
   const { cycle, attempts, kind } = load.data;
+  const issueOf = (a: Attempt): string | undefined => (issues.state === 'ok' ? issues.data.get(`${a.runId}/${a.attemptId}`) : undefined);
   return (
     <>
       <header aria-label="케이스" className="cycle-head">
@@ -43,16 +51,17 @@ export function CaseView({ api, cycleId, testId, targetId }: { api: Api; cycleId
         <h1>{testId}</h1> <span className="muted">{targetId}</span> <span className={`cell cell-${kind} chip`}>{CELL_LABEL[kind]}</span>
         {' '}<Link to={`${href('/tests')}?testId=${encodeURIComponent(testId)}`}>이 테스트의 이력</Link>
       </header>
-      {attempts.length === 0 ? <p className="muted">이 케이스의 시도가 아직 없음</p> : attempts.map((a) => <AttemptPanel key={`${a.runId}/${a.attemptId}`} a={a} api={api} />)}
+      {attempts.length === 0 ? <p className="muted">이 케이스의 시도가 아직 없음</p> : attempts.map((a) => <AttemptPanel key={`${a.runId}/${a.attemptId}`} a={a} api={api} issueId={issueOf(a)} />)}
     </>
   );
 }
 
-function AttemptPanel({ a, api }: { a: Attempt; api: Api }) {
+function AttemptPanel({ a, api, issueId }: { a: Attempt; api: Api; issueId?: string | undefined }) {
   const [label, tone] = a.result ? RESULT[a.result] ?? [a.result, 'neutral' as Tone] : ['진행 중', 'info' as Tone];
   return (
     <section aria-label={`시도 ${a.attemptNo ?? '?'} (${a.runId}${a.replaced ? ', 대체됨' : ''})`} className={`attempt ${a.replaced ? 'replaced-attempt' : ''}`}>
-      <h2>시도 {a.attemptNo ?? '?'} <Badge tone={tone}>{label}</Badge>{a.errorCode ? <code className="code"> {a.errorCode}</code> : null} <span className="muted">{seconds(a.startedAt, a.finishedAt)} · {a.runId}{a.replaced ? ' (대체된 Run)' : ''}</span></h2>
+      <h2>시도 {a.attemptNo ?? '?'} <Badge tone={tone}>{label}</Badge>{a.errorCode ? <code className="code"> {a.errorCode}</code> : null} <span className="muted">{seconds(a.startedAt, a.finishedAt)} · {a.runId}{a.replaced ? ' (대체된 Run)' : ''}</span>
+        {issueId ? <> <Link to={`${href('/issues')}#${issueId}`}>같은 원인의 Issue</Link></> : null}</h2>
       {a.steps.length ? (
         <table className="table steps">
           <thead><tr><th>#</th><th>종류</th><th>지시</th><th>시간</th><th>모델</th><th>토큰 입력 / 출력 / 캐시 읽기</th></tr></thead>

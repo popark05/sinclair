@@ -2,7 +2,7 @@
 // 케이스 상세: 그 타깃의 Run 들(대체된 Run 포함)에서 그 테스트의 Attempt 를 시도 번호 순으로, 스텝(종류·instruction·시간·모델·토큰)과 실패·안전망·Incident 표지, 아티팩트 키.
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, cleanup, within } from '@testing-library/react';
-import type { CycleViewWithWarnings, RunView } from '@sinclair/control-plane';
+import type { CycleViewWithWarnings, IssueView, RunView } from '@sinclair/control-plane';
 import { CaseView } from '../src/pages/CaseView.tsx';
 import { App } from '../src/App.tsx';
 import { ApiError, type Api } from '../src/api.ts';
@@ -30,6 +30,28 @@ const runs: Record<string, RunView> = {
   ] },
 };
 const api: Api = { ...STUBS, cycleSummaries: async () => [], fleet: async () => { throw new Error('x'); }, cycle: async () => cycle, run: async (id) => { const r = runs[id]; if (!r) throw new Error(`404 ${id}`); return r; } };
+
+describe('CaseView · Issue 링크', () => {
+  const issue = (id: string, runId: string, attemptId: string): IssueView => ({ id, errorCode: 'agent', summary: '턴 한도', count: 1, tests: [T], occurrences: [{ cycleId: 'c1', build: '2.1.0', testId: T, targetId: 'android', runId, attemptId }] });
+
+  it('실패한 시도는 서버가 묶은 Issue(발생의 runId·attemptId 가 같은 것)로 가는 링크를 단다; 통과한 시도에는 없다', async () => {
+    const api2: Api = { ...api, issues: async () => [issue('0123456789ab', 'r1', 'a1'), issue('ffffffffffff', 'r-other', 'a1')] };
+    render(<CaseView api={api2} cycleId="c1" testId={T} targetId="android" />);
+    const failed = await screen.findByRole('region', { name: '시도 1 (r1)' });
+    const link = await within(failed).findByRole('link', { name: /Issue/ });
+    expect(link.getAttribute('href')).toBe('/console/issues#0123456789ab');
+    expect(within(screen.getByRole('region', { name: '시도 2 (r1)' })).queryByRole('link', { name: /Issue/ })).toBeNull();
+  });
+
+  it('Issue 목록을 못 불러와도 케이스 상세는 그대로 보인다(링크만 없다)', async () => {
+    const api2: Api = { ...api, issues: async () => { throw new ApiError('500 x', 500); } };
+    render(<CaseView api={api2} cycleId="c1" testId={T} targetId="android" />);
+    const failed = await screen.findByRole('region', { name: '시도 1 (r1)' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(within(failed).queryByRole('link', { name: /Issue/ })).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
 
 describe('CaseView · 리뷰 반영', () => {
   it('이벤트가 아직 없는 대기 Run(대체 Run 이 막 등록됨)이 있어도 다른 Run 의 시도를 보인다', async () => {

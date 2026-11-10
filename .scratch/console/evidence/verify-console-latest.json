@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-10T12:10:04.751Z",
+  "at": "2026-11-10T12:14:48.601Z",
   "ok": true,
   "chrome": "Google Chrome",
   "pages": [
@@ -29,7 +29,7 @@
         }
       ],
       "screenshot": ".e2e/verify-console/cycles.png",
-      "screenshotBytes": 24453
+      "screenshotBytes": 24213
     },
     {
       "page": "cycle",
@@ -54,7 +54,7 @@
         }
       ],
       "screenshot": ".e2e/verify-console/cycle.png",
-      "screenshotBytes": 45910
+      "screenshotBytes": 45701
     },
     {
       "page": "case",
@@ -88,10 +88,18 @@
         {
           "text": ".screen-tree.json</a>",
           "found": true
+        },
+        {
+          "text": "href=\"/console/issues#",
+          "found": true
+        },
+        {
+          "text": "같은 원인의 Issue",
+          "found": true
         }
       ],
       "screenshot": ".e2e/verify-console/case.png",
-      "screenshotBytes": 76022
+      "screenshotBytes": 78003
     },
     {
       "page": "fleet",
@@ -132,11 +140,11 @@
         }
       ],
       "screenshot": ".e2e/verify-console/fleet.png",
-      "screenshotBytes": 41667
+      "screenshotBytes": 41372
     },
     {
       "page": "issues",
-      "path": "/console/issues",
+      "path": "/console/issues#<issue>",
       "ok": true,
       "checks": [
         {
@@ -154,10 +162,14 @@
         {
           "text": "미분류",
           "found": true
+        },
+        {
+          "text": "id=\"issue-dc45a3f17470\" class=\"issue-target\"",
+          "found": true
         }
       ],
       "screenshot": ".e2e/verify-console/issues.png",
-      "screenshotBytes": 44837
+      "screenshotBytes": 44860
     },
     {
       "page": "tests",
