@@ -15,6 +15,8 @@ const VALID: RunEvent[] = [
   // 모델 스텝의 토큰 사용량(Console 비용). 캐시 필드는 적중·기록이 있을 때만
   { ...base, type: 'step.recorded', attemptId: 'a1', stepIndex: 3, kind: 'act', instruction: 'act "로그인" → tap @e4 (2턴)', modelCalls: 2, durationMs: 4100, usage: { inputTokens: 2400, outputTokens: 180 } },
   { ...base, type: 'step.recorded', attemptId: 'a1', stepIndex: 4, kind: 'act', modelCalls: 3, durationMs: 5000, usage: { inputTokens: 300, outputTokens: 90, cacheReadTokens: 4200, cacheWriteTokens: 0 } },
+  // 모델별 분해(요약 모델 Haiku 와 본 모델이 한 스텝에 섞일 때). 합계는 위 필드, byModel 은 그 내역
+  { ...base, type: 'step.recorded', attemptId: 'a1', stepIndex: 5, kind: 'act', modelCalls: 2, durationMs: 4000, usage: { inputTokens: 1200, outputTokens: 70, byModel: { 'claude-sonnet-5-5': { inputTokens: 1000, outputTokens: 50 }, 'claude-haiku-5-5': { inputTokens: 200, outputTokens: 20, cacheReadTokens: 0 } } } },
   { ...base, at: '2026-11-07T09:00:00+09:00', type: 'step.recorded', attemptId: 'a1', stepIndex: 2, kind: 'locator', instruction: '', modelCalls: 0, durationMs: 0 }, // 오프셋 타임존, 빈 instruction 허용
 ];
 
@@ -50,6 +52,8 @@ describe('parseRunEvent', () => {
     ['usage 의 필수 토큰 누락', { ...base, type: 'step.recorded', attemptId: 'a1', stepIndex: 0, kind: 'act', modelCalls: 1, durationMs: 1, usage: { inputTokens: 1 } }, /usage.*outputTokens/],
     ['usage 에 모르는 키', { ...base, type: 'step.recorded', attemptId: 'a1', stepIndex: 0, kind: 'act', modelCalls: 1, durationMs: 1, usage: { inputTokens: 1, outputTokens: 1, costUsd: 0.1 } }, /usage.*costUsd/],
     ['usage 토큰이 음수', { ...base, type: 'step.recorded', attemptId: 'a1', stepIndex: 0, kind: 'act', modelCalls: 1, durationMs: 1, usage: { inputTokens: -1, outputTokens: 1 } }, /usage.*inputTokens/],
+    ['byModel 내역에 모르는 키', { ...base, type: 'step.recorded', attemptId: 'a1', stepIndex: 0, kind: 'act', modelCalls: 1, durationMs: 1, usage: { inputTokens: 1, outputTokens: 1, byModel: { m: { inputTokens: 1, outputTokens: 1, cost: 1 } } } }, /byModel.*cost/],
+    ['byModel 이 객체가 아님', { ...base, type: 'step.recorded', attemptId: 'a1', stepIndex: 0, kind: 'act', modelCalls: 1, durationMs: 1, usage: { inputTokens: 1, outputTokens: 1, byModel: [] } }, /byModel/],
     ['attemptNo 가 0', { ...base, type: 'attempt.started', attemptId: 'a1', testId: 't', attemptNo: 0 }, /attemptNo/],
   ])('거부: %s', (_, input, pattern) => {
     const r = parseRunEvent(input);

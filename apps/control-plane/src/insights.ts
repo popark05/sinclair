@@ -10,7 +10,11 @@ export interface UsageTotals {
   /** 캐시 읽기 / (입력 + 캐시 읽기 + 캐시 쓰기). 입력 토큰이 하나도 없으면 null */
   cacheHitRate: number | null;
 }
-export interface CycleUsage { cycleId: string; total: UsageTotals; byTarget: Record<string, UsageTotals>; byTest: Record<string, UsageTotals> }
+/** 모델별 토큰(모델 호출 수는 스텝 단위라 모델로 나눌 수 없어 없다) */
+export type ModelTotals = Omit<UsageTotals, 'modelCalls'>;
+export interface CycleUsage { cycleId: string; total: UsageTotals; byTarget: Record<string, UsageTotals>; byTest: Record<string, UsageTotals>;
+  /** 스텝이 보고한 모델별 내역의 합(본 모델·요약 모델·fallback 모델은 단가가 다르다). 내역이 없는 스텝은 합계에만 든다 */
+  byModel: Record<string, ModelTotals> }
 
 type Sum = Omit<UsageTotals, 'cacheHitRate'>;
 const zero = (): Sum => ({ modelCalls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 });
@@ -25,6 +29,7 @@ export async function cycleUsage(events: EventStore, cycles: CycleStore, cycleId
   const total = zero();
   const byTarget = new Map<string, Sum>();
   const byTest = new Map<string, Sum>();
+  const byModel = new Map<string, Sum>();
   for (const reg of await cycles.runsForCycle(cycleId)) {
     const view = projectRun(await events.eventsForRun(reg.runId));
     const target = byTarget.get(reg.targetId) ?? zero();
@@ -39,10 +44,16 @@ export async function cycleUsage(events: EventStore, cycles: CycleStore, cycleId
         acc.cacheReadTokens += s.usage?.cacheReadTokens ?? 0;
         acc.cacheWriteTokens += s.usage?.cacheWriteTokens ?? 0;
       }
+      for (const s of a.steps) for (const [model, u] of Object.entries(s.usage?.byModel ?? {})) {
+        const m = byModel.get(model) ?? zero();
+        byModel.set(model, m);
+        m.inputTokens += u.inputTokens; m.outputTokens += u.outputTokens; m.cacheReadTokens += u.cacheReadTokens ?? 0; m.cacheWriteTokens += u.cacheWriteTokens ?? 0;
+      }
     }
   }
   const map = (m: Map<string, Sum>) => Object.fromEntries([...m].map(([k, v]) => [k, finish(v)]));
-  return { cycleId, total: finish(total), byTarget: map(byTarget), byTest: map(byTest) };
+  const models = Object.fromEntries([...byModel].map(([k, v]) => { const { modelCalls: _n, ...rest } = finish(v); return [k, rest]; }));
+  return { cycleId, total: finish(total), byTarget: map(byTarget), byTest: map(byTest), byModel: models };
 }
 
 export interface HistoryCell { cycleId: string; build: string; createdAt: string; targetId: string; verdict: CaseVerdict }

@@ -11,5 +11,5 @@ export { buildCycleView, sweepAbandoned, sweepAllAbandoned, abandonedEventId, re
 export { parseConfig, defaultDataDir, ConfigError, HELP, type ControlPlaneConfig } from './config.ts';
 export { startControlPlane, type RunningControlPlane } from './main.ts'; // main() 은 bin 만 쓴다(프로세스 제어)
 export { deviceStatus, buildFleetView, nextNodeRecord, createMemoryFleetStore, type FleetStore, type NodeRecord, type MissingDevice, type DeviceStatus, type FleetView } from './fleet.ts';
-export { cycleUsage, testHistory, type CycleUsage, type UsageTotals, type TestHistory, type HistoryCell, type HistoryView } from './insights.ts';
+export { cycleUsage, testHistory, type CycleUsage, type UsageTotals, type ModelTotals, type TestHistory, type HistoryCell, type HistoryView } from './insights.ts';
 export { createMemoryArtifactStore, createFileArtifactStore, ARTIFACT_KEY, DEFAULT_MAX_ARTIFACT_BYTES, type ArtifactStore } from './artifacts.ts';

@@ -1,6 +1,6 @@
 // RunEvent 런타임 검증기. 러너 Reporter 와 control-plane Ingest 가 같은 검증을 쓴다.
 // 닫힌 스키마: 모르는 type·키, 빠진 필수 필드, 상수 밖의 값은 모두 거부한다. 오류는 모아서 한 번에 돌려준다.
-import { ARTIFACT_KINDS, EVENT_SCHEMA_VERSION, RUN_FINISHED_STATES, STEP_KINDS, type AttemptFinished, type AttemptStarted, type RunEvent, type RunEventType, type RunFinished, type RunStarted, type StepRecorded, type StepUsage } from './events.ts';
+import { ARTIFACT_KINDS, EVENT_SCHEMA_VERSION, RUN_FINISHED_STATES, STEP_KINDS, type AttemptFinished, type AttemptStarted, type RunEvent, type RunEventType, type RunFinished, type RunStarted, type StepRecorded, type StepUsage, type TokenUsage } from './events.ts';
 import { ATTEMPT_RESULTS, CACHE_DECISIONS } from './status.ts';
 
 export type ParseResult = { ok: true; event: RunEvent } | { ok: false; errors: string[] };
@@ -27,21 +27,30 @@ const artifacts = (v: unknown) => {
   return undefined;
 };
 
-const USAGE: Record<keyof StepUsage, FieldRule> = {
+const TOKENS: Record<keyof TokenUsage, FieldRule> = {
   inputTokens: { required: true, check: int }, outputTokens: { required: true, check: int },
   cacheReadTokens: { required: false, check: int }, cacheWriteTokens: { required: false, check: int },
 };
-const usage = (v: unknown) => {
+const tokens = (v: unknown) => closed(v, TOKENS);
+const byModel = (v: unknown) => {
+  if (!isRecord(v)) return '객체여야 함';
+  for (const [model, u] of Object.entries(v)) { if (!model) return '모델 이름이 비어 있음'; const p = tokens(u); if (p) return `${model}: ${p}`; }
+  return undefined;
+};
+const USAGE: Record<keyof StepUsage, FieldRule> = { ...TOKENS, byModel: { required: false, check: byModel } };
+const usage = (v: unknown) => closed(v, USAGE);
+/** 닫힌 객체 검사: 규칙에 없는 키·빠진 필수·규칙 위반을 한 줄로 */
+function closed(v: unknown, rules: Record<string, FieldRule>): string | undefined {
   if (!isRecord(v)) return '객체여야 함';
   const problems: string[] = [];
-  for (const [key, rule] of Object.entries(USAGE)) {
+  for (const [key, rule] of Object.entries(rules)) {
     if (!Object.hasOwn(v, key)) { if (rule.required) problems.push(`${key} 누락`); continue; }
     const p = rule.check(v[key]);
     if (p) problems.push(`${key} ${p}`);
   }
-  for (const key of Object.keys(v)) if (!Object.hasOwn(USAGE, key)) problems.push(`${key} 모르는 키`);
+  for (const key of Object.keys(v)) if (!Object.hasOwn(rules, key)) problems.push(`${key} 모르는 키`);
   return problems.length ? problems.join(', ') : undefined;
-};
+}
 
 const BASE: Record<string, FieldRule> = {
   schema: { required: true, check: (v) => (v === EVENT_SCHEMA_VERSION ? undefined : `${EVENT_SCHEMA_VERSION} 이어야 함`) },

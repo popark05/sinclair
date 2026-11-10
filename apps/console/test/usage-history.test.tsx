@@ -13,7 +13,7 @@ const t = (modelCalls: number, inputTokens: number, outputTokens: number, cacheR
   const d = inputTokens + cacheReadTokens + cacheWriteTokens;
   return { modelCalls, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, cacheHitRate: d ? cacheReadTokens / d : null };
 };
-const usage: CycleUsage = { cycleId: 'c1', total: t(25, 24740, 3082, 30376, 1984), byTarget: { android: t(25, 24740, 3082, 30376, 1984), ios: t(0, 0, 0, 0, 0) }, byTest: { '휴대전화 정보': t(7, 7466, 742, 6760, 1984), '검색': t(0, 0, 0, 0, 0) } };
+const usage: CycleUsage = { cycleId: 'c1', byModel: { 'claude-sonnet-5-5': { inputTokens: 24000, outputTokens: 3000, cacheReadTokens: 30376, cacheWriteTokens: 1984, cacheHitRate: 30376 / 56360 }, 'claude-haiku-5-5': { inputTokens: 740, outputTokens: 82, cacheReadTokens: 0, cacheWriteTokens: 0, cacheHitRate: 0 } }, total: t(25, 24740, 3082, 30376, 1984), byTarget: { android: t(25, 24740, 3082, 30376, 1984), ios: t(0, 0, 0, 0, 0) }, byTest: { '휴대전화 정보': t(7, 7466, 742, 6760, 1984), '검색': t(0, 0, 0, 0, 0) } };
 const history: HistoryView = {
   cycles: [{ cycleId: 'c0', build: '1.0', createdAt: '2026-11-08T00:00:00.000Z' }, { cycleId: 'c1', build: '1.1', createdAt: '2026-11-09T00:00:00.000Z' }],
   tests: [
@@ -32,11 +32,14 @@ describe('UsageSection', () => {
     const byTest = within(sec).getByRole('table', { name: '테스트별' });
     expect(within(byTest).getAllByRole('row').slice(1).map((r) => r.firstChild!.textContent)).toEqual(['휴대전화 정보', '검색']);
     expect(within(byTest).getAllByRole('row')[2]!.textContent).toMatch(/검색.*0.*—/); // 분모 0 이면 —
+    const byModel = within(sec).getByRole('table', { name: '모델별' });
+    expect(within(byModel).getAllByRole('row').slice(1).map((r) => r.firstChild!.textContent)).toEqual(['claude-sonnet-5-5', 'claude-haiku-5-5']); // 입력 토큰 많은 순
+    expect(byModel.textContent).toMatch(/claude-haiku-5-5.*740.*82/);
   });
 
   it('모델을 한 번도 안 불렀으면 절을 숨긴다(불러온 뒤에도)', async () => {
     let loaded = false;
-    const { container } = render(<UsageSection api={{ ...base, usage: async () => { loaded = true; return { cycleId: 'c1', total: t(0, 0, 0, 0, 0), byTarget: {}, byTest: {} }; } }} cycleId="c1" />);
+    const { container } = render(<UsageSection api={{ ...base, usage: async () => { loaded = true; return { cycleId: 'c1', total: t(0, 0, 0, 0, 0), byTarget: {}, byTest: {}, byModel: {} }; } }} cycleId="c1" />);
     await vi.waitFor(() => expect(loaded).toBe(true));
     await new Promise((r) => setTimeout(r, 0));
     expect(container.textContent).toBe('');

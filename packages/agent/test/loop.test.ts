@@ -187,3 +187,13 @@ describe('runAct · 화면 변화 · 리뷰 반영', () => {
     expect(exec.requests[2]!.history[1]!.change).toMatch(/Incident 복구 뒤/);
   });
 });
+
+describe('addUsage · 모델별', () => {
+  it('합계와 모델별 내역을 함께 더한다(같은 모델은 합치고, 내역이 없는 쪽은 합계에만)', async () => {
+    const { addUsage } = await import('../src/index.ts');
+    const a = { inputTokens: 100, outputTokens: 10, byModel: { s: { inputTokens: 100, outputTokens: 10 } } };
+    const b = { inputTokens: 50, outputTokens: 5, cacheReadTokens: 7, byModel: { s: { inputTokens: 30, outputTokens: 3, cacheReadTokens: 7 }, h: { inputTokens: 20, outputTokens: 2 } } };
+    expect(addUsage(a, b)).toEqual({ inputTokens: 150, outputTokens: 15, cacheReadTokens: 7, byModel: { s: { inputTokens: 130, outputTokens: 13, cacheReadTokens: 7 }, h: { inputTokens: 20, outputTokens: 2 } } });
+    expect(addUsage({ inputTokens: 1, outputTokens: 1 }, { inputTokens: 1, outputTokens: 1 })).not.toHaveProperty('byModel');
+  });
+});

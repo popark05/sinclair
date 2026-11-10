@@ -69,13 +69,15 @@ const JUDGE_SYSTEM = [
 
 const mediaType = (b: Uint8Array): 'image/png' | 'image/jpeg' => (b[0] === 0xff && b[1] === 0xd8 ? 'image/jpeg' : 'image/png');
 
-function toUsage(u: { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null } | undefined): StepUsage | undefined {
+/** API 사용량 → 스텝 사용량. model 은 응답이 밝힌 실제 모델(서버 측 fallback 이면 그 모델) — 모델마다 단가가 달라 내역으로 남긴다 */
+function toUsage(u: { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null } | undefined, model?: string): StepUsage | undefined {
   if (!u) return undefined;
-  return {
+  const tokens = {
     inputTokens: u.input_tokens, outputTokens: u.output_tokens,
     ...(u.cache_read_input_tokens ? { cacheReadTokens: u.cache_read_input_tokens } : {}),
     ...(u.cache_creation_input_tokens ? { cacheWriteTokens: u.cache_creation_input_tokens } : {}),
   };
+  return model ? { ...tokens, byModel: { [model]: { ...tokens } } } : tokens;
 }
 
 const apiMessage = (err: InstanceType<typeof Anthropic.APIError>): string => {
@@ -145,7 +147,7 @@ export function createClaudeExecutor(options: ClaudeExecutorOptions = {}): StepE
     } catch (err) {
       throw translateError(err, model);
     }
-    if (res.stop_reason === 'refusal') throw new ModelCallError(`모델이 거절함(${res.stop_details?.category ?? '범주 없음'})`, toUsage(res.usage));
+    if (res.stop_reason === 'refusal') throw new ModelCallError(`모델이 거절함(${res.stop_details?.category ?? '범주 없음'})`, toUsage(res.usage, res.model));
     return res;
   }
 
@@ -163,7 +165,7 @@ export function createClaudeExecutor(options: ClaudeExecutorOptions = {}): StepE
       if (summaries.has(key)) continue;
       try {
         const r = await getClient().messages.create({ model: summaryModel, max_tokens: 400, system: SUMMARY_SYSTEM, messages: [{ role: 'user', content: `목표: ${req.goal}\n\n${blockText(req, from)}` }] }, { signal });
-        used = addUsage(used, toUsage(r.usage));
+        used = addUsage(used, toUsage(r.usage, r.model));
         const text = r.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join(' ').trim();
         summaries.set(key, r.stop_reason === 'refusal' ? '' : text.slice(0, 400));
       } catch (err) {
@@ -193,7 +195,7 @@ export function createClaudeExecutor(options: ClaudeExecutorOptions = {}): StepE
         if (summaryUsage && !(err instanceof ModelConfigError) && err instanceof Error && !(err instanceof Anthropic.APIUserAbortError)) throw new ModelCallError(err.message, summaryUsage);
         throw err;
       });
-      const usage = addUsage(summaryUsage, toUsage(res.usage));
+      const usage = addUsage(summaryUsage, toUsage(res.usage, res.model));
       const tool = res.content.find((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === 'tool_use');
       if (tool) return { call: { name: tool.name, input: tool.input }, ...(usage ? { usage } : {}) };
       if (res.stop_reason === 'max_tokens') throw new ModelCallError(`툴을 부르기 전에 max_tokens(${maxTokens})에서 잘림`, usage);
@@ -204,7 +206,7 @@ export function createClaudeExecutor(options: ClaudeExecutorOptions = {}): StepE
     async judge(req: JudgeRequest, signal): Promise<JudgeReply> {
       const prompt = [`${req.kind === 'assert' ? '판정할 문장' : '추출할 값'}: ${req.question}`, '', '지금 화면:', req.observation].join('\n');
       const res = await send(signal, { system: JUDGE_SYSTEM, content: [...imageBlock(req.pixels), { type: 'text', text: prompt }], format: req.schema });
-      const usage = toUsage(res.usage);
+      const usage = toUsage(res.usage, res.model);
       if (res.stop_reason === 'max_tokens') throw new ModelCallError(`답을 끝내기 전에 max_tokens(${maxTokens})에서 잘림`, usage);
       const text = res.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('');
       try {

@@ -43,11 +43,15 @@ export interface StepRecorded extends Base {
 }
 
 /** 모델 토큰 사용량. 캐시 필드는 API 가 돌려줄 때만(프롬프트 캐시 읽기·쓰기) */
-export interface StepUsage {
+export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
+}
+/** 스텝의 사용량: 합계 + 모델별 내역(한 스텝에 본 모델과 요약 모델·fallback 모델이 섞일 수 있어 단가가 다르다). 내역이 없으면 모델을 모르는 것 */
+export interface StepUsage extends TokenUsage {
+  byModel?: Record<string, TokenUsage>;
 }
 
 export const ARTIFACT_KINDS = ['screenshot', 'video', 'trace', 'ai-trace', 'device-log', 'screen-tree'] as const;

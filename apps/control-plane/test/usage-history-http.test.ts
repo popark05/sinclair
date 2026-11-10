@@ -57,6 +57,28 @@ describe('GET /cycles/:id/usage', () => {
   });
 });
 
+describe('GET /cycles/:id/usage · 모델별', () => {
+  it('스텝의 모델별 내역을 모델마다 합친다(내역 없는 스텝은 합계에만)', async () => {
+    server = await serveControlPlane(createMemoryEventStore());
+    await post('/cycles', { cycleId: 'm1', build: '1', targets: ['android'] });
+    await post('/cycles/m1/runs', { targetId: 'android', runId: 'rm' });
+    const step = (i: number, usage: Record<string, unknown>) => ev('rm', { type: 'step.recorded', attemptId: 'am', stepIndex: i, kind: 'act', modelCalls: 1, durationMs: 1, usage });
+    await post('/ingest', [
+      ev('rm', { type: 'run.started', cycleId: 'm1', targetId: 'android' }), ev('rm', { type: 'attempt.started', attemptId: 'am', testId: 't', attemptNo: 1 }),
+      step(0, { inputTokens: 1200, outputTokens: 70, byModel: { 'claude-sonnet-5-5': { inputTokens: 1000, outputTokens: 50, cacheReadTokens: 3000 }, 'claude-haiku-5-5': { inputTokens: 200, outputTokens: 20 } } }),
+      step(1, { inputTokens: 500, outputTokens: 30, byModel: { 'claude-sonnet-5-5': { inputTokens: 500, outputTokens: 30 } } }),
+      step(2, { inputTokens: 9, outputTokens: 9 }),
+      ev('rm', { type: 'attempt.finished', attemptId: 'am', result: 'passed', artifacts: [] }), ev('rm', { type: 'run.finished', state: 'finished' }),
+    ]);
+    const u = (await (await fetch(url('/cycles/m1/usage'))).json()) as CycleUsage;
+    expect(u.byModel).toEqual({
+      'claude-sonnet-5-5': { inputTokens: 1500, outputTokens: 80, cacheReadTokens: 3000, cacheWriteTokens: 0, cacheHitRate: 3000 / 4500 },
+      'claude-haiku-5-5': { inputTokens: 200, outputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0, cacheHitRate: 0 },
+    });
+    expect(u.total.inputTokens).toBe(1709);
+  });
+});
+
 describe('GET /tests/history', () => {
   it('최근 N Cycle 의 테스트별 셀(오래된 → 최신), 통계, flaky 비율 = 흔들림/(통과 계열+실패); testId 로 거르기', async () => {
     server = await serveControlPlane(createMemoryEventStore());

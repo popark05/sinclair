@@ -211,7 +211,7 @@ describe('createClaudeExecutor · Ledger', () => {
     const first = await exec.next({ goal: '목표', observation: '@r root', history: longHistory(17), tools: [] }, new AbortController().signal);
     expect(api.captured.map((c) => c.body.model)).toEqual(['claude-haiku-5-5', 'claude-sonnet-5-5']);
     expect(JSON.stringify(api.captured[1]!.body.messages)).toMatch(/턴 1–8 요약\(요약 모델, 참고용\): 설정 앱에서 알림 메뉴까지 갔다/);
-    expect(first.usage).toMatchObject({ inputTokens: 1200, outputTokens: 40 });
+    expect(first.usage).toMatchObject({ inputTokens: 1200, outputTokens: 40, byModel: { 'claude-haiku-5-5': { inputTokens: 200, outputTokens: 30 }, 'claude-sonnet-5-5': { inputTokens: 1000, outputTokens: 10 } } });
     await exec.next({ goal: '목표', observation: '@r root', history: longHistory(18), tools: [] }, new AbortController().signal);
     expect(api.captured.map((c) => c.body.model)).toEqual(['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-sonnet-5-5']); // 같은 묶음은 다시 요약하지 않는다
   });
