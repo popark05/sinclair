@@ -4,7 +4,7 @@ import type { RunEvent } from '@sinclair/protocol';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { createMemoryEventStore, createMemoryCycleStore, createSqliteEventStore, createSqliteCycleStore, openSqlite, sweepAbandoned, abandonedEventId, replacementRunId, projectRun, type EventStore, type CycleStore } from '../src/index.ts';
+import { createMemoryEventStore, createMemoryCycleStore, createSqliteEventStore, createSqliteCycleStore, openSqlite, sweepAbandoned, abandonedEventId, replacementRunId, projectRun, buildCycleView, MAX_CANCEL_REPLACEMENTS, type EventStore, type CycleStore } from '../src/index.ts';
 import { base, at } from './fixtures.ts';
 
 const T0 = Date.parse(at(0)); // fixtures 와 같은 시간축
@@ -72,6 +72,68 @@ describe('sweepAbandoned', () => {
     const regs = await cycles.runsForCycle('c1');
     expect(regs.find((r) => r.runId === 'r-a')).toMatchObject({ replacedBy: REP1 });
     expect(regs.filter((r) => r.replaces === 'r-a')).toHaveLength(1);
+  });
+});
+
+// 취소된 Run(종료 신호·lease 상실로 run.finished cancelled): 계획된 종료라 유예 없이, retryLimit 을 쓰지 않고 다시 등록한다(followups 05)
+describe('sweepAbandoned · 취소된 Run 재등록', () => {
+  const cancelled = (runId: string, s: number): RunEvent[] => [
+    ...started(runId, s).map((e) => ({ ...e, runId, eventId: `${e.eventId}-${runId}` })),
+    { ...base(`fin-${runId}`, s + 2, runId), type: 'attempt.finished', attemptId: `${runId}-a1`, result: 'skipped', errorCode: 'cancelled', artifacts: [] },
+    { ...base(`end-${runId}`, s + 3, runId), type: 'run.finished', state: 'cancelled' },
+  ];
+  const claim = (agent: string, nowMs: number) => cycles.claimRun('android', agent, nowMs, GRACE, async (id) => (await events.eventsForRun(id)).length > 0);
+
+  it('lease 로 클레임된 Run 이 cancelled 로 끝나면 lease 가 살아 있어도 곧바로 대체 Run 을 만든다: 합성 이벤트 없음, abandonedAt 없음, replaceReason cancelled', async () => {
+    await claim('a1', T0);
+    for (const e of cancelled('r-a', 0)) await events.append(e);
+    expect(await sweep(T0 + 1000)).toEqual({ abandoned: [], replacements: [{ runId: REP1, replaces: 'r-a', targetId: 'android', reason: 'cancelled' }] });
+    expect((await events.eventsForRun('r-a')).some((e) => e.eventId === abandonedEventId('r-a'))).toBe(false);
+    const regs = await cycles.runsForCycle('c1');
+    const orig = regs.find((r) => r.runId === 'r-a')!;
+    expect(orig.replacedBy).toBe(REP1);
+    expect(orig.abandonedAt).toBeUndefined();
+    expect(regs.find((r) => r.runId === REP1)).toMatchObject({ targetId: 'android', replaces: 'r-a', replaceReason: 'cancelled' });
+    expect(await sweep(T0 + 2000)).toEqual({ abandoned: [], replacements: [] }); // 멱등
+  });
+
+  it('retryLimit 을 쓰지 않는다: 한도 0 이어도 다시 등록하고, 그 뒤 버려진 Run 의 대체 한도는 그대로 남는다', async () => {
+    await cycles.createCycle({ cycleId: 'c0', build: 'b', targets: ['android'], requiredTags: [], retryLimit: 0, createdAt: 'x' });
+    await cycles.registerRun({ runId: 'z', cycleId: 'c0', targetId: 'android', createdAt: 'x' });
+    await cycles.claimRun('android', 'a1', T0, GRACE, async () => false); // r-a (c1) 를 먼저 잡는다
+    const z = await cycles.claimRun('android', 'a1', T0, GRACE, async (id) => id === 'r-a');
+    expect(z?.runId).toBe('z');
+    for (const e of cancelled('z', 0)) await events.append(e);
+    const r = await sweepAbandoned(events, cycles, 'c0', { nowMs: T0 + 1000, graceMs: GRACE });
+    expect(r.replacements).toEqual([{ runId: replacementRunId('z'), replaces: 'z', targetId: 'android', reason: 'cancelled' }]);
+  });
+
+  it('취소 대체는 타깃당 MAX_CANCEL_REPLACEMENTS 까지만: 넘으면 cancelled 로 남아 blocked', async () => {
+    let runId = 'r-a';
+    for (let i = 0; i <= MAX_CANCEL_REPLACEMENTS; i++) {
+      const claimed = await claim(`a${i}`, T0 + i * 10_000);
+      expect(claimed?.runId).toBe(runId);
+      for (const e of cancelled(runId, i * 10)) await events.append(e);
+      const r = await sweep(T0 + i * 10_000 + 1000);
+      if (i < MAX_CANCEL_REPLACEMENTS) { expect(r.replacements.map((x) => x.replaces)).toEqual([runId]); runId = replacementRunId(runId); }
+      else expect(r.replacements).toEqual([]);
+    }
+    expect((await cycles.runsForCycle('c1')).filter((x) => x.replaceReason === 'cancelled')).toHaveLength(MAX_CANCEL_REPLACEMENTS);
+  });
+
+  it('lease 없이 보고된 Run 의 cancelled 는 그 에이전트 몫이라 건드리지 않는다', async () => {
+    for (const e of cancelled('r-i', 0)) await events.append(e);
+    expect(await sweep(T0 + 1000)).toEqual({ abandoned: [], replacements: [] });
+  });
+
+  it('Cycle 뷰: 취소 대체는 retriesUsed 에 세지 않고, 대체 Run 이 끝나기 전까지 Cycle 은 running(incomplete)', async () => {
+    await claim('a1', T0);
+    for (const e of cancelled('r-a', 0)) await events.append(e);
+    await sweep(T0 + 1000);
+    const v = (await buildCycleView(events, cycles, 'c1'))!;
+    expect(v.retriesUsed).toEqual({ android: 0, ios: 0 });
+    expect(v.verdict).toBe('incomplete');
+    expect(v.runs.find((r) => r.runId === REP1)).toMatchObject({ state: 'queued', replaces: 'r-a', replaceReason: 'cancelled' });
   });
 });
 

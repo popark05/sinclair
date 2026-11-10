@@ -77,9 +77,10 @@ describe('runDaemon · 워커 모드', () => {
     const summary = await p;
     expect(summary.runs.map((r) => [r.exitCode, r.cancelled])).toEqual([[EXIT.cancelled, '종료 신호'], [EXIT.cancelled, '종료 신호'], [EXIT.cancelled, '종료 신호']]);
     const v = await view('c');
-    expect(v.runs.map((r) => r.state)).toEqual(['cancelled', 'cancelled', 'cancelled']);
+    // 취소된 셋은 대체 Run 으로 다시 올라간다(followups 05)
+    expect(v.runs.map((r) => [r.runId, r.state])).toEqual([['c-r1', 'cancelled'], ['c-r2', 'cancelled'], ['c-r3', 'cancelled'], ['retry:c-r1', 'queued'], ['retry:c-r2', 'queued'], ['retry:c-r3', 'queued']]);
     // "현재 테스트까지": 도는 중이던 첫 테스트는 끝까지 돌아 통과하고, 두 번째는 시작하지 않아 취소 skipped
-    for (const r of v.runs) {
+    for (const r of v.runs.filter((x) => !x.replaces)) {
       const rv = (await (await fetch(`${url}/runs/${r.runId}`)).json()) as { attempts: Array<{ testId: string; result: string; errorCode?: string }> };
       expect(rv.attempts.map((a) => [a.testId, a.result, a.errorCode])).toEqual([['느린 테스트 1', 'passed', undefined], ['느린 테스트 2', 'skipped', 'cancelled']]);
     }

@@ -64,6 +64,21 @@ describe('CycleView', () => {
     expect(screen.getByText(/대체 android 1\/1/)).toBeTruthy();
   });
 
+  it('Run 행: 취소로 다시 등록된 Run 은 "취소돼 다시 등록" 이고 버려짐 시각·한도 문구가 없다', async () => {
+    const runs: CycleViewWithWarnings['runs'] = [
+      { runId: 'c', targetId: 'android', state: 'cancelled', replacedBy: 'retry:c' },
+      { runId: 'retry:c', targetId: 'android', state: 'queued', replaces: 'c', replaceReason: 'cancelled' },
+    ];
+    render(<CycleView api={apiOf(() => view({ runs, retriesUsed: { android: 0, ios: 0 } }))} cycleId="c1" />);
+    const table = await screen.findByRole('table', { name: 'Run' });
+    const [, r1, r2] = within(table).getAllByRole('row');
+    expect(r1!.textContent).toMatch(/취소됨.*retry:c 로 대체됨/);
+    expect(r1!.textContent).not.toMatch(/버려짐/);
+    expect(r2!.textContent).toMatch(/c 가 취소돼 다시 등록/);
+    expect(screen.queryByText(/대체 android/)).toBeNull();
+    expect(screen.getByText(/재시도 한도를 쓰지 않고 다시 등록/)).toBeTruthy();
+  });
+
   it('끝나지 않은 동안 5초마다 새로 고치고, 끝나면 멈춘다', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     let state: CycleViewWithWarnings['state'] = 'running';

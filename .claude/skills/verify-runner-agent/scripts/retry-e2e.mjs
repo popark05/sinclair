@@ -2,6 +2,7 @@
 //   kill  — 데몬 A 를 run 도중 SIGKILL → 유예 뒤 버려진 Run(infra-failed) + 대체 Run → 데몬 B 가 재시도 포함으로 끝냄 → verified, passed-flaky
 //   limit — retryLimit 0 으로 같은 시나리오 → 대체 없이 blocked
 //   lease — A 의 heartbeat 만 프록시로 끊음 → 대체 Run 을 B 가 가져간 뒤 차단 해제 → A 는 409 replaced 를 받고 cancelled(코드 5) → Verdict 는 B 의 run
+//   cancel — retryLimit 0 에서 데몬 A 에 SIGTERM → run cancelled → 유예 없이 취소 대체 Run(retryLimit 을 쓰지 않음) → 데몬 B 가 끝냄 → verified
 // 사용: node retry-e2e.mjs <RUN_DIR> <lease-ttl-ms>   (서버는 같은 TTL 로 기동돼 있어야 한다)  증거: <RUN_DIR>/evidence/retry-e2e.json
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -22,8 +23,8 @@ const SLOW_MS = Math.max(2000, Math.ceil(TTL / 2));
 const SLOW_COUNT = Math.ceil((5 * TTL) / SLOW_MS) + 2;
 const env = { ...process.env, SINCLAIR_E2E_SLOW_MS: String(SLOW_MS), SINCLAIR_E2E_SLOW_COUNT: String(SLOW_COUNT) };
 const mask = (line) => line.split(REPO).join('<repo>').split(os.homedir()).join('<home>');
-/** 경로별 판정 수(kill 4, limit 2, lease 4). 판정을 더하면 여기와 문서의 "10/10" 을 함께 바꾼다 */
-const EXPECTED_CHECKS = 10;
+/** 경로별 판정 수(kill 4, limit 2, lease 4, cancel 3). 판정을 더하면 여기와 문서의 "13/13" 을 함께 바꾼다 */
+const EXPECTED_CHECKS = 13;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function api(method, p, body) {
@@ -56,7 +57,7 @@ async function stop(d) {
 }
 const summarize = (v) => ({
   cycleId: v.cycleId, state: v.state, verdict: v.verdict, retryLimit: v.retryLimit, retriesUsed: v.retriesUsed,
-  runs: v.runs.map((r) => ({ runId: r.runId, state: r.state, agent: r.lease?.agentId, ...(r.replaces ? { replaces: r.replaces } : {}), ...(r.replacedBy ? { replacedBy: r.replacedBy, abandonedAt: r.abandonedAt } : {}) })),
+  runs: v.runs.map((r) => ({ runId: r.runId, state: r.state, agent: r.lease?.agentId, ...(r.replaces ? { replaces: r.replaces } : {}), ...(r.replaceReason ? { replaceReason: r.replaceReason } : {}), ...(r.replacedBy ? { replacedBy: r.replacedBy, abandonedAt: r.abandonedAt } : {}) })),
   matrix: Object.fromEntries(Object.entries(v.matrix).map(([t, row]) => [t, Object.fromEntries(Object.entries(row).map(([k, c]) => [k, c.verdict]))])),
 });
 async function newCycle(kind, retryLimit) {
@@ -144,6 +145,25 @@ try {
       proxy.kill('SIGTERM');
       await Promise.race([gone, sleep(3_000).then(() => proxy.kill('SIGKILL'))]);
     }
+  }
+
+  // ---- cancel: 종료 신호로 cancelled → 취소 대체 Run(한도 0 이어도) → 데몬 B 가 끝냄
+  {
+    const c = await newCycle('cancel', 0);
+    const a = daemon('cancel-a', c.target, URL0); daemons.push(a);
+    await running(c.cycleId, c.runId);
+    const aEnd = await stop(a); // SIGTERM: 진행 중 테스트까지 마치고 나머지 skipped, run cancelled
+    const queuedAt = Date.now();
+    const rep = await until('취소 대체 Run 등록', async () => (await view(c.cycleId)).runs.find((x) => x.replaces === c.runId), 10_000);
+    const b = daemon('cancel-b', c.target, URL0); daemons.push(b);
+    const v = await finished(c.cycleId);
+    const bEnd = await stop(b);
+    const s = summarize(v);
+    const summaryLine = aEnd.log.find((l) => l.startsWith('데몬 요약')) ?? '';
+    evidence.paths.cancel = { cycle: s, replacementSeenAfterMs: Date.now() - queuedAt, daemonA: { exit: aEnd.code, log: aEnd.log }, daemonB: { exit: bEnd.code, log: bEnd.log } };
+    check('cancel', 'A 는 SIGTERM 으로 run 을 중단(코드 5)하고 exit 0', summaryLine.includes(`${c.target}:5`) && aEnd.code === 0);
+    check('cancel', '원래 Run 은 cancelled 로 남고 취소 대체(replaceReason cancelled, abandonedAt 없음)', s.runs[0]?.state === 'cancelled' && s.runs[0]?.replacedBy === rep.runId && !s.runs[0]?.abandonedAt && s.runs[1]?.replaceReason === 'cancelled');
+    check('cancel', 'retryLimit 0 인데도 B 가 끝내 verified, retriesUsed 0', s.runs[1]?.agent === 'cancel-b' && s.runs[1]?.state === 'finished' && s.verdict === 'verified' && s.retriesUsed[c.target] === 0);
   }
 } catch (err) {
   evidence.error = String(err instanceof Error ? err.message : err);

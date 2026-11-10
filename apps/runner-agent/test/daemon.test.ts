@@ -90,7 +90,8 @@ describe('runDaemon', () => {
       expect(summary.runs.map((r) => [r.runId, r.exitCode, r.leaseLost, r.cancelled])).toEqual([['r-lost', EXIT.cancelled, true, 'lease 를 잃음'], ['r-next', EXIT.ok, undefined, undefined]]);
       expect(logs.join('\n')).toMatch(/r-lost: lease 를 잃어 중단/);
       const v = await view('cl');
-      expect(v.runs.map((r) => [r.runId, r.state])).toEqual([['r-lost', 'cancelled'], ['r-next', 'finished']]);
+      // 취소로 끝난 run 은 control-plane 이 같은 타깃에 다시 올린다(followups 05). replaced 는 이미 대체 Run 이 있어 그 Run 이 그대로 대체
+      expect(v.runs.map((r) => [r.runId, r.state, r.replacedBy])).toEqual([['r-lost', 'cancelled', 'retry:r-lost'], ['r-next', 'finished', undefined], ['retry:r-lost', 'queued', undefined]]);
     } finally { await srv.close(); cp = undefined; }
   }, 15_000);
 
@@ -105,9 +106,11 @@ describe('runDaemon', () => {
     expect(summary.stoppedBy).toBe('signal');
     expect(summary.runs).toEqual([{ runId: 'r-cancel', targetId: 'android', exitCode: EXIT.cancelled, cancelled: '종료 신호' }]);
     const v = await view('cc');
-    expect(v).toMatchObject({ state: 'finished', verdict: 'blocked', runs: [{ runId: 'r-cancel', state: 'cancelled' }] });
-    // 같은 ms 의 이벤트는 투영 순서가 바뀔 수 있어 이름으로 본다. 셋째는 돌지 않아 blocked
-    expect(['첫째', '둘째', '셋째'].map((t) => v.matrix[t]!.android!.verdict)).toEqual(['passed', 'passed', 'blocked']);
+    // 취소된 run 은 대체 Run 으로 다시 올라가 Cycle 은 아직 끝나지 않았다(followups 05). 취소된 run 의 Attempt 는 이벤트로 남는다
+    expect(v).toMatchObject({ state: 'running', verdict: 'incomplete', retriesUsed: { android: 0 }, runs: [{ runId: 'r-cancel', state: 'cancelled', replacedBy: 'retry:r-cancel' }, { runId: 'retry:r-cancel', state: 'queued', replaceReason: 'cancelled' }] });
+    const rv = await (await fetch(`${url}/runs/r-cancel`)).json() as { attempts: Array<{ testId: string; result: string; errorCode?: string }> };
+    // 같은 ms 의 이벤트는 투영 순서가 바뀔 수 있어 이름으로 본다. 셋째는 취소로 돌지 않았다
+    expect(['첫째', '둘째', '셋째'].map((t) => rv.attempts.find((a) => a.testId === t)?.result)).toEqual(['passed', 'passed', 'skipped']);
     expect(logs.join('\n')).toMatch(/중단\(cancelled\): 종료 신호/);
   });
 

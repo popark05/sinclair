@@ -90,10 +90,13 @@ export interface RunRegistration {
   targetId: string;
   createdAt: string;
   lease?: RunLease;
-  /** 이 Run 이 대체하는(버려진) Run */
+  /** 이 Run 이 대체하는 Run(버려졌거나 취소됨) */
   replaces?: string;
-  /** 버려져서 이 Run 으로 대체됨(Verdict 에서 제외) */
+  /** 대체한 까닭. 없으면 버려진 Run 의 대체(retryLimit 을 쓴다). cancelled = 취소로 끝난 Run 을 다시 등록한 것(retryLimit 을 쓰지 않는다, followups 05) */
+  replaceReason?: 'cancelled';
+  /** 버려지거나 취소돼 이 Run 으로 대체됨(Verdict 에서 제외) */
   replacedBy?: string;
+  /** 버려진 것으로 정리된 시각. 취소로 대체된 Run 에는 없다 */
   abandonedAt?: string;
 }
 
@@ -117,8 +120,8 @@ export interface CycleStore {
   deviceLeases(nowMs: number): Promise<DeviceLease[]>;
   /** 소유자만 lease 를 연장한다 */
   heartbeat(runId: string, agentId: string, nowMs: number, ttlMs: number): Promise<HeartbeatResult>;
-  /** 버려진 Run 에 대체 표시. 이미 표시돼 있으면 'already'(그 값 유지), 없으면 'no-run' */
-  markReplaced(runId: string, replacedBy: string, abandonedAt: string): Promise<'marked' | 'already' | 'no-run'>;
+  /** 대체 표시. 버려진 Run 이면 abandonedAt 을 함께 남긴다. 이미 표시돼 있으면 'already'(그 값 유지), 없으면 'no-run' */
+  markReplaced(runId: string, replacedBy: string, abandonedAt?: string): Promise<'marked' | 'already' | 'no-run'>;
   close?(): Promise<void>;
 }
 
@@ -181,7 +184,8 @@ export function createMemoryCycleStore(): CycleStore {
       const r = runs.get(runId);
       if (!r) return 'no-run';
       if (r.replacedBy) return 'already';
-      r.replacedBy = replacedBy; r.abandonedAt = abandonedAt;
+      r.replacedBy = replacedBy;
+      if (abandonedAt) r.abandonedAt = abandonedAt;
       return 'marked';
     },
   };

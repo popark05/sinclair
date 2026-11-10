@@ -191,7 +191,7 @@ export function createSqliteCycleStore(source: string | DatabaseSync): CycleStor
         if (!row) return 'no-run';
         const r = JSON.parse(row.record) as RunRegistration;
         if (r.replacedBy) return 'already';
-        const next = { ...r, replacedBy, abandonedAt };
+        const next = { ...r, replacedBy, ...(abandonedAt ? { abandonedAt } : {}) };
         if (casRun.run(JSON.stringify(next), runId, row.record).changes === 1) return 'marked';
       }
       return 'already'; // CAS 가 계속 지면 다른 쪽이 먼저 표시한 것이다

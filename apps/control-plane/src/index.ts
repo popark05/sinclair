@@ -7,7 +7,7 @@ export { createSqliteEventStore, createSqliteCycleStore, createSqliteFleetStore,
 export { activeDeviceLeases, lastClaimedByDevice, pickDevice, type ClaimOptions, type DeviceLease } from './cycle-store.ts';
 export { createMemoryCycleStore, leaseExpired, newLease, type CycleStore, type CycleRecord, type RunRegistration, type RunLease, type SuiteFilter, type HeartbeatResult } from './cycle-store.ts';
 export { computeCycle, tagsOf, type CycleView, type CaseCell, DEFAULT_RETRY_LIMIT, MAX_RETRY_LIMIT, CANCELLED_CODE } from './verdict.ts';
-export { buildCycleView, sweepAbandoned, sweepAllAbandoned, abandonedEventId, replacementRunId, type CycleViewWithWarnings, type SweepOptions, type SweepResult } from './cycle-view.ts';
+export { buildCycleView, sweepAbandoned, sweepAllAbandoned, abandonedEventId, replacementRunId, MAX_CANCEL_REPLACEMENTS, type CycleViewWithWarnings, type SweepOptions, type SweepResult } from './cycle-view.ts';
 export { parseConfig, defaultDataDir, ConfigError, HELP, type ControlPlaneConfig } from './config.ts';
 export { startControlPlane, type RunningControlPlane } from './main.ts'; // main() 은 bin 만 쓴다(프로세스 제어)
 export { deviceStatus, buildFleetView, nextNodeRecord, createMemoryFleetStore, type FleetStore, type NodeRecord, type MissingDevice, type DeviceStatus, type FleetView } from './fleet.ts';

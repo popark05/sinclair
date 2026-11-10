@@ -69,6 +69,7 @@ function Runs({ v }: { v: CycleViewWithWarnings }) {
     <section>
       <h2>Run</h2>
       {used.length ? <p className="muted">버려진 Run 대체: {used.map(([t, n]) => `대체 ${t} ${n}/${v.retryLimit}`).join(', ')}</p> : null}
+      {v.runs.some((r) => r.replaceReason === 'cancelled') ? <p className="muted">취소(노드 종료·lease 상실)로 끝난 Run 은 재시도 한도를 쓰지 않고 다시 등록된다.</p> : null}
       <table className="table" aria-label="Run">
         <thead><tr><th>타깃</th><th>상태</th><th>기기</th><th>노드</th><th>대체</th><th>Run</th></tr></thead>
         <tbody>
@@ -79,7 +80,7 @@ function Runs({ v }: { v: CycleViewWithWarnings }) {
               <td>{maskDevice(r.lease?.deviceId ?? r.deviceId)}</td>
               <td>{r.lease?.agentId ?? r.agentId ?? '—'}</td>
               <td>
-                {r.replaces ? `${r.replaces} 을 대체` : ''}
+                {r.replaces ? (r.replaceReason === 'cancelled' ? `${r.replaces} 가 취소돼 다시 등록` : `${r.replaces} 을 대체`) : ''}
                 {r.replacedBy ? `${r.replacedBy} 로 대체됨${r.abandonedAt ? ` (버려짐 ${new Date(r.abandonedAt).toLocaleTimeString('ko-KR')})` : ''}` : ''}
               </td>
               <td className="muted mono">{r.runId}</td>
