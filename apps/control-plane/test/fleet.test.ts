@@ -51,6 +51,29 @@ function fleetStoreSuite(name: string, make: () => FleetStore | Promise<FleetSto
       expect((await store.listNodes())[0]!.missing).toEqual([]);
     });
 
+    it('deleteNode: 마지막 보고가 기준 시각보다 이르면 지우고, 그 사이 다시 보고했으면 recent 로 남긴다; 모르는 노드는 no-node. 지운 노드가 다시 보고하면 새로 나타난다', async () => {
+      await store.reportNode('a', { devices: [dev({ id: 'A1' })] }, T0);
+      await store.reportNode('b', { devices: [dev({ id: 'B1' })] }, T0 + 10);
+      expect(await store.deleteNode('b', new Date(T0 + 10).toISOString())).toBe('recent'); // 같은 시각은 지우지 않는다
+      expect(await store.deleteNode('a', new Date(T0 + 10).toISOString())).toBe('deleted');
+      expect(await store.deleteNode('a', new Date(T0 + 10).toISOString())).toBe('no-node');
+      expect((await store.listNodes()).map((x) => x.agentId)).toEqual(['b']);
+      await store.reportNode('a', { devices: [dev({ id: 'A1' })] }, T0 + 20);
+      expect(await store.listNodes()).toEqual([
+        expect.objectContaining({ agentId: 'b' }),
+        { agentId: 'a', reportedAt: new Date(T0 + 20).toISOString(), devices: [dev({ id: 'A1' })], missing: [] }, // 이전 기록(빠진 기기)은 남지 않는다
+      ]);
+    });
+
+    it('pruneNodes: 마지막 보고가 기준 시각보다 이른 노드를 모두 지우고 그 id 를 돌려준다', async () => {
+      await store.reportNode('old1', { devices: [] }, T0);
+      await store.reportNode('new', { devices: [] }, T0 + 100);
+      await store.reportNode('old2', { devices: [] }, T0 + 50);
+      expect((await store.pruneNodes(new Date(T0 + 100).toISOString())).sort()).toEqual(['old1', 'old2']);
+      expect((await store.listNodes()).map((x) => x.agentId)).toEqual(['new']);
+      expect(await store.pruneNodes(new Date(T0 + 100).toISOString())).toEqual([]);
+    });
+
     it('같은 보고를 반복해도 결과가 같다(멱등)', async () => {
       await store.reportNode('n', { devices: [dev()] }, T0);
       await store.reportNode('n', { devices: [dev()] }, T0);

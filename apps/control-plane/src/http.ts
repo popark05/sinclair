@@ -18,7 +18,8 @@
 //                            targetId 없으면 서버가 고른다: 이름 타깃은 targets 에 선언됐을 때, 조건 타깃은 맞는 빈 기기가 있을 때
 //   POST /runs/:id/heartbeat { agentId } → { expiresAt } (200) | 409 not-owner·replaced | 404
 //   PUT  /fleet/nodes/:agentId { devices[] } → { ttlMs } (200) | 400 — 노드의 기기 보고(통째 교체)
-//   GET  /fleet              → FleetView(노드별 기기와 idle/untrusted/offline)
+//   GET  /fleet              → FleetView(노드별 기기와 idle/untrusted/offline). 보고가 끊긴 지 보존 기간(nodeRetentionMs)이 지난 노드는 이때 지운다
+//   DELETE /fleet/nodes/:agentId → 204 | 404 | 409 node-online — offline 노드 기록 삭제(다시 보고하면 새로 나타난다)
 //   GET  /health             200
 import http from 'node:http';
 import * as fs from 'node:fs/promises';
@@ -46,6 +47,8 @@ export interface ControlPlaneOptions {
   fleet?: FleetStore;
   /** 클레임 lease 수명(기본 60초). 버려진 Run 판정 유예도 같은 값이다. 에이전트는 이 값의 1/3 마다 heartbeat 한다. 한 테스트가 1분 넘게 조용할 수 있어 짧게 잡지 않는다 */
   leaseTtlMs?: number;
+  /** 보고가 끊긴 노드 기록을 남겨 두는 기간(ms). 기본 7일 */
+  nodeRetentionMs?: number;
   /** 테스트용 시계 */
   now?: () => number;
   /** Console 빌드 디렉터리. 있으면 /console 에서 정적으로 서빙한다(없으면 API 만) */
@@ -80,6 +83,8 @@ const MIME: Record<string, string> = {
   '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.map': 'application/json',
 };
 
+/** 보고가 끊긴 노드 기록의 보존 기간: 7일. 주말을 넘겨 꺼 둔 노드도 월요일에 플릿에서 보인다 */
+export const DEFAULT_NODE_RETENTION_MS = 7 * 24 * 3600_000;
 export const DEFAULT_LEASE_TTL_MS = 60_000;
 /** 러너 MAX_RETRIES 와 같은 값. apps 는 러너를 import 하지 않으므로 숫자를 따로 둔다(apps/runner-agent/test/args.test.ts 가 같음을 확인) */
 export const MAX_SUITE_RETRIES = 5;
@@ -109,6 +114,8 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
   const fleet = opts.fleet ?? createMemoryFleetStore();
   // 노드 보고 TTL 은 Run lease TTL 과 같다: 같은 노드의 heartbeat 와 보고가 같은 박자로 끊기고 살아난다(노드는 TTL/3 마다 보고)
   const nodeTtlMs = (): number => opts.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS;
+  /** "ms 이상 보고하지 않음" 의 기준 시각: 저장소는 reportedAt < 기준 을 지우므로 1ms 뒤로(offline 규칙 now - reportedAt >= TTL 과 같은 경계) */
+  const notReportedFor = (ms: number, nowMs = (opts.now ?? Date.now)()): string => new Date(nowMs - ms + 1).toISOString();
   /** 지금 바쁜 기기 → Run. 끝난 Run(run.finished 가 들어옴)의 기기는 lease 가 남아 있어도 풀린 것으로 본다. 바쁜 기기는 노드마다 몇 대라 Run 이벤트 조회가 싸다 */
   const busyDevices = async (nowMs: number): Promise<{ busy: Map<string, string>; finished: Set<string> }> => {
     const busy = new Map<string, string>();
@@ -374,8 +381,17 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         await fleet.reportNode(agentId, parsed.value, (opts.now ?? Date.now)());
         return json(res, 200, { ttlMs: nodeTtlMs() });
       }
+      if (req.method === 'DELETE' && parts[0] === 'fleet' && parts[1] === 'nodes' && parts.length === 3) {
+        // online 노드는 다음 보고로 곧 되살아나니 지우는 의미가 없다: 노드 TTL 안에 보고한 노드는 거부한다
+        const result = await fleet.deleteNode(parts[2]!, notReportedFor(nodeTtlMs()));
+        if (result === 'no-node') return json(res, 404, { error: '모르는 노드', code: 'node-not-found' });
+        if (result === 'recent') return json(res, 409, { error: '보고 중인(online) 노드는 지울 수 없음 — 데몬을 멈춘 뒤 지운다', code: 'node-online' });
+        res.writeHead(204).end();
+        return;
+      }
       if (req.method === 'GET' && url.pathname === '/fleet') {
         const nowMs = (opts.now ?? Date.now)();
+        await fleet.pruneNodes(notReportedFor(opts.nodeRetentionMs ?? DEFAULT_NODE_RETENTION_MS, nowMs));
         return json(res, 200, buildFleetView(await fleet.listNodes(), nowMs, nodeTtlMs(), (await busyDevices(nowMs)).busy));
       }
       if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true });

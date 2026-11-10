@@ -5,5 +5,6 @@ export const STUBS = {
   history: async () => ({ cycles: [], tests: [] }),
   issues: async () => [],
   triage: async (id: string, patch: object) => ({ id, ...patch }),
+  deleteNode: async () => undefined,
   artifactUrl: (runId: string, key: string) => `/artifacts/${encodeURIComponent(runId)}/${encodeURIComponent(key)}`,
 };

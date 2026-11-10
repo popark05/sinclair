@@ -15,6 +15,8 @@ export interface Api {
   cycle(cycleId: string): Promise<CycleViewWithWarnings>;
   run(runId: string): Promise<RunView>;
   fleet(): Promise<FleetView>;
+  /** 보고가 끊긴(offline) 노드 기록 삭제. 보고 중인 노드는 409 */
+  deleteNode(agentId: string): Promise<void>;
   usage(cycleId: string): Promise<CycleUsage>;
   history(opts: { limit: number; testId?: string }): Promise<HistoryView>;
   issues(limit: number): Promise<IssueView[]>;
@@ -45,6 +47,7 @@ export function createApi(baseUrl = '', fetchImpl: typeof fetch = (...a) => fetc
     cycle: (cycleId) => get(`/cycles/${id(cycleId)}`),
     run: (runId) => get(`/runs/${id(runId)}`),
     fleet: () => get('/fleet'),
+    deleteNode: (agentId) => get(`/fleet/nodes/${id(agentId)}`, { method: 'DELETE' }),
     usage: (cycleId) => get(`/cycles/${id(cycleId)}/usage`),
     issues: (limit) => get(`/issues?limit=${limit}`),
     triage: (issueId, patch) => get(`/issues/${id(issueId)}`, { method: 'PUT', body: JSON.stringify(patch) }),

@@ -36,6 +36,32 @@ describe('FleetPage', () => {
     expect(screen.getByRole('region', { name: '노드 node-b' }).textContent).toMatch(/끊김.*보고한 기기 없음/);
   });
 
+  it('끊긴 노드만 "지우기" 버튼이 있고, 확인하면 DELETE 뒤 화면에서 빠진다; 취소하면 아무것도 안 한다', async () => {
+    const deleted: string[] = [];
+    const api = { ...apiOf(fleet), deleteNode: async (id: string) => { deleted.push(id); } };
+    let answer = false;
+    render(<FleetPage api={api} confirm={() => answer} />);
+    const a = await screen.findByRole('region', { name: '노드 node-a' });
+    expect(within(a).queryByRole('button', { name: '지우기' })).toBeNull(); // 온라인 노드
+    const b = screen.getByRole('region', { name: '노드 node-b' });
+    await act(async () => { within(b).getByRole('button', { name: '지우기' }).click(); });
+    expect(deleted).toEqual([]);
+    answer = true;
+    await act(async () => { within(b).getByRole('button', { name: '지우기' }).click(); });
+    expect(deleted).toEqual(['node-b']);
+    expect(screen.queryByRole('region', { name: '노드 node-b' })).toBeNull();
+    expect(screen.getByRole('region', { name: '노드 node-a' })).toBeTruthy();
+  });
+
+  it('지우기가 실패하면(예: 그 사이 다시 보고해 409) 노드를 남기고 오류를 보인다', async () => {
+    const api = { ...apiOf(fleet), deleteNode: async () => { throw new Error('409 보고 중인(online) 노드는 지울 수 없음'); } };
+    render(<FleetPage api={api} confirm={() => true} />);
+    const b = await screen.findByRole('region', { name: '노드 node-b' });
+    await act(async () => { within(b).getByRole('button', { name: '지우기' }).click(); });
+    expect(screen.getByRole('alert').textContent).toMatch(/node-b 를 지우지 못함.*409/);
+    expect(screen.getByRole('region', { name: '노드 node-b' })).toBeTruthy();
+  });
+
   it('10초마다 새로 고치고, 노드가 없으면 안내', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const api = apiOf(fleet);

@@ -21,6 +21,10 @@ export interface FleetStore {
   reportNode(agentId: string, report: NodeReport, nowMs: number): Promise<void>;
   /** 처음 보고한 순서 */
   listNodes(): Promise<NodeRecord[]>;
+  /** 노드 기록을 지운다. 마지막 보고가 reportedBefore(ISO)보다 이를 때만 — 판단과 삭제 사이에 다시 보고한 노드는 recent 로 남긴다. 다시 보고하면 새 노드로 나타난다 */
+  deleteNode(agentId: string, reportedBefore: string): Promise<'deleted' | 'recent' | 'no-node'>;
+  /** 마지막 보고가 reportedBefore(ISO)보다 이른 노드를 모두 지우고 그 id 를 돌려준다(보존 기간 정리) */
+  pruneNodes(reportedBefore: string): Promise<string[]>;
   close?(): Promise<void>;
 }
 
@@ -64,6 +68,18 @@ export function createMemoryFleetStore(): FleetStore {
     },
     async listNodes() {
       return [...nodes.values()].map((n) => ({ ...n, devices: n.devices.map((d) => ({ ...d })), missing: n.missing.map((d) => ({ ...d })) }));
+    },
+    async deleteNode(agentId, reportedBefore) {
+      const n = nodes.get(agentId);
+      if (!n) return 'no-node';
+      if (n.reportedAt >= reportedBefore) return 'recent';
+      nodes.delete(agentId);
+      return 'deleted';
+    },
+    async pruneNodes(reportedBefore) {
+      const gone = [...nodes.values()].filter((n) => n.reportedAt < reportedBefore).map((n) => n.agentId);
+      for (const id of gone) nodes.delete(id);
+      return gone;
     },
   };
 }

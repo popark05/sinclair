@@ -16,7 +16,7 @@ export async function startControlPlane(config: ControlPlaneConfig): Promise<Run
   const events = db ? createSqliteEventStore(db) : createMemoryEventStore();
   const cycles = db ? createSqliteCycleStore(db) : createMemoryCycleStore();
   const fleet = db ? createSqliteFleetStore(db) : createMemoryFleetStore();
-  const server = await serveControlPlane(events, { host: config.host, port: config.port, cycles, fleet, ...(config.leaseTtlMs !== undefined ? { leaseTtlMs: config.leaseTtlMs } : {}), ...(config.consoleDir ? { consoleDir: config.consoleDir } : {}), ...(config.artifactsDir ? { artifacts: createFileArtifactStore(config.artifactsDir) } : {}), ...(db ? { issues: createSqliteIssueStore(db) } : {}) });
+  const server = await serveControlPlane(events, { host: config.host, port: config.port, cycles, fleet, ...(config.leaseTtlMs !== undefined ? { leaseTtlMs: config.leaseTtlMs } : {}), ...(config.nodeRetentionMs !== undefined ? { nodeRetentionMs: config.nodeRetentionMs } : {}), ...(config.consoleDir ? { consoleDir: config.consoleDir } : {}), ...(config.artifactsDir ? { artifacts: createFileArtifactStore(config.artifactsDir) } : {}), ...(db ? { issues: createSqliteIssueStore(db) } : {}) });
   let closed = false;
   return {
     server, config,

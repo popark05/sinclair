@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { parseArgs } from 'node:util';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_LEASE_TTL_MS } from './http.ts';
+import { DEFAULT_LEASE_TTL_MS, DEFAULT_NODE_RETENTION_MS } from './http.ts';
 
 export interface ControlPlaneConfig {
   host: string;
@@ -13,6 +13,8 @@ export interface ControlPlaneConfig {
   db: string;
   /** 클레임 lease 수명(ms). 버려진 Run 판정 유예도 이 값이다. parseConfig 는 항상 채우지만 테스트가 손으로 만드는 설정은 생략할 수 있다(서버 기본 60초) */
   leaseTtlMs?: number;
+  /** 보고가 끊긴 노드 기록의 보존 기간(ms). 지나면 플릿 조회 때 지운다 */
+  nodeRetentionMs?: number;
   /** Console 정적 파일 디렉터리(빌드 결과). 있으면 /console 에서 서빙한다 */
   consoleDir?: string;
   /** 아티팩트(실패 스크린샷·화면 트리) 디렉터리. 없으면 메모리(메모리 저장소일 때) */
@@ -34,6 +36,7 @@ const OPTIONS = [
   { name: 'console-dir', env: 'SINCLAIR_CP_CONSOLE_DIR', help: 'Console(웹 대시보드) 빌드 디렉터리. /console 에서 서빙 (기본: 설치본이면 동봉한 resources/console, 리포에서는 없음 = API 만; none 이면 끔)' },
   { name: 'artifacts-dir', env: 'SINCLAIR_CP_ARTIFACTS_DIR', help: '아티팩트(실패 스크린샷·화면 트리) 디렉터리 (기본: sqlite 면 데이터 디렉터리/artifacts, memory 면 메모리). 스크린샷은 화면 그대로라 개인정보가 보일 수 있다' },
   { name: 'lease-ttl-ms', env: 'SINCLAIR_CP_LEASE_TTL_MS', help: `클레임 lease 수명 ms (기본 ${DEFAULT_LEASE_TTL_MS}). 버려진 Run 판정 유예도 같은 값` },
+  { name: 'node-retention-ms', env: 'SINCLAIR_CP_NODE_RETENTION_MS', help: `보고가 끊긴 노드를 플릿에 남겨 두는 기간 ms (기본 ${DEFAULT_NODE_RETENTION_MS} = 7일, lease 수명 이상)` },
 ] as const;
 
 export const HELP = `사용법: sinclair-control-plane [옵션]
@@ -87,6 +90,10 @@ export function parseConfig(argv: string[], env: NodeJS.ProcessEnv, platform: No
   const ttlText = resolve('lease-ttl-ms', String(DEFAULT_LEASE_TTL_MS));
   const leaseTtlMs = Number(ttlText);
   if (!/^\d+$/.test(ttlText) || leaseTtlMs < 1000) throw new ConfigError(`lease-ttl-ms 는 1000 이상의 정수여야 함: ${ttlText}`);
+  const retentionText = resolve('node-retention-ms', String(DEFAULT_NODE_RETENTION_MS));
+  const nodeRetentionMs = Number(retentionText);
+  // lease 수명(= 노드 TTL)보다 짧으면 잠깐 보고를 놓친 노드가 offline 으로 보이기도 전에 사라진다
+  if (!/^\d+$/.test(retentionText) || nodeRetentionMs < leaseTtlMs) throw new ConfigError(`node-retention-ms 는 lease-ttl-ms(${leaseTtlMs}) 이상의 정수여야 함: ${retentionText}`);
   // 기본: 자산 디렉터리(SINCLAIR_RESOURCES_DIR, 없으면 이 모듈 옆 ../resources — 설치본에서는 dist/ 의 형제)에 console/index.html 이 있으면 그것
   const bundled = path.join(env.SINCLAIR_RESOURCES_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'resources'), 'console');
   const chosen = resolve('console-dir', existsSync(path.join(bundled, 'index.html')) ? bundled : '');
@@ -94,5 +101,5 @@ export function parseConfig(argv: string[], env: NodeJS.ProcessEnv, platform: No
   // 직접 준 디렉터리가 Console 빌드가 아니면 조용히 404 만 내지 말고 기동 때 알린다
   if (consoleDir && !existsSync(path.join(consoleDir, 'index.html'))) throw new ConfigError(`console-dir 에 index.html 이 없음: ${consoleDir} (pnpm --filter @sinclair/console build 의 산출물 apps/console/dist 를 준다)`);
   const artifactsDir = resolve('artifacts-dir', store === 'sqlite' ? path.join(defaultDataDir(env, platform), 'artifacts') : '');
-  return { host, port, store: store as ControlPlaneConfig['store'], db, leaseTtlMs, ...(consoleDir ? { consoleDir: path.resolve(consoleDir) } : {}), ...(artifactsDir ? { artifactsDir: path.resolve(artifactsDir) } : {}) };
+  return { host, port, store: store as ControlPlaneConfig['store'], db, leaseTtlMs, nodeRetentionMs, ...(consoleDir ? { consoleDir: path.resolve(consoleDir) } : {}), ...(artifactsDir ? { artifactsDir: path.resolve(artifactsDir) } : {}) };
 }

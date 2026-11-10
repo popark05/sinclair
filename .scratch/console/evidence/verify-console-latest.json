@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-10T11:29:34.361Z",
+  "at": "2026-11-10T12:10:04.751Z",
   "ok": true,
   "chrome": "Google Chrome",
   "pages": [
@@ -29,7 +29,7 @@
         }
       ],
       "screenshot": ".e2e/verify-console/cycles.png",
-      "screenshotBytes": 24311
+      "screenshotBytes": 24453
     },
     {
       "page": "cycle",
@@ -54,7 +54,7 @@
         }
       ],
       "screenshot": ".e2e/verify-console/cycle.png",
-      "screenshotBytes": 46083
+      "screenshotBytes": 45910
     },
     {
       "page": "case",
@@ -91,7 +91,7 @@
         }
       ],
       "screenshot": ".e2e/verify-console/case.png",
-      "screenshotBytes": 76319
+      "screenshotBytes": 76022
     },
     {
       "page": "fleet",
@@ -115,12 +115,24 @@
           "found": true
         },
         {
+          "text": "verify-gone",
+          "found": true
+        },
+        {
+          "text": "끊김",
+          "found": true
+        },
+        {
+          "text": ">지우기</button>",
+          "found": true
+        },
+        {
           "text": "없음: FAKE00001234",
           "found": true
         }
       ],
       "screenshot": ".e2e/verify-console/fleet.png",
-      "screenshotBytes": 32321
+      "screenshotBytes": 41667
     },
     {
       "page": "issues",
@@ -167,6 +179,25 @@
       ],
       "screenshot": ".e2e/verify-console/tests.png",
       "screenshotBytes": 38923
+    },
+    {
+      "page": "fleet-delete",
+      "path": "DELETE /fleet/nodes/:agentId",
+      "ok": true,
+      "checks": [
+        {
+          "text": "온라인 노드 DELETE 409",
+          "found": true
+        },
+        {
+          "text": "끊긴 노드 DELETE 204",
+          "found": true
+        },
+        {
+          "text": "지운 뒤 플릿에 verify-node 만",
+          "found": true
+        }
+      ]
     }
   ]
 }

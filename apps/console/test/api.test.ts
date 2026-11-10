@@ -15,6 +15,14 @@ describe('createApi', () => {
     expect(seen).toEqual(['/api/cycles/summary?limit=20', '/api/cycles/c%201', '/api/runs/r%2F1', '/api/fleet']);
   });
 
+  it('deleteNode 는 DELETE /fleet/nodes/:agentId 이고 204(본문 없음)를 받아들이며, 409 는 서버 문구의 ApiError', async () => {
+    const seen: string[] = [];
+    await createApi('', async (input, init) => { seen.push(`${init?.method} ${String(input)}`); return new Response(null, { status: 204 }); }).deleteNode('node a');
+    expect(seen).toEqual(['DELETE /fleet/nodes/node%20a']);
+    const err = await createApi('', respond(409, { error: '보고 중인(online) 노드는 지울 수 없음' })).deleteNode('n').catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 409, message: expect.stringMatching(/보고 중인/) });
+  });
+
   it('HTTP 오류는 서버의 error 문구와 상태를 담은 ApiError', async () => {
     const err = await createApi('', respond(404, { error: '모르는 Cycle' })).cycle('x').catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);

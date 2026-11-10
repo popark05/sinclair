@@ -208,6 +208,9 @@ export function createSqliteFleetStore(source: string | DatabaseSync): FleetStor
   const upsert = db.prepare('INSERT INTO fleet_nodes (agent_id, record) VALUES (?, ?) ON CONFLICT(agent_id) DO UPDATE SET record = excluded.record');
   const selectOne = db.prepare('SELECT record FROM fleet_nodes WHERE agent_id = ?');
   const selectAll = db.prepare('SELECT record FROM fleet_nodes ORDER BY seq');
+  // reportedAt 은 toISOString 이라 문자열 비교가 시각 비교다(reportNode 와 같은 형식)
+  const deleteOld = db.prepare("DELETE FROM fleet_nodes WHERE agent_id = ? AND json_extract(record, '$.reportedAt') < ?");
+  const pruneOld = db.prepare("DELETE FROM fleet_nodes WHERE json_extract(record, '$.reportedAt') < ? RETURNING agent_id");
   return {
     async reportNode(agentId, report, nowMs) {
       // 이전 기록을 읽고 쓰는 사이가 끊기지 않게 한 트랜잭션으로(같은 노드는 한 데몬만 보고하지만 두 서버가 한 파일을 볼 수 있다)
@@ -224,6 +227,13 @@ export function createSqliteFleetStore(source: string | DatabaseSync): FleetStor
     },
     async listNodes() {
       return (selectAll.all() as Array<{ record: string }>).map((r) => { const n = JSON.parse(r.record) as NodeRecord; return { ...n, missing: n.missing ?? [] }; });
+    },
+    async deleteNode(agentId, reportedBefore) {
+      if (deleteOld.run(agentId, reportedBefore).changes === 1) return 'deleted';
+      return selectOne.get(agentId) ? 'recent' : 'no-node';
+    },
+    async pruneNodes(reportedBefore) {
+      return (pruneOld.all(reportedBefore) as Array<{ agent_id: string }>).map((r) => r.agent_id);
     },
     async close() {
       closeOnce(db);

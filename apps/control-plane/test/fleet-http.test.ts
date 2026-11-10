@@ -43,4 +43,34 @@ describe('Fleet HTTP', () => {
     expect((await fleet()).nodes[0]!.devices[0]!.state).toBe('idle');
     expect((await put('node-a', '{')).status).toBe(400);
   });
+
+  it('DELETE /fleet/nodes/:agentId: online 노드는 409, offline 노드는 204 로 지워져 GET /fleet 에서 사라진다, 모르는 노드는 404', async () => {
+    await put('node-a', { devices: [device] });
+    const del = (id: string) => fetch(url(`/fleet/nodes/${encodeURIComponent(id)}`), { method: 'DELETE' });
+    const online = await del('node-a');
+    expect(online.status).toBe(409);
+    expect(await online.json()).toMatchObject({ code: 'node-online' });
+    now += TTL; // 보고 끊김 → offline
+    expect((await del('node-a')).status).toBe(204);
+    expect((await fleet()).nodes).toEqual([]);
+    expect((await del('node-a')).status).toBe(404);
+    await put('node-a', { devices: [device] }); // 다시 보고하면 돌아온다
+    expect((await fleet()).nodes.map((n) => n.agentId)).toEqual(['node-a']);
+  });
+});
+
+describe('Fleet HTTP · 노드 보존 기간', () => {
+  it('GET /fleet 는 보고가 끊긴 지 보존 기간이 지난 노드를 지운다(그 전까지는 offline 으로 보인다)', async () => {
+    const s2 = await serveControlPlane(createMemoryEventStore(), { leaseTtlMs: TTL, nodeRetentionMs: 60_000, now: () => now });
+    try {
+      const u = (p: string) => `http://127.0.0.1:${s2.port}${p}`;
+      await fetch(u('/fleet/nodes/old'), { method: 'PUT', body: JSON.stringify({ devices: [device] }) });
+      now += 30_000;
+      await fetch(u('/fleet/nodes/new'), { method: 'PUT', body: JSON.stringify({ devices: [] }) });
+      const list = async () => ((await (await fetch(u('/fleet'))).json()) as FleetView).nodes.map((n) => [n.agentId, n.online]);
+      expect(await list()).toEqual([['old', false], ['new', true]]);
+      now += 30_000; // old 는 보고 끊긴 지 60초
+      expect(await list()).toEqual([['new', false]]);
+    } finally { await s2.close(); }
+  });
 });
