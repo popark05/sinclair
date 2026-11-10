@@ -59,6 +59,7 @@ try {
     { name: 'cycle', path: `/console/cycles/${cycleId}`, expect: ['class="cell cell-failed"><a', 'class="cell cell-passed"><a', 'verify-node', '…fake'] },
     { name: 'case', path: `/console/cycles/${cycleId}/cases/${encodeURIComponent(failing)}/android`, expect: ['시도 1', 'not-found', 'locator', '→ 실패', '이 테스트의 이력', 'alt="시도 1 의 마지막 화면"', '.screen-tree.json</a>'] },
     { name: 'fleet', path: '/console/fleet', expect: ['verify-node', '온라인', '…1234', '쓸 수 있음'], absent: ['FAKE00001234'] }, // 원시 시리얼은 화면에 없다
+    { name: 'issues', path: '/console/issues', expect: ['not-found', failing, 'aria-label="분류"', '미분류'] },
     { name: 'tests', path: '/console/tests', expect: [failing, 'spark cell-failed', 'spark cell-passed'] },
   ];
   for (const p of pages) {
@@ -75,7 +76,7 @@ try {
   cp.kill('SIGTERM');
   fs.rmSync(tmp, { recursive: true, force: true });
 }
-const ok = results.length === 6 && results.every((r) => r.ok);
+const ok = results.length === 7 && results.every((r) => r.ok);
 fs.writeFileSync(evidence, JSON.stringify({ at: new Date().toISOString(), ok, chrome: path.basename(chrome), pages: results }, null, 2) + '\n');
 for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'} ${r.page} ${r.checks.map((c) => `${c.found ? '✓' : '✗'}${c.text}`).join(' ')}${r.error ? ` 오류: ${r.error}` : ''}`);
 console.log(ok ? 'verify-console: PASS' : 'verify-console: FAIL', `→ ${path.relative(repo, evidence)}`);

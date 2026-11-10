@@ -21,7 +21,7 @@ const history: HistoryView = {
     { testId: '검색', flakyRate: 0, stats: { passed: 2, 'passed-flaky': 0, failed: 0, blocked: 0, skipped: 0, waived: 0 }, cells: [] },
   ],
 };
-const base: Api = { cycleSummaries: async () => [], cycle: async () => { throw new Error('x'); }, run: async () => { throw new Error('x'); }, fleet: async () => { throw new Error('x'); }, usage: async () => usage, history: async () => history, artifactUrl: () => '' };
+const base: Api = { cycleSummaries: async () => [], cycle: async () => { throw new Error('x'); }, run: async () => { throw new Error('x'); }, fleet: async () => { throw new Error('x'); }, usage: async () => usage, history: async () => history, artifactUrl: () => '', issues: async () => [], triage: async (id) => ({ id }) };
 
 describe('UsageSection', () => {
   it('합계(호출·입력·출력·캐시 읽기·쓰기·적중률)와 타깃·테스트별 표(호출 많은 순)', async () => {

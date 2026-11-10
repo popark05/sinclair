@@ -56,6 +56,6 @@ describe('FleetPage', () => {
     expect(await screen.findByRole('banner', { name: 'Cycle' })).toBeTruthy();
     expect(window.location.pathname).toBe('/console/cycles/c9');
     const nav = screen.getByRole('navigation');
-    expect(within(nav).getAllByRole('link').map((l) => l.textContent)).toEqual(['Cycle', '플릿', '안정성']);
+    expect(within(nav).getAllByRole('link').map((l) => l.textContent)).toEqual(['Cycle', '플릿', '안정성', 'Issue']);
   });
 });

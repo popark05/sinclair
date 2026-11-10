@@ -3,5 +3,7 @@ const zero = { modelCalls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 
 export const STUBS = {
   usage: async (cycleId: string) => ({ cycleId, total: zero, byTarget: {}, byTest: {}, byModel: {} }),
   history: async () => ({ cycles: [], tests: [] }),
+  issues: async () => [],
+  triage: async (id: string, patch: object) => ({ id, ...patch }),
   artifactUrl: (runId: string, key: string) => `/artifacts/${encodeURIComponent(runId)}/${encodeURIComponent(key)}`,
 };

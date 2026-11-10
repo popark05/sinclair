@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-10T11:07:30.970Z",
+  "at": "2026-11-10T11:29:34.361Z",
   "ok": true,
   "chrome": "Google Chrome",
   "pages": [
@@ -29,7 +29,7 @@
         }
       ],
       "screenshot": ".e2e/verify-console/cycles.png",
-      "screenshotBytes": 23889
+      "screenshotBytes": 24311
     },
     {
       "page": "cycle",
@@ -54,7 +54,7 @@
         }
       ],
       "screenshot": ".e2e/verify-console/cycle.png",
-      "screenshotBytes": 45310
+      "screenshotBytes": 46083
     },
     {
       "page": "case",
@@ -91,7 +91,7 @@
         }
       ],
       "screenshot": ".e2e/verify-console/case.png",
-      "screenshotBytes": 75456
+      "screenshotBytes": 76319
     },
     {
       "page": "fleet",
@@ -120,7 +120,32 @@
         }
       ],
       "screenshot": ".e2e/verify-console/fleet.png",
-      "screenshotBytes": 31662
+      "screenshotBytes": 32321
+    },
+    {
+      "page": "issues",
+      "path": "/console/issues",
+      "ok": true,
+      "checks": [
+        {
+          "text": "not-found",
+          "found": true
+        },
+        {
+          "text": "없는 문구를 찾다 실패한다",
+          "found": true
+        },
+        {
+          "text": "aria-label=\"분류\"",
+          "found": true
+        },
+        {
+          "text": "미분류",
+          "found": true
+        }
+      ],
+      "screenshot": ".e2e/verify-console/issues.png",
+      "screenshotBytes": 44837
     },
     {
       "page": "tests",
@@ -141,7 +166,7 @@
         }
       ],
       "screenshot": ".e2e/verify-console/tests.png",
-      "screenshotBytes": 38539
+      "screenshotBytes": 38923
     }
   ]
 }

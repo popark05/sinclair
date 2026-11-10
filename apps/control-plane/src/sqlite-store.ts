@@ -1,6 +1,7 @@
 // SQLite EventStore: Node 내장 node:sqlite(네이티브 의존 없음, Node 22.13+). docs/adr/0004 참고.
 // 이벤트는 event_id UNIQUE 제약으로 중복을 DB 가 막는다. 투영은 저장하지 않는다(projection.ts).
 // 동기 API 라 호출마다 이벤트 루프를 잠깐 막는다: 쓰기는 Ingest 배치(본문 8 MB 상한, 보통 수백 건) 한 번에 수 ms, 읽기는 run 하나 분량이라 허용한다.
+import type { IssueStore, IssueTriage } from './issues.ts';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -10,7 +11,7 @@ import { activeDeviceLeases, lastClaimedByDevice, leaseExpired, newLease, pickDe
 import { nextNodeRecord, type FleetStore, type NodeRecord } from './fleet.ts';
 
 /** PRAGMA user_version. 스키마를 바꾸면 올리고 SQLITE_MIGRATIONS 에 단계를 더한다 */
-export const SQLITE_SCHEMA_VERSION = 3;
+export const SQLITE_SCHEMA_VERSION = 4;
 
 /** MIGRATIONS[v] 는 버전 v 에서 v+1 로 가는 SQL. 순서대로 적용된다 */
 export const SQLITE_MIGRATIONS: readonly string[] = [
@@ -40,6 +41,11 @@ export const SQLITE_MIGRATIONS: readonly string[] = [
      seq        INTEGER PRIMARY KEY AUTOINCREMENT, -- 처음 보고한 순서
      agent_id   TEXT    NOT NULL UNIQUE,
      record     TEXT    NOT NULL                   -- NodeRecord JSON
+   );`,
+  // 3 → 4: Issue 분류(사람이 단 것만. 발생은 이벤트에서 계산)
+  `CREATE TABLE issues (
+     id       TEXT PRIMARY KEY,                      -- issueSignature 의 id
+     triage   TEXT NOT NULL                          -- IssueTriage JSON
    );`,
 ];
 
@@ -222,5 +228,15 @@ export function createSqliteFleetStore(source: string | DatabaseSync): FleetStor
     async close() {
       closeOnce(db);
     },
+  };
+}
+
+export function createSqliteIssueStore(source: string | DatabaseSync): IssueStore {
+  const db = typeof source === 'string' ? openSqlite(source) : source;
+  const upsert = db.prepare('INSERT INTO issues (id, triage) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET triage = excluded.triage');
+  const select = db.prepare('SELECT triage FROM issues WHERE id = ?');
+  return {
+    async get(id) { const row = select.get(id) as { triage: string } | undefined; return row ? (JSON.parse(row.triage) as IssueTriage) : undefined; },
+    async set(id, t) { upsert.run(id, JSON.stringify(t)); },
   };
 }

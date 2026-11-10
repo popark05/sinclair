@@ -9,6 +9,8 @@
 //   GET  /cycles/:id/usage   모델 호출·토큰·캐시 적중률(합계·타깃별·테스트별, 대체된 Run 포함)
 //   GET  /tests/history      최근 N Cycle 의 테스트별 셀·통계·flaky 비율(?limit=&testId=)
 //   GET  /console/*          Console 정적 파일(--console-dir 일 때)
+//   GET  /issues             최근 N Cycle 의 실패를 서명으로 묶은 Issue(발생·테스트·추천·사람 분류, ?limit=)
+//   PUT  /issues/:id         { category: product|test|infra|flaky|null, note?, ticketUrl? } 사람의 분류
 //   PUT  /artifacts/:runId/:key  신고된 아티팩트 바이트(201) | 400 키 | 404 run | 409 신고 안 됨 | 413
 //   GET  /artifacts/:runId/:key  그 바이트(content-type 은 확장자)
 //   POST /cycles/:id/runs    { targetId, runId? } → RunRegistration (201)
@@ -31,6 +33,7 @@ import { matchesTarget, parseCycleTargets, parseNodeReport, type NodeDevice } fr
 import { buildFleetView, createMemoryFleetStore, type FleetStore } from './fleet.ts';
 import { buildCycleView, sweepAbandoned, sweepAllAbandoned } from './cycle-view.ts';
 import { cycleUsage, testHistory } from './insights.ts';
+import { ISSUE_ID, createMemoryIssueStore, listIssues, parseTriage, type IssueStore } from './issues.ts';
 import { ARTIFACT_KEY, ARTIFACT_MIME, DEFAULT_MAX_ARTIFACT_BYTES, createMemoryArtifactStore, type ArtifactStore } from './artifacts.ts';
 
 export interface ControlPlaneOptions {
@@ -47,6 +50,8 @@ export interface ControlPlaneOptions {
   now?: () => number;
   /** Console 빌드 디렉터리. 있으면 /console 에서 정적으로 서빙한다(없으면 API 만) */
   consoleDir?: string;
+  /** Issue 분류 저장소(없으면 메모리) */
+  issues?: IssueStore;
   /** 아티팩트 저장소(없으면 메모리) */
   artifacts?: ArtifactStore;
   maxArtifactBytes?: number;
@@ -159,6 +164,7 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
     }
   };
   const artifacts = opts.artifacts ?? createMemoryArtifactStore();
+  const issues = opts.issues ?? createMemoryIssueStore();
   /** 본문 바이트. 상한을 넘으면 413 을 보내고 undefined */
   const readBytes = async (req: http.IncomingMessage, res: http.ServerResponse, limit: number): Promise<Uint8Array | undefined> => {
     const chunks: Buffer[] = [];
@@ -257,6 +263,26 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
       if (req.method === 'GET' && parts[0] === 'cycles' && parts.length === 3 && parts[2] === 'usage') {
         const usage = await cycleUsage(store, cycles, parts[1]!);
         return usage ? json(res, 200, usage) : json(res, 404, { error: '모르는 Cycle' });
+      }
+      // Issue: 최근 N Cycle(기본 20, 최대 50)의 실패를 서명으로 묶은 목록과 사람이 단 분류
+      if (req.method === 'GET' && url.pathname === '/issues') {
+        const limitText = url.searchParams.get('limit') ?? '20';
+        const limit = Number(limitText);
+        if (!/^\d+$/.test(limitText) || limit < 1 || limit > 50) return json(res, 400, { error: 'limit 는 1~50 정수여야 함' });
+        return json(res, 200, await listIssues(store, cycles, issues, { limit }));
+      }
+      if (req.method === 'PUT' && parts[0] === 'issues' && parts.length === 2) {
+        const id = parts[1]!;
+        if (!ISSUE_ID.test(id)) return json(res, 400, { error: 'Issue id 가 올바르지 않음' });
+        const read = await readJson(req, res);
+        if (!read) return;
+        const parsed = parseTriage(read.body);
+        if (!parsed.ok) return json(res, 400, { error: parsed.error });
+        const prev = (await issues.get(id)) ?? {};
+        const { category, ...rest } = { ...prev, ...parsed.patch };
+        const next = { ...rest, ...(category ? { category } : {}), updatedAt: new Date((opts.now ?? Date.now)()).toISOString() };
+        await issues.set(id, next);
+        return json(res, 200, { id, ...next });
       }
       // 테스트 안정성 이력: 최근 N Cycle(기본 20). Cycle 마다 이벤트를 읽으므로 상한을 둔다
       if (req.method === 'GET' && url.pathname === '/tests/history') {
