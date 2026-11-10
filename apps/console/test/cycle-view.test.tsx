@@ -5,6 +5,7 @@ import { render, screen, cleanup, within, act } from '@testing-library/react';
 import type { CycleViewWithWarnings } from '@sinclair/control-plane';
 import { CycleView, REFRESH_MS } from '../src/pages/CycleView.tsx';
 import type { Api } from '../src/api.ts';
+import { STUBS } from './stubs.ts';
 
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
@@ -25,7 +26,7 @@ const view = (over: Partial<CycleViewWithWarnings> = {}): CycleViewWithWarnings 
   ...over,
 });
 const apiOf = (next: () => CycleViewWithWarnings): Api & { calls: number } => {
-  const api = { calls: 0, cycleSummaries: async () => [], run: async () => { throw new Error('x'); }, fleet: async () => { throw new Error('x'); },
+  const api = { calls: 0, ...STUBS, cycleSummaries: async () => [], run: async () => { throw new Error('x'); }, fleet: async () => { throw new Error('x'); },
     cycle: async () => { api.calls++; return next(); } };
   return api as Api & { calls: number };
 };
@@ -81,7 +82,7 @@ describe('CycleView', () => {
   });
 
   it('모르는 Cycle 은 오류 안내', async () => {
-    const api: Api = { cycleSummaries: async () => [], run: async () => { throw new Error('x'); }, fleet: async () => { throw new Error('x'); }, cycle: async () => { throw new Error('404 모르는 Cycle'); } };
+    const api: Api = { ...STUBS, cycleSummaries: async () => [], run: async () => { throw new Error('x'); }, fleet: async () => { throw new Error('x'); }, cycle: async () => { throw new Error('404 모르는 Cycle'); } };
     render(<CycleView api={api} cycleId="nope" />);
     expect((await screen.findByRole('alert')).textContent).toMatch(/모르는 Cycle/);
   });

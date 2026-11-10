@@ -5,6 +5,10 @@
 //   POST /cycles             { cycleId?, build, targets[](이름 | {id, platform, model?, osVersion?}), requiredTags?, suite?{tests,tags?,retries?}, retryLimit? } → CycleRecord (201)
 //   GET  /cycles             CycleRecord 목록
 //   GET  /cycles/:id         CycleView (verdict.ts: 상태·Verdict·매트릭스)
+//   GET  /cycles/summary     최신순 Cycle 요약(상태·Verdict·진행률, ?limit=) — Console 목록
+//   GET  /cycles/:id/usage   모델 호출·토큰·캐시 적중률(합계·타깃별·테스트별, 대체된 Run 포함)
+//   GET  /tests/history      최근 N Cycle 의 테스트별 셀·통계·flaky 비율(?limit=&testId=)
+//   GET  /console/*          Console 정적 파일(--console-dir 일 때)
 //   POST /cycles/:id/runs    { targetId, runId? } → RunRegistration (201)
 //   POST /runs/claim         { agentId, targetId?, devices?, targets? } → { run(lease.deviceId), leaseTtlMs, warning? } (200) | 없음 (204)
 //                            targetId 없으면 서버가 고른다: 이름 타깃은 targets 에 선언됐을 때, 조건 타깃은 맞는 빈 기기가 있을 때
@@ -24,6 +28,7 @@ import { MAX_RETRY_LIMIT, type CycleView } from './verdict.ts';
 import { matchesTarget, parseCycleTargets, parseNodeReport, type NodeDevice } from '@sinclair/protocol';
 import { buildFleetView, createMemoryFleetStore, type FleetStore } from './fleet.ts';
 import { buildCycleView, sweepAbandoned, sweepAllAbandoned } from './cycle-view.ts';
+import { cycleUsage, testHistory } from './insights.ts';
 
 export interface ControlPlaneOptions {
   port?: number;
@@ -192,6 +197,18 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         await sweepAbandoned(store, cycles, parts[1]!, sweepOpts());
         const view = await buildCycleView(store, cycles, parts[1]!);
         return view ? json(res, 200, view) : json(res, 404, { error: '모르는 Cycle' });
+      }
+      if (req.method === 'GET' && parts[0] === 'cycles' && parts.length === 3 && parts[2] === 'usage') {
+        const usage = await cycleUsage(store, cycles, parts[1]!);
+        return usage ? json(res, 200, usage) : json(res, 404, { error: '모르는 Cycle' });
+      }
+      // 테스트 안정성 이력: 최근 N Cycle(기본 20). Cycle 마다 이벤트를 읽으므로 상한을 둔다
+      if (req.method === 'GET' && url.pathname === '/tests/history') {
+        const limitText = url.searchParams.get('limit') ?? '20';
+        const limit = Number(limitText);
+        if (!/^\d+$/.test(limitText) || limit < 1 || limit > 200) return json(res, 400, { error: 'limit 는 1~200 정수여야 함' });
+        const testId = url.searchParams.get('testId') ?? undefined;
+        return json(res, 200, await testHistory(store, cycles, { limit, ...(testId ? { testId } : {}) }));
       }
       if (req.method === 'POST' && parts[0] === 'cycles' && parts.length === 3 && parts[2] === 'runs') {
         const cycle = await cycles.getCycle(parts[1]!);

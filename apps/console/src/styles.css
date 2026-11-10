@@ -38,3 +38,8 @@ h2 { font-size: 16px; margin: 20px 0 8px; }
 .top { display: flex; gap: 24px; align-items: center; }
 .nav { display: flex; gap: 14px; font-weight: 400; }
 .nav a { color: var(--info); }
+.cards { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; }
+.card { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; min-width: 110px; }
+.card dt { color: var(--muted); font-size: 12px; } .card dd { margin: 0; font-size: 18px; font-variant-numeric: tabular-nums; }
+.sparkline { display: flex; gap: 2px; }
+.spark { display: inline-block; width: 12px; height: 18px; border-radius: 2px; border: 1px solid var(--line); }

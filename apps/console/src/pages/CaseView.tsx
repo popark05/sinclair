@@ -3,7 +3,7 @@
 import type { Api, RunView } from '../api.ts';
 import { Badge, Failure, Link, useLoad } from '../components.tsx';
 import { CELL_LABEL, type CellKind, type Tone } from '../labels.ts';
-import { cycleHref } from '../route.ts';
+import { cycleHref, href } from '../route.ts';
 
 type Attempt = RunView['attempts'][number] & { runId: string; replaced: boolean };
 type Step = Attempt['steps'][number];
@@ -37,6 +37,7 @@ export function CaseView({ api, cycleId, testId, targetId }: { api: Api; cycleId
       <header aria-label="케이스" className="cycle-head">
         <p className="muted"><Link to={cycleHref(cycleId)}>{cycle.build}</Link> · {cycleId}</p>
         <h1>{testId}</h1> <span className="muted">{targetId}</span> <span className={`cell cell-${kind} chip`}>{CELL_LABEL[kind]}</span>
+        {' '}<Link to={`${href('/tests')}?testId=${encodeURIComponent(testId)}`}>이 테스트의 이력</Link>
       </header>
       {attempts.length === 0 ? <p className="muted">이 케이스의 시도가 아직 없음</p> : attempts.map((a) => <AttemptPanel key={`${a.runId}/${a.attemptId}`} a={a} />)}
     </>

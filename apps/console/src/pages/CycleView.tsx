@@ -3,6 +3,7 @@ import type { Api, CycleViewWithWarnings } from '../api.ts';
 import { Badge, Failure, Link, usePolling } from '../components.tsx';
 import { CELL_LABEL, CELL_ORDER, CYCLE_STATE_LABEL, CYCLE_VERDICT_LABEL, STATE_TONE, VERDICT_TONE, maskDevice, type CellKind } from '../labels.ts';
 import { caseHref } from '../route.ts';
+import { UsageSection } from './UsageSection.tsx';
 
 /** 새로 고침 간격: 테스트 하나가 보통 수 초~수십 초라 5초면 진행이 바로 보이고, Cycle 조회(이벤트 투영)를 서버에 과하게 걸지 않는다 */
 export const REFRESH_MS = 5_000;
@@ -23,6 +24,7 @@ export function CycleView({ api, cycleId }: { api: Api; cycleId: string }) {
       </header>
       {v.warnings?.length ? <ul aria-label="경고" className="warnings">{v.warnings.map((w) => <li key={w}>{w}</li>)}</ul> : null}
       <Matrix v={v} />
+      <UsageSection api={api} cycleId={v.cycleId} />
       <Runs v={v} />
     </>
   );

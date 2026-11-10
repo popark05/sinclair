@@ -6,6 +6,7 @@ import type { FleetView } from '@sinclair/control-plane';
 import { FleetPage, FLEET_REFRESH_MS } from '../src/pages/FleetPage.tsx';
 import { App } from '../src/App.tsx';
 import type { Api } from '../src/api.ts';
+import { STUBS } from './stubs.ts';
 
 afterEach(() => { cleanup(); vi.useRealTimers(); window.history.pushState({}, '', '/'); });
 const fleet: FleetView = { nodeTtlMs: 60000, nodes: [
@@ -17,7 +18,7 @@ const fleet: FleetView = { nodeTtlMs: 60000, nodes: [
   { agentId: 'node-b', reportedAt: '2026-11-09T00:50:00.000Z', online: false, devices: [] },
 ] };
 const apiOf = (f: FleetView): Api & { calls: number } => {
-  const api = { calls: 0, cycleSummaries: async () => [], cycle: async () => { throw new Error('x'); }, run: async () => ({ runId: 'r1', state: 'running' as const, cycleId: 'c9', attempts: [] }), fleet: async () => { api.calls++; return f; } };
+  const api = { calls: 0, ...STUBS, cycleSummaries: async () => [], cycle: async () => { throw new Error('x'); }, run: async () => ({ runId: 'r1', state: 'running' as const, cycleId: 'c9', attempts: [] }), fleet: async () => { api.calls++; return f; } };
   return api as Api & { calls: number };
 };
 
@@ -55,6 +56,6 @@ describe('FleetPage', () => {
     expect(await screen.findByRole('banner', { name: 'Cycle' })).toBeTruthy();
     expect(window.location.pathname).toBe('/console/cycles/c9');
     const nav = screen.getByRole('navigation');
-    expect(within(nav).getAllByRole('link').map((l) => l.textContent)).toEqual(['Cycle', '플릿']);
+    expect(within(nav).getAllByRole('link').map((l) => l.textContent)).toEqual(['Cycle', '플릿', '안정성']);
   });
 });

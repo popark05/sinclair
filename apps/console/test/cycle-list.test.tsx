@@ -5,10 +5,11 @@ import { render, screen, cleanup, within } from '@testing-library/react';
 import type { CycleSummary } from '@sinclair/control-plane';
 import { CycleList } from '../src/pages/CycleList.tsx';
 import { ApiError, type Api } from '../src/api.ts';
+import { STUBS } from './stubs.ts';
 
 afterEach(cleanup);
 const fakeApi = (summaries: CycleSummary[] | Error): Api => ({
-  cycleSummaries: async () => { if (summaries instanceof Error) throw summaries; return summaries; },
+  ...STUBS, cycleSummaries: async () => { if (summaries instanceof Error) throw summaries; return summaries; },
   cycle: async () => { throw new Error('안 씀'); }, run: async () => { throw new Error('안 씀'); }, fleet: async () => { throw new Error('안 씀'); },
 });
 const row = (c: Partial<CycleSummary> & { cycleId: string }): CycleSummary => ({ build: '1.0', targets: ['android'], createdAt: '2026-11-09T01:00:00.000Z', state: 'running', verdict: 'incomplete', runs: { total: 2, finished: 1 }, ...c });

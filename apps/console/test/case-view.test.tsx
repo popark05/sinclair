@@ -6,6 +6,7 @@ import type { CycleViewWithWarnings, RunView } from '@sinclair/control-plane';
 import { CaseView } from '../src/pages/CaseView.tsx';
 import { App } from '../src/App.tsx';
 import type { Api } from '../src/api.ts';
+import { STUBS } from './stubs.ts';
 
 afterEach(() => { cleanup(); window.history.pushState({}, '', '/'); });
 const T = '로그인 @smoke';
@@ -28,7 +29,7 @@ const runs: Record<string, RunView> = {
     { attemptId: 'other', testId: '다른 테스트', attemptNo: 1, artifacts: [], steps: [] },
   ] },
 };
-const api: Api = { cycleSummaries: async () => [], fleet: async () => { throw new Error('x'); }, cycle: async () => cycle, run: async (id) => { const r = runs[id]; if (!r) throw new Error(`404 ${id}`); return r; } };
+const api: Api = { ...STUBS, cycleSummaries: async () => [], fleet: async () => { throw new Error('x'); }, cycle: async () => cycle, run: async (id) => { const r = runs[id]; if (!r) throw new Error(`404 ${id}`); return r; } };
 
 describe('CaseView', () => {
   it('대체된 Run 의 시도까지 시간 순, 셀 판정·결과·errorCode·소요 시간', async () => {

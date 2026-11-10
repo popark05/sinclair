@@ -8,13 +8,13 @@ export function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
   return <span className={`badge badge-${tone}`}>{children}</span>;
 }
 
-export function Link({ to, children }: { to: string; children: ReactNode }) {
+export function Link({ to, children, className, title }: { to: string; children?: ReactNode; className?: string; title?: string }) {
   const onClick = (e: MouseEvent<HTMLAnchorElement>) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; // 새 탭 열기는 브라우저에 맡긴다
     e.preventDefault();
     navigate(to);
   };
-  return <a href={to} onClick={onClick}>{children}</a>;
+  return <a href={to} onClick={onClick} {...(className ? { className } : {})} {...(title ? { title, 'aria-label': title } : {})}>{children}</a>;
 }
 
 export type Load<T> = { state: 'loading' } | { state: 'ok'; data: T } | { state: 'error'; message: string };
