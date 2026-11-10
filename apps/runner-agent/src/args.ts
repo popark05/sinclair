@@ -16,8 +16,10 @@ export interface RunArgs {
   device?: string;
   /** mobile 엔진이 session.open 에서 띄울 앱 */
   app?: string;
-  /** 실패 스냅샷 디렉터리 */
+  /** 실패 스냅샷 디렉터리. 없으면 스풀 옆 artifacts/(올린 뒤 지운다) */
   artifacts?: string;
+  /** 실패 스냅샷을 control-plane 에 올리는가: on(기본) | off */
+  uploadArtifacts?: 'on' | 'off';
   /** locator 액션 기한(ms). 없으면 러너 기본 10초 */
   timeoutMs?: number;
   /** failed 테스트 재시도 횟수(0~5). 데몬은 Cycle 의 suite.retries 가 있으면 그것을 우선한다 */
@@ -96,7 +98,8 @@ const OPTIONS = [
   { name: 'run', key: 'run', env: 'SINCLAIR_AGENT_RUN', required: false, help: '이미 등록된 Run id (없으면 발급)' },
   { name: 'device', key: 'device', env: 'SINCLAIR_AGENT_DEVICE', required: false, help: 'mobile: 기기 시리얼 (없으면 첫 기기)' },
   { name: 'app', key: 'app', env: 'SINCLAIR_AGENT_APP', required: false, help: 'mobile: session.open 이 띄울 앱 id' },
-  { name: 'artifacts', key: 'artifacts', env: 'SINCLAIR_AGENT_ARTIFACTS', required: false, help: '실패 스냅샷 디렉터리' },
+  { name: 'artifacts', key: 'artifacts', env: 'SINCLAIR_AGENT_ARTIFACTS', required: false, help: '실패 스냅샷 디렉터리 (기본 스풀 옆 artifacts/ — 올린 뒤 지운다)' },
+  { name: 'upload-artifacts', key: 'uploadArtifacts', env: 'SINCLAIR_AGENT_UPLOAD_ARTIFACTS', required: false, help: 'on(기본)|off — 실패 스냅샷(스크린샷·화면 트리)을 control-plane 에 올린다. 스크린샷은 화면 그대로라 개인정보가 보일 수 있다' },
   { name: 'timeout', key: 'timeoutMs', env: 'SINCLAIR_AGENT_TIMEOUT', required: false, help: 'locator 액션 기한 ms (기본 10000)' },
   { name: 'retries', key: 'retries', env: 'SINCLAIR_AGENT_RETRIES', required: false, help: 'failed 테스트 재시도 횟수 0~5 (기본 0). daemon 은 Cycle 의 suite.retries 가 있으면 그것을 우선' },
   { name: 'agent', key: 'agent', env: 'SINCLAIR_AGENT_ID', required: false, help: '이 노드의 id (기본 호스트명; 한 머신에 에이전트를 여럿 띄우면 서로 다르게 줘야 lease 가 구분된다). run.started.agentId' },
@@ -173,6 +176,7 @@ export function parseRunArgs(argv: string[], env: NodeJS.ProcessEnv, platform: N
   const { timeoutMs: timeoutText, retries: retriesText, ...rest } = out;
   const timeoutMs = positiveInt('timeout', timeoutText);
   const retries = positiveInt('retries', retriesText, 0, MAX_RETRIES);
+  if (out.uploadArtifacts !== undefined && out.uploadArtifacts !== 'on' && out.uploadArtifacts !== 'off') throw new AgentConfigError(`--upload-artifacts 는 on|off 여야 함: ${out.uploadArtifacts}`);
   return { ...rest, engine, spool: out.spool ?? defaultSpoolDir(env, platform), helperCache: out.helperCache ?? defaultHelperCacheDir(env, platform), ...(timeoutMs !== undefined ? { timeoutMs } : {}), ...(retries !== undefined ? { retries } : {}) } as unknown as RunArgs;
 }
 
@@ -181,7 +185,7 @@ const DAEMON_OPTIONS: readonly OptionSpec[] = [
   OPTIONS.find((o) => o.name === 'control-plane')!,
   { name: 'targets', key: 'targets', env: 'SINCLAIR_AGENT_TARGETS', required: false, help: '이 노드가 맡는 이름 타깃들, 쉼표 구분. 조건 타깃(플랫폼·모델·OS)은 기기가 맞으면 선언 없이 받는다' },
   { ...OPTIONS.find((o) => o.name === 'tests')!, help: 'Cycle 에 suite 가 없을 때 쓸 기본 테스트 디렉터리' },
-  ...OPTIONS.filter((o) => ['engine', 'device', 'app', 'artifacts', 'timeout', 'retries', 'agent', 'spool', 'helper-apk', 'helper-cache'].includes(o.name)),
+  ...OPTIONS.filter((o) => ['engine', 'device', 'app', 'artifacts', 'upload-artifacts', 'timeout', 'retries', 'agent', 'spool', 'helper-apk', 'helper-cache'].includes(o.name)),
   { name: 'poll', key: 'pollMs', env: 'SINCLAIR_AGENT_POLL', required: false, help: '대기 중인 Run 이 없을 때 다시 묻는 간격 ms (기본 5000, 최소 100)' },
   { name: 'fake-devices', key: 'fakeDevices', env: 'SINCLAIR_AGENT_FAKE_DEVICES', required: false, help: '--engine fake 전용: 보고할 가짜 기기 목록 JSON 파일([{id, platform, model, osVersion, connection, helper?, locked?}]). 없으면 fake-<agent> 한 대' },
   { name: 'concurrency', key: 'concurrency', env: 'SINCLAIR_AGENT_CONCURRENCY', required: false, help: '동시에 돌리는 run 수 상한 (기본: 쓸 수 있는 기기 수, run 마다 워커 프로세스)' },
@@ -216,5 +220,6 @@ export function parseDaemonArgs(argv: string[], env: NodeJS.ProcessEnv, platform
   if (out.fakeDevices !== undefined && engine !== 'fake') throw new AgentConfigError('--fake-devices 는 --engine fake 에서만 쓴다');
   const retries = positiveInt('retries', out.retries, 0, MAX_RETRIES);
   const { targets: _t, pollMs: _p, timeoutMs: _m, retries: _r, concurrency: _cc, ...rest } = out;
+  if (out.uploadArtifacts !== undefined && out.uploadArtifacts !== 'on' && out.uploadArtifacts !== 'off') throw new AgentConfigError(`--upload-artifacts 는 on|off 여야 함: ${out.uploadArtifacts}`);
   return { ...rest, targets, engine, spool: out.spool ?? defaultSpoolDir(env, platform), helperCache: out.helperCache ?? defaultHelperCacheDir(env, platform), ...(timeoutMs !== undefined ? { timeoutMs } : {}), ...(retries !== undefined ? { retries } : {}), ...(pollMs !== undefined ? { pollMs } : {}), ...(concurrency !== undefined ? { concurrency } : {}) } as unknown as DaemonCliArgs;
 }

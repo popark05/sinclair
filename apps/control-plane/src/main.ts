@@ -1,5 +1,6 @@
 // 서버 엔트리: 설정 → 저장소 → HTTP → READY 로그 → 신호에 정상 종료. bin/sinclair-control-plane.mjs 가 부른다.
 // 종료 코드: 0 정상, 2 설정 오류·DB 열기 실패(스키마 버전 등).
+import { createFileArtifactStore } from './artifacts.ts';
 import { parseConfig, ConfigError, HELP, type ControlPlaneConfig } from './config.ts';
 import { createMemoryEventStore } from './store.ts';
 import { createMemoryCycleStore } from './cycle-store.ts';
@@ -15,7 +16,7 @@ export async function startControlPlane(config: ControlPlaneConfig): Promise<Run
   const events = db ? createSqliteEventStore(db) : createMemoryEventStore();
   const cycles = db ? createSqliteCycleStore(db) : createMemoryCycleStore();
   const fleet = db ? createSqliteFleetStore(db) : createMemoryFleetStore();
-  const server = await serveControlPlane(events, { host: config.host, port: config.port, cycles, fleet, ...(config.leaseTtlMs !== undefined ? { leaseTtlMs: config.leaseTtlMs } : {}), ...(config.consoleDir ? { consoleDir: config.consoleDir } : {}) });
+  const server = await serveControlPlane(events, { host: config.host, port: config.port, cycles, fleet, ...(config.leaseTtlMs !== undefined ? { leaseTtlMs: config.leaseTtlMs } : {}), ...(config.consoleDir ? { consoleDir: config.consoleDir } : {}), ...(config.artifactsDir ? { artifacts: createFileArtifactStore(config.artifactsDir) } : {}) });
   let closed = false;
   return {
     server, config,

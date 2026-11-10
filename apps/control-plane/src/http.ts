@@ -9,6 +9,8 @@
 //   GET  /cycles/:id/usage   모델 호출·토큰·캐시 적중률(합계·타깃별·테스트별, 대체된 Run 포함)
 //   GET  /tests/history      최근 N Cycle 의 테스트별 셀·통계·flaky 비율(?limit=&testId=)
 //   GET  /console/*          Console 정적 파일(--console-dir 일 때)
+//   PUT  /artifacts/:runId/:key  신고된 아티팩트 바이트(201) | 400 키 | 404 run | 409 신고 안 됨 | 413
+//   GET  /artifacts/:runId/:key  그 바이트(content-type 은 확장자)
 //   POST /cycles/:id/runs    { targetId, runId? } → RunRegistration (201)
 //   POST /runs/claim         { agentId, targetId?, devices?, targets? } → { run(lease.deviceId), leaseTtlMs, warning? } (200) | 없음 (204)
 //                            targetId 없으면 서버가 고른다: 이름 타깃은 targets 에 선언됐을 때, 조건 타깃은 맞는 빈 기기가 있을 때
@@ -29,6 +31,7 @@ import { matchesTarget, parseCycleTargets, parseNodeReport, type NodeDevice } fr
 import { buildFleetView, createMemoryFleetStore, type FleetStore } from './fleet.ts';
 import { buildCycleView, sweepAbandoned, sweepAllAbandoned } from './cycle-view.ts';
 import { cycleUsage, testHistory } from './insights.ts';
+import { ARTIFACT_KEY, ARTIFACT_MIME, DEFAULT_MAX_ARTIFACT_BYTES, createMemoryArtifactStore, type ArtifactStore } from './artifacts.ts';
 
 export interface ControlPlaneOptions {
   port?: number;
@@ -44,6 +47,9 @@ export interface ControlPlaneOptions {
   now?: () => number;
   /** Console 빌드 디렉터리. 있으면 /console 에서 정적으로 서빙한다(없으면 API 만) */
   consoleDir?: string;
+  /** 아티팩트 저장소(없으면 메모리) */
+  artifacts?: ArtifactStore;
+  maxArtifactBytes?: number;
 }
 
 /** Cycle 목록 한 줄(Console 의 Cycle 목록). 진행률은 판정에 들어가는 Run(대체되지 않은 것) 기준 */
@@ -152,6 +158,18 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
       json(res, 404, { error: '없음' });
     }
   };
+  const artifacts = opts.artifacts ?? createMemoryArtifactStore();
+  /** 본문 바이트. 상한을 넘으면 413 을 보내고 undefined */
+  const readBytes = async (req: http.IncomingMessage, res: http.ServerResponse, limit: number): Promise<Uint8Array | undefined> => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const c of req) {
+      size += (c as Buffer).length;
+      if (size > limit) { req.resume(); res.writeHead(413, { 'content-type': 'application/json', connection: 'close' }).end(JSON.stringify({ error: `아티팩트가 ${limit} 바이트를 넘음` })); return undefined; }
+      chunks.push(c as Buffer);
+    }
+    return new Uint8Array(Buffer.concat(chunks));
+  };
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
@@ -165,6 +183,25 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
       }
       let parts: string[];
       try { parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent); } catch { return json(res, 400, { error: '경로 인코딩이 잘못됨' }); }
+      // 아티팩트: run 이 이벤트로 신고한 키만 받는다(아무 파일이나 쌓이지 않게). 키는 경로 문자 없는 파일 이름
+      if (parts[0] === 'artifacts' && parts.length === 3 && (req.method === 'PUT' || req.method === 'GET')) {
+        const [, runId, key] = parts as [string, string, string];
+        if (!ARTIFACT_KEY.test(key)) return json(res, 400, { error: '아티팩트 키가 올바르지 않음' });
+        if (req.method === 'GET') {
+          const bytes = await artifacts.get(runId, key);
+          if (!bytes) return json(res, 404, { error: '없는 아티팩트' });
+          res.writeHead(200, { 'content-type': ARTIFACT_MIME[nodePath.extname(key).toLowerCase()] ?? 'application/octet-stream', 'cache-control': 'public, max-age=31536000, immutable', 'x-content-type-options': 'nosniff' }).end(bytes);
+          return;
+        }
+        const stored = await store.eventsForRun(runId);
+        if (stored.length === 0) return json(res, 404, { error: '모르는 run' });
+        const declared = stored.some((e) => e.type === 'attempt.finished' && e.artifacts.some((a) => a.key === key));
+        if (!declared) return json(res, 409, { error: `run ${runId} 이 신고하지 않은 아티팩트: ${key}` });
+        const bytes = await readBytes(req, res, opts.maxArtifactBytes ?? DEFAULT_MAX_ARTIFACT_BYTES);
+        if (!bytes) return;
+        await artifacts.put(runId, key, bytes);
+        return json(res, 201, { runId, key, bytes: bytes.length });
+      }
       if (req.method === 'POST' && url.pathname === '/ingest') {
         const read = await readJson(req, res);
         if (!read) return;

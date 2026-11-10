@@ -62,7 +62,11 @@ describe('CaseView', () => {
     expect(within(step).getByText('안전망 1')).toBeTruthy();
     expect(within(step).getByText('다시 찾음 1')).toBeTruthy();
     expect(within(step).getByText('Incident')).toBeTruthy();
-    expect(within(failed).getByRole('list', { name: '아티팩트' }).textContent).toMatch(/screenshot.*a1\.screenshot\.png.*screen-tree/);
+    const arts = within(failed).getByRole('list', { name: '아티팩트' });
+    expect(arts.textContent).toMatch(/screenshot.*a1\.screenshot\.png.*screen-tree/);
+    // 스크린샷은 그림으로, 화면 트리는 링크로(control-plane 의 /artifacts/:runId/:key)
+    expect(within(arts).getByRole('img', { name: /시도 1 의 마지막 화면/ }).getAttribute('src')).toBe('/artifacts/r1/a1.screenshot.png');
+    expect(within(arts).getByRole('link', { name: 'a1.screen-tree.json' }).getAttribute('href')).toBe('/artifacts/r1/a1.screen-tree.json');
   });
 
   it('공유 링크로 바로 들어오면 그 화면, 결과 없는 케이스는 안내', async () => {

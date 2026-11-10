@@ -3,4 +3,5 @@ const zero = { modelCalls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 
 export const STUBS = {
   usage: async (cycleId: string) => ({ cycleId, total: zero, byTarget: {}, byTest: {} }),
   history: async () => ({ cycles: [], tests: [] }),
+  artifactUrl: (runId: string, key: string) => `/artifacts/${encodeURIComponent(runId)}/${encodeURIComponent(key)}`,
 };

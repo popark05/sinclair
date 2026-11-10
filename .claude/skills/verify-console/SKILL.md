@@ -43,4 +43,5 @@ node .claude/skills/verify-console/scripts/verify.mjs --no-build
 
 ## 검증 이력
 
+- 2026-11-10: 아티팩트 업로드(followups 01) — 에이전트가 올린 실패 스크린샷을 서버가 주고 케이스 상세가 그림·트리 링크로 보이는지 확인(검사 6개).
 - 2026-11-10: 최초 시드(console 07). 화면 5개 PASS. 처음 실행에서 Run 행의 노드가 비는 것(lease 없이 보고된 Run)을 잡아 Cycle 뷰의 Run 행에 이벤트의 agentId·deviceId 를 싣도록 고쳤다.

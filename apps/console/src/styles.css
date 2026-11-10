@@ -44,3 +44,4 @@ h2 { font-size: 16px; margin: 20px 0 8px; }
 .sparkline { display: flex; gap: 2px; }
 .spark { display: inline-block; width: 12px; height: 18px; border-radius: 2px; border: 1px solid var(--line); }
 .stale { color: var(--warn); font-size: 13px; }
+.shot { max-width: 280px; max-height: 560px; border: 1px solid var(--line); border-radius: 6px; margin-top: 4px; }

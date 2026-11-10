@@ -1,8 +1,19 @@
 {
-  "at": "2026-11-10T10:47:11.955Z",
+  "at": "2026-11-10T11:07:30.970Z",
   "ok": true,
   "chrome": "Google Chrome",
   "pages": [
+    {
+      "page": "artifact",
+      "path": "/artifacts/<run>/<key>",
+      "ok": true,
+      "checks": [
+        {
+          "text": "screenshot 업로드·서빙",
+          "found": true
+        }
+      ]
+    },
     {
       "page": "cycles",
       "path": "/console/",
@@ -18,7 +29,7 @@
         }
       ],
       "screenshot": ".e2e/verify-console/cycles.png",
-      "screenshotBytes": 23602
+      "screenshotBytes": 23889
     },
     {
       "page": "cycle",
@@ -43,7 +54,7 @@
         }
       ],
       "screenshot": ".e2e/verify-console/cycle.png",
-      "screenshotBytes": 45795
+      "screenshotBytes": 45310
     },
     {
       "page": "case",
@@ -69,10 +80,18 @@
         {
           "text": "이 테스트의 이력",
           "found": true
+        },
+        {
+          "text": "alt=\"시도 1 의 마지막 화면\"",
+          "found": true
+        },
+        {
+          "text": ".screen-tree.json</a>",
+          "found": true
         }
       ],
       "screenshot": ".e2e/verify-console/case.png",
-      "screenshotBytes": 61956
+      "screenshotBytes": 75456
     },
     {
       "page": "fleet",
@@ -101,7 +120,7 @@
         }
       ],
       "screenshot": ".e2e/verify-console/fleet.png",
-      "screenshotBytes": 31704
+      "screenshotBytes": 31662
     },
     {
       "page": "tests",

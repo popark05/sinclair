@@ -201,3 +201,28 @@ describe('runOnce · agent.act 실행기(환경변수 설정)', () => {
     expect((await view()).runs).toEqual([]);
   });
 });
+
+describe('runOnce · 아티팩트 업로드', () => {
+  it('실패 스냅샷(스크린샷·화면 트리)을 기본 디렉터리에 남기고 control-plane 에 올린 뒤 로컬은 지운다; off 면 올리지 않는다', async () => {
+    await createCycle();
+    const args = { controlPlane: url, cycle: 'c1', target: 'android', tests: fixtures, engine: 'fake' as const, timeoutMs: 200, spool, helperCache: path.join(spool, 'helper-cache') };
+    expect(await runOnce(args, deps())).toBe(EXIT.testsFailed);
+    const v = await view();
+    const run = (await (await fetch(`${url}/runs/${v.runs[0]!.runId}`)).json()) as { runId: string; attempts: Array<{ artifacts: Array<{ kind: string; key: string }> }> };
+    const keys = run.attempts.flatMap((a) => a.artifacts);
+    expect(keys.map((k) => k.kind).sort()).toEqual(['screen-tree', 'screenshot']);
+    const shot = await fetch(`${url}/artifacts/${run.runId}/${keys.find((k) => k.kind === 'screenshot')!.key}`);
+    expect(shot.status).toBe(200);
+    expect(new Uint8Array(await shot.arrayBuffer()).slice(0, 4)).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+    expect(logs.join('\n')).toMatch(/아티팩트 2개 업로드/);
+    expect(fs.readdirSync(path.join(spool, 'artifacts'))).toEqual([]); // 올린 기본 디렉터리 파일은 지운다
+
+    await createCycle('c2');
+    expect(await runOnce({ ...args, cycle: 'c2', uploadArtifacts: 'off' }, deps())).toBe(EXIT.testsFailed);
+    const v2 = await view('c2');
+    const run2 = (await (await fetch(`${url}/runs/${v2.runs[0]!.runId}`)).json()) as { runId: string; attempts: Array<{ artifacts: Array<{ key: string }> }> };
+    const key2 = run2.attempts.flatMap((a) => a.artifacts)[0]!.key;
+    expect((await fetch(`${url}/artifacts/${run2.runId}/${key2}`)).status).toBe(404);
+    expect(fs.existsSync(path.join(spool, 'artifacts', key2))).toBe(true); // 올리지 않으면 로컬에 남는다
+  });
+});

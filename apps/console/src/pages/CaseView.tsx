@@ -43,12 +43,12 @@ export function CaseView({ api, cycleId, testId, targetId }: { api: Api; cycleId
         <h1>{testId}</h1> <span className="muted">{targetId}</span> <span className={`cell cell-${kind} chip`}>{CELL_LABEL[kind]}</span>
         {' '}<Link to={`${href('/tests')}?testId=${encodeURIComponent(testId)}`}>이 테스트의 이력</Link>
       </header>
-      {attempts.length === 0 ? <p className="muted">이 케이스의 시도가 아직 없음</p> : attempts.map((a) => <AttemptPanel key={`${a.runId}/${a.attemptId}`} a={a} />)}
+      {attempts.length === 0 ? <p className="muted">이 케이스의 시도가 아직 없음</p> : attempts.map((a) => <AttemptPanel key={`${a.runId}/${a.attemptId}`} a={a} api={api} />)}
     </>
   );
 }
 
-function AttemptPanel({ a }: { a: Attempt }) {
+function AttemptPanel({ a, api }: { a: Attempt; api: Api }) {
   const [label, tone] = a.result ? RESULT[a.result] ?? [a.result, 'neutral' as Tone] : ['진행 중', 'info' as Tone];
   return (
     <section aria-label={`시도 ${a.attemptNo ?? '?'} (${a.runId}${a.replaced ? ', 대체됨' : ''})`} className={`attempt ${a.replaced ? 'replaced-attempt' : ''}`}>
@@ -60,7 +60,20 @@ function AttemptPanel({ a }: { a: Attempt }) {
         </table>
       ) : <p className="muted">스텝 없음</p>}
       {a.artifacts.length ? (
-        <ul aria-label="아티팩트" className="artifacts">{a.artifacts.map((x) => <li key={x.key}><span className="muted">{x.kind}</span> <code>{x.key}</code></li>)}</ul>
+        <ul aria-label="아티팩트" className="artifacts">
+          {a.artifacts.map((x) => {
+            const src = api.artifactUrl(a.runId, x.key);
+            // 스크린샷은 그림으로(업로드되지 않았으면 깨진 그림 대신 키만 남는다), 나머지(화면 트리 등)는 새 탭 링크
+            return (
+              <li key={x.key}>
+                <span className="muted">{x.kind}</span>{' '}
+                {x.kind === 'screenshot'
+                  ? <><code>{x.key}</code><br /><a href={src} target="_blank" rel="noreferrer"><img src={src} alt={`시도 ${a.attemptNo ?? '?'} 의 마지막 화면`} className="shot" loading="lazy" onError={(e) => { e.currentTarget.style.display = 'none'; }} /></a></>
+                  : <a href={src} target="_blank" rel="noreferrer">{x.key}</a>}
+              </li>
+            );
+          })}
+        </ul>
       ) : null}
     </section>
   );

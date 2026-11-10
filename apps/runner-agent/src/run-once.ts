@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { agentFromEnv, ModelConfigError, type AgentSetup } from '@sinclair/agent';
 import { runTests, type Reporter } from '@sinclair/runner';
+import type { RunEvent } from '@sinclair/protocol';
 import { AgentConfigError, type RunArgs } from './args.ts';
 import { ControlPlaneError, registerRun, type RegisteredRun } from './control-plane-client.ts';
 import { createEngine, type EngineHandle } from './engines.ts';
@@ -90,23 +91,55 @@ export async function executeRun(args: RunArgs, run: RegisteredRun, files: strin
     return EXIT.blocked;
   }
 
+  // 실패 스냅샷: 지정하지 않으면 스풀 옆 artifacts/ 에 남기고 control-plane 에 올린 뒤 지운다(Console 케이스 상세가 본다)
+  const artifactsDir = args.artifacts ?? path.join(args.spool, 'artifacts');
   try {
     // Reporter 가 재시도 예산을 알려 주면 러너의 flush 기한을 그에 맞춘다(기본 10초면 스풀의 60초 예산이 무의미해진다)
     const flushBudgetMs = (reporter as { flushBudgetMs?: number }).flushBudgetMs;
     const report = await runTests(files, {
       engine: handle.engine, reporter, runId: run.runId, cycleId: run.cycleId, targetId: run.targetId, agentId, agent, ...(agent.pii ? { pii: agent.pii } : {}),
       ...(flushBudgetMs !== undefined ? { reporterFlushTimeoutMs: flushBudgetMs } : {}),
-      ...(handle.deviceId ? { deviceId: handle.deviceId } : {}), ...(args.artifacts ? { artifactsDir: args.artifacts } : {}), ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}), ...(args.retries !== undefined ? { retries: args.retries } : {}), ...(deps.signal ? { signal: deps.signal } : {}),
+      ...(handle.deviceId ? { deviceId: handle.deviceId } : {}), artifactsDir, ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}), ...(args.retries !== undefined ? { retries: args.retries } : {}), ...(deps.signal ? { signal: deps.signal } : {}),
     });
     const s = report.summary;
     const stats = (reporter as { stats?: { sent: number; accepted: number; duplicate: number; rejected: number; retries: number } }).stats;
     log(`결과: passed ${s.passed}, failed ${s.failed}, blocked ${s.blocked}, skipped ${s.skipped}${stats ? ` / 전송 ${stats.sent}건(accepted ${stats.accepted}, duplicate ${stats.duplicate}, rejected ${stats.rejected}, retries ${stats.retries})` : ''}`);
     for (const t of report.tests) if (t.result !== 'passed') log(`  ${t.result}: ${t.name}${t.error ? ` — ${t.error}` : ''}`);
     for (const w of report.warnings ?? []) log(`  경고: ${w}`);
+    if (args.uploadArtifacts !== 'off') await uploadArtifacts(args.controlPlane, run.runId, artifactsDir, report.events, { removeAfter: args.artifacts === undefined, log });
     if (report.cancelled) { log(`run ${run.runId} 중단(cancelled): ${report.cancelled.reason}`); return EXIT.cancelled; }
     if (s.blocked > 0) return EXIT.blocked;
     return s.failed > 0 ? EXIT.testsFailed : EXIT.ok;
   } finally {
     await handle.dispose().catch((err: unknown) => log(`엔진 정리 실패: ${err instanceof Error ? err.message : String(err)}`));
   }
+}
+
+/** 업로드 재시도: 이벤트가 아직 Ingest 에 닿지 않았으면(스풀이 늦게 비워짐) 404·409 라 잠시 뒤 다시 */
+const UPLOAD_TRIES = 3;
+const UPLOAD_BACKOFF_MS = 500;
+
+/** run 이 신고한 아티팩트(attempt.finished.artifacts)를 control-plane 에 올린다. 실패는 로그만 — run 결과는 바꾸지 않는다(파일은 로컬에 남는다) */
+export async function uploadArtifacts(controlPlane: string, runId: string, dir: string, events: readonly RunEvent[], opts: { removeAfter: boolean; log: (line: string) => void }): Promise<{ uploaded: number; failed: number }> {
+  const keys = [...new Set(events.flatMap((e) => (e.type === 'attempt.finished' ? e.artifacts.map((a) => a.key) : [])))];
+  let uploaded = 0, failed = 0;
+  for (const key of keys) {
+    const file = path.join(dir, key);
+    let bytes: Buffer;
+    try { bytes = await fs.readFile(file); } catch { failed++; opts.log(`  아티팩트 ${key}: 파일이 없음(${file})`); continue; }
+    let ok = false, last = '';
+    for (let i = 0; i < UPLOAD_TRIES && !ok; i++) {
+      if (i) await new Promise((r) => setTimeout(r, UPLOAD_BACKOFF_MS * i));
+      try {
+        const res = await fetch(`${controlPlane.replace(/\/$/, '')}/artifacts/${encodeURIComponent(runId)}/${encodeURIComponent(key)}`, { method: 'PUT', body: new Uint8Array(bytes) });
+        ok = res.status === 201;
+        if (!ok) last = `${res.status} ${await res.text().catch(() => '')}`.slice(0, 200);
+        if (res.status === 400 || res.status === 413) break; // 다시 해도 같다
+      } catch (err) { last = err instanceof Error ? err.message : String(err); }
+    }
+    if (ok) { uploaded++; if (opts.removeAfter) await fs.rm(file, { force: true }); }
+    else { failed++; opts.log(`  아티팩트 ${key} 업로드 실패: ${last} — 로컬 ${file} 에 남김`); }
+  }
+  if (keys.length) opts.log(`아티팩트 ${uploaded}개 업로드${failed ? `, ${failed}개 실패` : ''}`);
+  return { uploaded, failed };
 }

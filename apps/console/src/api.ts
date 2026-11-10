@@ -16,6 +16,8 @@ export interface Api {
   fleet(): Promise<FleetView>;
   usage(cycleId: string): Promise<CycleUsage>;
   history(opts: { limit: number; testId?: string }): Promise<HistoryView>;
+  /** 아티팩트(스크린샷·화면 트리) 주소 — 그림·링크로 바로 쓴다 */
+  artifactUrl(runId: string, key: string): string;
 }
 
 /** baseUrl: control-plane 주소. 같은 서버가 Console 을 서빙하면 '' (같은 출처) */
@@ -41,6 +43,7 @@ export function createApi(baseUrl = '', fetchImpl: typeof fetch = (...a) => fetc
     run: (runId) => get(`/runs/${id(runId)}`),
     fleet: () => get('/fleet'),
     usage: (cycleId) => get(`/cycles/${id(cycleId)}/usage`),
+    artifactUrl: (runId, key) => `${baseUrl}/artifacts/${id(runId)}/${id(key)}`,
     history: ({ limit, testId }) => get(`/tests/history?limit=${limit}${testId ? `&testId=${id(testId)}` : ''}`),
   };
 }

@@ -46,13 +46,18 @@ try {
   const view = await (await fetch(`${base}/cycles/${cycleId}`)).json();
   const failing = Object.keys(view.matrix).find((t) => view.matrix[t].android?.verdict === 'failed');
   if (!failing) throw new Error(`실패 케이스가 매트릭스에 없음: ${JSON.stringify(view.matrix)}`);
+  // 에이전트가 실패 스냅샷을 올렸다(기본 켜짐): 스크린샷 바이트를 서버가 준다
+  const runView = await (await fetch(`${base}/runs/${view.runs[0].runId}`)).json();
+  const shotKey = runView.attempts.flatMap((a) => a.artifacts).find((a) => a.kind === 'screenshot')?.key;
+  const shotRes = shotKey ? await fetch(`${base}/artifacts/${view.runs[0].runId}/${shotKey}`) : undefined;
+  results.push({ page: 'artifact', path: '/artifacts/<run>/<key>', ok: shotRes?.status === 200 && shotRes.headers.get('content-type') === 'image/png', checks: [{ text: 'screenshot 업로드·서빙', found: shotRes?.status === 200 }] });
 
   // 3) 화면들: 렌더된 DOM(가상 시간 예산 동안 fetch·렌더가 끝난다)과 스크린샷
   const pages = [
     { name: 'cycles', path: '/console/', expect: ['verify-1.0', '끝남'] },
     // 셀 클래스로 판정한다(머리말·범례의 '실패'·'통과' 글자는 매트릭스가 비어도 늘 있다)
     { name: 'cycle', path: `/console/cycles/${cycleId}`, expect: ['class="cell cell-failed"><a', 'class="cell cell-passed"><a', 'verify-node', '…fake'] },
-    { name: 'case', path: `/console/cycles/${cycleId}/cases/${encodeURIComponent(failing)}/android`, expect: ['시도 1', 'not-found', 'locator', '→ 실패', '이 테스트의 이력'] },
+    { name: 'case', path: `/console/cycles/${cycleId}/cases/${encodeURIComponent(failing)}/android`, expect: ['시도 1', 'not-found', 'locator', '→ 실패', '이 테스트의 이력', 'alt="시도 1 의 마지막 화면"', '.screen-tree.json</a>'] },
     { name: 'fleet', path: '/console/fleet', expect: ['verify-node', '온라인', '…1234', '쓸 수 있음'], absent: ['FAKE00001234'] }, // 원시 시리얼은 화면에 없다
     { name: 'tests', path: '/console/tests', expect: [failing, 'spark cell-failed', 'spark cell-passed'] },
   ];
@@ -70,7 +75,7 @@ try {
   cp.kill('SIGTERM');
   fs.rmSync(tmp, { recursive: true, force: true });
 }
-const ok = results.length === 5 && results.every((r) => r.ok);
+const ok = results.length === 6 && results.every((r) => r.ok);
 fs.writeFileSync(evidence, JSON.stringify({ at: new Date().toISOString(), ok, chrome: path.basename(chrome), pages: results }, null, 2) + '\n');
 for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'} ${r.page} ${r.checks.map((c) => `${c.found ? '✓' : '✗'}${c.text}`).join(' ')}${r.error ? ` 오류: ${r.error}` : ''}`);
 console.log(ok ? 'verify-console: PASS' : 'verify-console: FAIL', `→ ${path.relative(repo, evidence)}`);
