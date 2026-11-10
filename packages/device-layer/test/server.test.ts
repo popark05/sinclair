@@ -78,3 +78,13 @@ describe('device.io.button 파라미터', () => {
     expect(b.calls).toEqual(['button home']);
   });
 });
+
+describe('device.io.keyboard', () => {
+  it('백엔드가 알면 { shown }, 모르면(구현 없음·undefined) { shown: null }', async () => {
+    const b = new FakeBackend();
+    const d = createDeviceServer([b]);
+    expect((await d.handle(req('device.io.keyboard', { deviceId: 'FAKE1' }))).result).toEqual({ shown: null });
+    (b as unknown as { keyboardShown: () => Promise<boolean> }).keyboardShown = async () => true;
+    expect((await d.handle(req('device.io.keyboard', { deviceId: 'FAKE1' }))).result).toEqual({ shown: true });
+  });
+});

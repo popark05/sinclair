@@ -228,6 +228,8 @@ export function createMobileEngine(rpc: DeviceRpc, options: MobileEngineOptions)
       type: async (text) => { assertOpen(); await call('device.io.text', { deviceId, text }); },
       press: async (key) => { assertOpen(); await keys([keyCode(key)]); },
       dismiss: async () => { assertOpen(); await button('back'); },
+      // 모르면(null) false: dismiss 가 뒤로 버튼이라 키보드가 없는데 누르면 화면을 떠난다
+      shown: async () => { assertOpen(); const r = (await call('device.io.keyboard', { deviceId })) as { shown: boolean | null }; return r.shown === true; },
     },
 
     session: {

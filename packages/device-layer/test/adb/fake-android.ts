@@ -12,6 +12,8 @@ export class FakeAndroid {
   isRoot = false;
   /** 설정하면 input 명령이 이 메시지로 실패한다(종료 코드 1). */
   failInput: string | undefined;
+  /** `dumpsys input_method` 이 보고할 화면 키보드 표시 여부(undefined 면 그 줄이 없는 기기) */
+  keyboardShown: boolean | undefined = false;
   /** `settings put/get --user 0 secure` 저장소. */
   readonly secureSettings = new Map<string, string>();
   /** true 면 settings put 이 조용히 무시된다(Secure Folder 기기에서 --user 0 을 빠뜨린 상황 흉내). */
@@ -124,6 +126,7 @@ export class FakeAndroid {
   private run(command: string): { stdout?: string | Buffer; stderr?: string; exit?: number } {
     let m: RegExpExecArray | null;
     if ((m = /^echo (.*)$/.exec(command))) return { stdout: `${m[1]}\n` };
+    if (command === 'dumpsys input_method') return { stdout: `  mServedView=x\n${this.keyboardShown === undefined ? '' : `  mInputShown=${this.keyboardShown}\n`}  mShowRequested=false\n` };
     if (command.startsWith('input ')) return this.failInput ? { stderr: `${this.failInput}\n`, exit: 1 } : {};
     if ((m = /^monkey -p '([^']+)' -c android\.intent\.category\.LAUNCHER 1$/.exec(command))) {
       if (this.packages.has(m[1]!)) return { stdout: 'Events injected: 1\n' };

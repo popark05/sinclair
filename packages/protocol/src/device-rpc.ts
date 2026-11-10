@@ -16,6 +16,7 @@ export const DEVICE_RPC_METHODS = [
   'device.io.text',
   'device.io.keys',
   'device.io.button',
+  'device.io.keyboard',
   'device.apps.launch',
   'device.apps.terminate',
   'device.apps.install',
@@ -119,10 +120,14 @@ export interface DeviceRpcParams {
   'device.io.text': TextParams;
   'device.io.keys': KeysParams;
   'device.io.button': ButtonParams;
+  'device.io.keyboard': DeviceParams;
   'device.apps.launch': AppParams;
   'device.apps.terminate': AppParams;
   'device.url': UrlParams;
 }
+
+/** `device.io.keyboard` 결과: 화면 키보드가 떠 있는가. null 이면 기기가 알려 주지 않음(모름) */
+export interface KeyboardResult { shown: boolean | null }
 
 /** `device.screenshot` 결과 */
 export interface ScreenshotResult { format: 'png'; base64: string }

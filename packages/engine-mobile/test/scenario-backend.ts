@@ -9,6 +9,8 @@ const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a
 export class ScenarioBackend implements DeviceBackend {
   readonly platform = 'android' as const;
   readonly calls: string[] = [];
+  /** 화면 키보드 표시 여부(테스트가 넣는다). 없으면 모름 */
+  keyboardShown?: (deviceId: string) => Promise<boolean | undefined>;
   /** 앱이 실행 중이 아니면 빈 화면(root 만). */
   private screen: SemanticNode | undefined = structuredClone(LOGIN_SCREEN);
   private focused: string | undefined;

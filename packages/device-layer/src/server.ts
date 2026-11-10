@@ -60,6 +60,12 @@ export function createDeviceServer(backends: DeviceBackend[]): RpcDispatcher {
     await (await find(id)).button(id, button as DeviceButton);
     return null;
   });
+  d.register('device.io.keyboard', async (p) => {
+    const id = str(p, 'deviceId');
+    const b = await find(id);
+    const shown = b.keyboardShown ? await b.keyboardShown(id) : undefined;
+    return { shown: shown ?? null };
+  });
   d.register('device.apps.launch', async (p) => { const id = str(p, 'deviceId'); await (await find(id)).launchApp(id, str(p, 'appId')); return null; });
   d.register('device.apps.terminate', async (p) => { const id = str(p, 'deviceId'); await (await find(id)).terminateApp(id, str(p, 'appId')); return null; });
   d.register('device.url', async (p) => { const id = str(p, 'deviceId'); await (await find(id)).openUrl(id, str(p, 'url')); return null; });

@@ -192,6 +192,15 @@ describe('AndroidBackend 입력 (adb shell input 경로)', () => {
     await expect(backend.tap('PHONE1', { x: 1, y: 1 })).rejects.toThrow(/Invalid arguments/);
   });
 
+  it('keyboardShown 은 dumpsys input_method 의 mInputShown 을 읽는다(줄이 없으면 모름 = undefined)', async () => {
+    const { backend, phone } = await ready();
+    expect(await backend.keyboardShown!('PHONE1')).toBe(false);
+    phone.keyboardShown = true;
+    expect(await backend.keyboardShown!('PHONE1')).toBe(true);
+    phone.keyboardShown = undefined;
+    expect(await backend.keyboardShown!('PHONE1')).toBeUndefined();
+  });
+
   it('input text 가 실패해도 오류 문구에 입력한 글자를 싣지 않는다(비밀번호일 수 있다)', async () => {
     const { backend, phone } = await ready();
     phone.failInput = 'Error: Invalid arguments';

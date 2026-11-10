@@ -97,6 +97,8 @@ describe('DeviceInfo.helper 계약 (온디바이스 헬퍼 상태)', () => {
 describe('device.snapshot 계약 (스크린샷·트리 원자 캡처)', () => {
   it('메서드 목록에 있고, 결과는 screenshot/root/atomic/capturedAt 을 가지며 원자성이 깨지면 detail 로 이유를 준다', () => {
     expect(DEVICE_RPC_METHODS).toContain('device.snapshot');
+    // 화면 키보드 표시 여부(agent 의 키보드 Incident 복구가 근거로 쓴다). 결과 { shown: boolean | null }, null 은 모름
+    expect(DEVICE_RPC_METHODS).toContain('device.io.keyboard');
     const atomic: SnapshotResult = {
       screenshot: { format: 'png', base64: 'iVBORw0KGgo=' },
       root: { ref: '@e0', role: 'group' },

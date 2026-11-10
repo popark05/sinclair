@@ -75,6 +75,13 @@ describe('createMobileEngine', () => {
     await expect(engine.session!.reset()).rejects.toMatchObject({ code: 'unsupported-action' });
   });
 
+  it('keyboard.shown 은 device.io.keyboard 를 묻고, 모르면(null) false — 근거 없이 키보드를 내리지 않게', async () => {
+    const { backend, engine } = setup();
+    expect(await engine.keyboard!.shown!()).toBe(false); // 시나리오 백엔드는 모른다
+    backend.keyboardShown = async () => true;
+    expect(await engine.keyboard!.shown!()).toBe(true);
+  });
+
   it('디바이스 레이어 오류는 EngineError 로 바뀌고 기기 id 가 남는다', async () => {
     const engine = createMobileEngine(rpcOverDispatcher(createDeviceServer([new ScenarioBackend('OTHER')])), { deviceId: 'MISSING' });
     await expect(engine.observe()).rejects.toMatchObject({ code: 'device-unavailable', message: expect.stringContaining('MISSING') });

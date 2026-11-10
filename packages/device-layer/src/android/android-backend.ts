@@ -508,6 +508,12 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
       return input(id, `keyevent ${keys.join(' ')}`);
     },
     button: (id, name) => input(id, `keyevent ${BUTTON_KEYCODES[name]}`),
+    // 화면 키보드: InputMethodManagerService 의 mInputShown. 그 줄이 없는 기기·버전이면 모른다(undefined) — 에이전트는 그러면 키보드를 내리지 않는다
+    keyboardShown: async (id) => {
+      const out = await run(id, 'dumpsys input_method');
+      const m = /\bmInputShown=(true|false)\b/.exec(out);
+      return m ? m[1] === 'true' : undefined;
+    },
     screenState: async (id) => {
       const sh = async (cmd: string) => (await dadbFor(id).shell(cmd)).output;
       // dumpsys window 전체는 수백 KB 라 grep 으로 줄만 뽑는다
