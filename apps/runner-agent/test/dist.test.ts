@@ -132,6 +132,8 @@ describe.skipIf(!canRun)('호스트 배포본 (동봉 Node 대신 현재 Node �
     const apk = fs.readdirSync(path.join(install, 'resources', 'helper')).sort();
     expect(apk).toEqual([helperApkFileName(), `${helperApkFileName()}.sha256`]); // 에이전트가 찾는 이름과 같다(단일 출처)
     expect(fs.existsSync(path.join(install, 'node', 'LICENSE'))).toBe(true);
+    // Console(웹 대시보드) 정적 파일이 들어 있다
+    expect(fs.readFileSync(path.join(install, 'resources', 'console', 'index.html'), 'utf8')).toMatch(/\/console\/assets\/[^"]+\.js/);
     const sum = fs.readFileSync(path.join(install, 'resources', 'helper', apk[1]!), 'utf8').slice(0, 64);
     expect(createHash('sha256').update(fs.readFileSync(path.join(install, 'resources', 'helper', apk[0]!))).digest('hex')).toBe(sum);
     expect(fs.readFileSync(path.join(install, 'VERSION'), 'utf8')).toContain(`node ${NODE_VERSION}`);
@@ -163,6 +165,11 @@ describe.skipIf(!canRun)('호스트 배포본 (동봉 Node 대신 현재 Node �
     expect(cp.output()).toMatch(/store=sqlite db=.*cp\.db/);
     const r = await fetch(`http://127.0.0.1:${port}/ingest`, { method: 'POST', body: JSON.stringify([{ schema: 1, eventId: 'd1', runId: 'r1', at: '2026-11-08T00:00:00.000Z', type: 'run.started', targetId: 'android' }]) });
     expect(((await r.json()) as { accepted: number }).accepted).toBe(1);
+    // 설치본은 --console-dir 없이도 동봉한 Console 을 /console 에서 서빙한다
+    const page = await fetch(`http://127.0.0.1:${port}/console/`);
+    expect(page.headers.get('content-type')).toMatch(/text\/html/);
+    const js = /src="(\/console\/assets\/[^"]+\.js)"/.exec(await page.text())![1]!;
+    expect((await fetch(`http://127.0.0.1:${port}${js}`)).headers.get('content-type')).toMatch(/javascript/);
     expect(await cp.stop()).toBe(0);
     expect(cp.output()).toContain('종료 완료');
   });

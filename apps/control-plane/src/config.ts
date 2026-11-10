@@ -1,6 +1,8 @@
 // 서버 설정: 플래그 > 환경변수 > 기본값. 순수 함수라 테이블 테스트가 쉽다.
 import * as path from 'node:path';
 import { parseArgs } from 'node:util';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { DEFAULT_LEASE_TTL_MS } from './http.ts';
 
 export interface ControlPlaneConfig {
@@ -27,7 +29,7 @@ const OPTIONS = [
   { name: 'port', env: 'SINCLAIR_CP_PORT', help: `포트 (기본 ${DEFAULT_PORT}, 0 이면 OS 배정)` },
   { name: 'store', env: 'SINCLAIR_CP_STORE', help: '저장소 memory|sqlite (기본 sqlite)' },
   { name: 'db', env: 'SINCLAIR_CP_DB', help: 'SQLite 파일 (기본 OS 데이터 디렉터리/sinclair/control-plane.db)' },
-  { name: 'console-dir', env: 'SINCLAIR_CP_CONSOLE_DIR', help: 'Console(웹 대시보드) 빌드 디렉터리. 있으면 /console 에서 서빙 (기본 없음 = API 만)' },
+  { name: 'console-dir', env: 'SINCLAIR_CP_CONSOLE_DIR', help: 'Console(웹 대시보드) 빌드 디렉터리. /console 에서 서빙 (기본: 설치본이면 동봉한 resources/console, 리포에서는 없음 = API 만; none 이면 끔)' },
   { name: 'lease-ttl-ms', env: 'SINCLAIR_CP_LEASE_TTL_MS', help: `클레임 lease 수명 ms (기본 ${DEFAULT_LEASE_TTL_MS}). 버려진 Run 판정 유예도 같은 값` },
 ] as const;
 
@@ -82,6 +84,9 @@ export function parseConfig(argv: string[], env: NodeJS.ProcessEnv, platform: No
   const ttlText = resolve('lease-ttl-ms', String(DEFAULT_LEASE_TTL_MS));
   const leaseTtlMs = Number(ttlText);
   if (!/^\d+$/.test(ttlText) || leaseTtlMs < 1000) throw new ConfigError(`lease-ttl-ms 는 1000 이상의 정수여야 함: ${ttlText}`);
-  const consoleDir = resolve('console-dir', '');
+  // 기본: 자산 디렉터리(SINCLAIR_RESOURCES_DIR, 없으면 이 모듈 옆 ../resources — 설치본에서는 dist/ 의 형제)에 console/index.html 이 있으면 그것
+  const bundled = path.join(env.SINCLAIR_RESOURCES_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'resources'), 'console');
+  const chosen = resolve('console-dir', existsSync(path.join(bundled, 'index.html')) ? bundled : '');
+  const consoleDir = chosen === 'none' ? '' : chosen;
   return { host, port, store: store as ControlPlaneConfig['store'], db, leaseTtlMs, ...(consoleDir ? { consoleDir: path.resolve(consoleDir) } : {}) };
 }

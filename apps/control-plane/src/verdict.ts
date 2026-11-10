@@ -28,7 +28,9 @@ export interface CycleView {
   state: CycleState;
   verdict: CycleVerdict;
   /** 등록 순서. 이벤트가 아직 없는 run 은 queued. lease 는 에이전트가 잡은 표시. replacedBy 가 있는 run 은 버려져 대체된 것으로, 행에는 남지만 판정에서는 빠진다 */
-  runs: Array<{ runId: string; targetId: string; state: RunState; lease?: RunLease; replaces?: string; replacedBy?: string; abandonedAt?: string }>;
+  runs: Array<{ runId: string; targetId: string; state: RunState; lease?: RunLease; replaces?: string; replacedBy?: string; abandonedAt?: string;
+    /** 러너가 보고한 노드·기기(run.started). lease 없이 보고된 Run(`sinclair-agent run`)도 누가 돌렸는지 보이게 */
+    agentId?: string; deviceId?: string }>;
   /** 버려진 Run 을 대체할 수 있는 횟수(타깃별). 생성 시 정한다 */
   retryLimit: number;
   /** 지금까지 만든 대체 Run 수(타깃별) */
@@ -64,6 +66,7 @@ export function computeCycle(cycle: CycleRecord, registrations: RunRegistration[
   const all = registrations.filter((r) => r.cycleId === cycle.cycleId).map((r) => ({ reg: r, view: byId.get(r.runId) }));
   const runRows = all.map(({ reg, view }) => ({
     runId: reg.runId, targetId: reg.targetId, state: view?.state ?? ('queued' as RunState), ...(reg.lease ? { lease: reg.lease } : {}),
+    ...(view?.agentId ? { agentId: view.agentId } : {}), ...(view?.deviceId ? { deviceId: view.deviceId } : {}),
     ...(reg.replaces ? { replaces: reg.replaces } : {}), ...(reg.replacedBy ? { replacedBy: reg.replacedBy } : {}), ...(reg.abandonedAt ? { abandonedAt: reg.abandonedAt } : {}),
   }));
   // 대체된(버려진) run 은 매트릭스·판정에서 뺀다: 그 몫은 대체 Run 이 한다. 행에는 이력으로 남긴다

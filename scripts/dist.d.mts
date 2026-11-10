@@ -6,4 +6,7 @@ export function fetchNode(target: string, opts?: { version?: string; base?: stri
 export function assembleDistributable(opts: {
   target: string; outDir?: string; version?: string; nodeBinary?: string; nodeLicense?: string; zip?: boolean; log?: (line: string) => void; bundlesDir?: string;
   nodeFetchOptions?: { version?: string; base?: string; cacheDir?: string; fetch?: typeof fetch }; helperApk?: string;
+  /** 미리 빌드한 Console 디렉터리. 없으면 pnpm --filter @sinclair/console build */
+  consoleDir?: string;
 }): Promise<{ stageDir: string; zipPath?: string; files: string[]; manifest: { target: string; version: string; node: string; helper: string; builtOn: string; zipMb?: number; files: string[] } }>;
+export function buildConsole(log?: (line: string) => void): string;

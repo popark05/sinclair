@@ -61,6 +61,7 @@ const IMPORT_META_URL_ALLOWED = [
   'apps/runner-agent/src/resources.ts (resources/ 위치)',
   'packages/device-layer/src/android/android-backend.ts (개발용 APK 경로, 번들에선 존재하지 않는 경로가 되어 무시됨)',
   'apps/runner-agent/src/helper-apk.ts (개발용 리포 빌드 경로, isBundled() 가 접혀 번들에서는 쓰이지 않음)',
+  'apps/control-plane/src/config.ts (resources/console 위치 — 설치본의 Console 정적 파일, dist/ 의 형제)',
 ];
 function guardBundles(dir) {
   const problems = [];

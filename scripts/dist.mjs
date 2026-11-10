@@ -7,6 +7,7 @@
  *   dist/*.mjs                                                   build-bundles.mjs 산출물(한 디렉터리)
  *   node_modules/usb, node_modules/@node-usb/usb-<platform>      네이티브 USB(번들에서 external)
  *   resources/helper/sinclair-helper-<V>.apk(+.sha256)          헬퍼 APK(리포 빌드에서 복사, 없으면 실패)
+ *   resources/console/                                           Console(웹 대시보드) 정적 빌드 — control-plane 이 /console 에서 서빙
  *   VERSION, README.md
  *
  * 사용: node scripts/dist.mjs [--targets mac-arm64,mac-x64,win-x64,win-arm64 | all] [--out release] [--node-binary <path>] [--no-zip]
@@ -19,6 +20,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, chm
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildBundles } from './build-bundles.mjs';
+import { spawnSync } from 'node:child_process';
 import { ensureUsbPackage, USB_PACKAGE_DIR, USB_PLATFORM_PACKAGES } from './fetch-usb-binaries.mjs';
 // 헬퍼 버전·파일명·리포 빌드 경로는 에이전트 소스가 단일 출처다(Node 22.18+ 타입 스트리핑으로 .ts 를 그대로 읽는다)
 import { HELPER_APK_VERSION, helperApkFileName, DEFAULT_REPO_BUILD } from '../apps/runner-agent/src/helper-apk.ts';
@@ -117,6 +119,7 @@ function readme(version, target, sizeMb) {
 
 ## 실행
 - 서버: \`bin/sinclair-control-plane --port 4780 --db <경로>\` (기본 저장소 SQLite, 데이터는 OS 데이터 디렉터리/sinclair)
+- Console(웹 대시보드): 서버를 띄우고 브라우저로 \`http://<서버>:4780/console/\` — Cycle 목록·매트릭스·실패 상세·플릿·안정성 이력. 인증이 없으니 신뢰망 안에서만(\`--console-dir none\` 으로 끈다)
 - 에이전트: \`bin/sinclair-agent run --control-plane http://<서버>:4780 --cycle <id> --target <id> --tests <디렉터리> --device <시리얼>\`
 - 데몬: \`bin/sinclair-agent daemon --control-plane … --targets android --tests <디렉터리>\`
   - 데몬은 꽂힌 기기를 control-plane 에 보고하고 쓸 수 있는 기기만 Run 을 받는다. 잠긴 폰은 한 번 깨우고 위로 스와이프해 보고, 보안 잠금이면 화면을 끄고 사람이 풀 때까지 기다린다(폰은 잠금 없음 또는 개발자 옵션 '화면 켜짐 상태 유지' 권장).
@@ -157,7 +160,17 @@ ${TARGETS[target].win ? windowsNotes() : ''}`;
  * 타깃 하나의 배포본을 조립한다. 돌려주는 값: { stageDir, zipPath? , files }
  * nodeBinary 를 주면 다운로드 없이 그 실행 파일을 쓴다(호스트 타깃 테스트). license 는 있으면 함께.
  */
-export async function assembleDistributable({ target, outDir = path.join(root, 'release'), version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version, nodeBinary, nodeLicense, zip = true, log = console.log, bundlesDir, nodeFetchOptions = {}, helperApk = HELPER_REPO_BUILD }) {
+/** Console(웹 대시보드) 정적 빌드. 한 번 만들어 여러 타깃이 같이 쓴다(플랫폼과 무관한 파일) */
+export function buildConsole(log = console.log) {
+  const r = spawnSync('pnpm', ['--filter', '@sinclair/console', 'build'], { cwd: root, encoding: 'utf8', shell: process.platform === 'win32' });
+  if (r.status !== 0) throw new Error(`Console 빌드 실패(pnpm --filter @sinclair/console build):\n${r.stdout}\n${r.stderr}`);
+  const dir = path.join(root, 'apps', 'console', 'dist');
+  if (!existsSync(path.join(dir, 'index.html'))) throw new Error(`Console 빌드 산출물이 없음: ${dir}`);
+  log('[console] apps/console/dist 빌드');
+  return dir;
+}
+
+export async function assembleDistributable({ target, outDir = path.join(root, 'release'), version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version, nodeBinary, nodeLicense, zip = true, log = console.log, bundlesDir, nodeFetchOptions = {}, helperApk = HELPER_REPO_BUILD, consoleDir }) {
   const spec = TARGETS[target];
   if (!spec) throw new Error(`알 수 없는 대상: ${target} (${Object.keys(TARGETS).join(', ')})`);
   if (!helperApk || !existsSync(helperApk)) throw new Error(`헬퍼 APK 가 없음: ${helperApk ?? '(경로 없음)'}\n  packages/device-layer/android-helper 의 README 대로 ./gradlew assembleDebug 로 빌드한 뒤 다시 실행`);
@@ -201,6 +214,9 @@ export async function assembleDistributable({ target, outDir = path.join(root, '
   const apk = readFileSync(helperApk);
   writeFileSync(path.join(stage, 'resources', 'helper', apkName), apk);
   writeFileSync(path.join(stage, 'resources', 'helper', `${apkName}.sha256`), `${sha256(apk)}  ${apkName}\n`);
+
+  // 4-1) Console 정적 파일: control-plane 이 --console-dir 없이도 resources/console 을 /console 에서 서빙한다
+  cpSync(consoleDir ?? buildConsole(log), path.join(stage, 'resources', 'console'), { recursive: true });
 
   // 5) 런처·메타
   for (const app of ['control-plane', 'runner-agent']) {
@@ -255,8 +271,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const nodeLicense = opt('--node-license');
   if (nodeBinary && targets.length !== 1) throw new Error('--node-binary 는 타깃이 하나일 때만 쓸 수 있다(실행 파일은 플랫폼마다 다르다)');
   const bundles = await buildBundles(path.join(outDir, 'stage', 'dist'));
+  const consoleBuilt = buildConsole();
   for (const target of targets) {
-    const result = await assembleDistributable({ target, outDir, zip: !argv.includes('--no-zip'), bundlesDir: bundles.outdir, ...(nodeBinary ? { nodeBinary } : {}), ...(nodeLicense ? { nodeLicense } : {}) });
+    const result = await assembleDistributable({ target, outDir, zip: !argv.includes('--no-zip'), bundlesDir: bundles.outdir, consoleDir: consoleBuilt, ...(nodeBinary ? { nodeBinary } : {}), ...(nodeLicense ? { nodeLicense } : {}) });
     console.log(`[ok] ${target}: ${result.files.length}개 파일 → ${path.relative(root, result.stageDir)}`);
   }
 }

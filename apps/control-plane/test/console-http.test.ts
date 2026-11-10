@@ -37,6 +37,10 @@ describe('GET /cycles/summary', () => {
     expect(list[0]).toHaveProperty('verdict');
     expect(list[1]).toMatchObject({ cycleId: 'old', runs: { total: 0, finished: 0 } });
     expect(((await (await fetch(url('/cycles/summary?limit=1'))).json()) as unknown[]).length).toBe(1);
+    // lease 없이 보고된 Run(sinclair-agent run)도 노드·기기가 Cycle 의 Run 행에 보인다(이벤트의 run.started 에서)
+    await post('/ingest', [{ ...base('s1', 5), runId: 'r2', type: 'run.started', cycleId: 'new', targetId: 'ios', agentId: 'node-9', deviceId: 'SERIAL9' }]);
+    const view = (await (await fetch(url('/cycles/new'))).json()) as { runs: Array<{ runId: string; agentId?: string; deviceId?: string }> };
+    expect(view.runs.find((r) => r.runId === 'r2')).toMatchObject({ agentId: 'node-9', deviceId: 'SERIAL9' });
     expect((await fetch(url('/cycles/summary?limit=0'))).status).toBe(400);
   });
 });
@@ -83,5 +87,12 @@ describe('Console 정적 서빙', () => {
     const c = parseConfig(['--console-dir', '/opt/console'], {});
     expect(c).toMatchObject({ consoleDir: '/opt/console' });
     expect(parseConfig([], { SINCLAIR_CP_CONSOLE_DIR: '/x' })).toMatchObject({ consoleDir: '/x' });
+    // 설치본: 자산 디렉터리(SINCLAIR_RESOURCES_DIR, 기본은 번들 옆 resources/)에 console/index.html 이 있으면 기본으로, none 이면 끈다
+    const res = fs.mkdtempSync(path.join(os.tmpdir(), 'sinclair-res-'));
+    fs.mkdirSync(path.join(res, 'console'));
+    fs.writeFileSync(path.join(res, 'console', 'index.html'), 'x');
+    expect(parseConfig([], { SINCLAIR_RESOURCES_DIR: res })).toMatchObject({ consoleDir: path.join(res, 'console') });
+    expect(parseConfig(['--console-dir', 'none'], { SINCLAIR_RESOURCES_DIR: res })).not.toHaveProperty('consoleDir');
+    expect(parseConfig([], { SINCLAIR_RESOURCES_DIR: path.join(res, 'nope') })).not.toHaveProperty('consoleDir');
   });
 });

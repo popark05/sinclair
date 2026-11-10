@@ -75,8 +75,8 @@ function Runs({ v }: { v: CycleViewWithWarnings }) {
             <tr key={r.runId} className={r.replacedBy ? 'replaced' : ''}>
               <td>{r.targetId}</td>
               <td>{r.state}</td>
-              <td>{maskDevice(r.lease?.deviceId)}</td>
-              <td>{r.lease?.agentId ?? '—'}</td>
+              <td>{maskDevice(r.lease?.deviceId ?? r.deviceId)}</td>
+              <td>{r.lease?.agentId ?? r.agentId ?? '—'}</td>
               <td>
                 {r.replaces ? `${r.replaces} 을 대체` : ''}
                 {r.replacedBy ? `${r.replacedBy} 로 대체됨${r.abandonedAt ? ` (버려짐 ${new Date(r.abandonedAt).toLocaleTimeString('ko-KR')})` : ''}` : ''}
