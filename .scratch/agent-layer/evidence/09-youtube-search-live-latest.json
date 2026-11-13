@@ -1,0 +1,131 @@
+{
+  "at": "2026-11-13T22:04:56.888Z",
+  "device": "SM-N981N (Android 13), 직접 USB, 헬퍼 ready",
+  "model": "claude-sonnet-5-5",
+  "app": "com.google.android.youtube",
+  "note": "실기기 YouTube 검색으로 찾은 결함 둘: (1) 실행 키가 키보드에만 있어 입력을 확정할 툴이 없음 → agent submit 툴, (2) 입력 뒤 ~200ms 트리에 값이 없어 에이전트가 두 번 입력 → engine-mobile type 이 값이 보일 때까지 대기. 2·3차는 수정 전, 6차가 수정 후 type→submit 경로 증명(4·5차는 남은 입력·검색 기록으로 그 경로를 지나지 않음)",
+  "cycles": [
+    {
+      "cycleId": "youtube-florence-2",
+      "build": "youtube-demo",
+      "verdict": "blocked",
+      "runs": [
+        {
+          "state": "finished",
+          "attempts": [
+            {
+              "testId": "YouTube 에서 Florence Guerin 영화를 찾는다",
+              "result": "failed",
+              "errorCode": "agent",
+              "seconds": 60,
+              "steps": [
+                {
+                  "kind": "act",
+                  "modelCalls": 20,
+                  "durationMs": 59574,
+                  "inputTokens": 37886,
+                  "outputTokens": 2659,
+                  "instruction": "act \"YouTube 앱에서 \\\"florence guerin 영화\\\" 를 검색해 검색 결과 목록을 연다\" → tap @e14(안전망: 사라짐), tap @e22, tap @e22(안전망: 사라짐), type @e21, type @e21, tap @e22, tap @e22(안전망: 사라짐), type @e21, type @e21, type @e21, tap @e22, tap @e22(안전망: 사라짐), type @e21, type @e21, tap @e21, tap @e22, tap @e22(안전망: 사라짐), type @e21, type @e21, type @e21 (20턴) → 실패: 턴 한도 20 안에 목표를 이루지 못함"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "cycleId": "youtube-florence-3",
+      "build": "youtube-demo+submit",
+      "verdict": "blocked",
+      "runs": [
+        {
+          "state": "finished",
+          "attempts": [
+            {
+              "testId": "YouTube 에서 Florence Guerin 영화를 찾는다",
+              "result": "failed",
+              "errorCode": "assertion",
+              "seconds": 25,
+              "steps": [
+                {
+                  "kind": "act",
+                  "modelCalls": 6,
+                  "durationMs": 20044,
+                  "inputTokens": 8394,
+                  "outputTokens": 694,
+                  "instruction": "act \"YouTube 앱에서 \\\"florence guerin 영화\\\" 를 검색해 검색 결과 목록을 연다\" → tap @e22, type @e21, type @e21, submit @e21, tap @e22, done (6턴)"
+                },
+                {
+                  "kind": "assert",
+                  "modelCalls": 1,
+                  "durationMs": 4036,
+                  "inputTokens": 1746,
+                  "outputTokens": 128,
+                  "instruction": "agent.assert \"YouTube 검색 결과 목록이 열려 있고 Florence Guerin 과 관련된 영상이 하나 이상 보인다\" → 실패: false: 화면은 검색 결과 목록이 아니라 검색창(포커스됨, 입력 비어 있음)과 검색어 추천 목록이다. 'florence guerin 영화' 추천어는 있지만 Florence Guerin 관련 영상 항목(썸네일·제목·채널 등)은 보이지 않는다."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "cycleId": "youtube-florence-6",
+      "build": "youtube-demo+submit+type-settle (ko)",
+      "verdict": "verified",
+      "runs": [
+        {
+          "state": "finished",
+          "attempts": [
+            {
+              "testId": "YouTube 에서 플로렌스 게랭 출연 영화를 한국어로 검색한다",
+              "result": "passed",
+              "seconds": 29,
+              "steps": [
+                {
+                  "kind": "act",
+                  "modelCalls": 7,
+                  "durationMs": 23502,
+                  "inputTokens": 9509,
+                  "outputTokens": 685,
+                  "instruction": "act \"YouTube 앱에서 검색창에 \\\"플로렌스 게랭 출연 영화\\\" 를 직접 입력해 검색하고 검색 결과 목록을 연다\" → tap @e14(안전망: 사라짐), tap @e9, tap @e9(안전망: 사라짐), type @e8, submit @e8, submit @e8(안전망: 사라짐), done (7턴)"
+                },
+                {
+                  "kind": "assert",
+                  "modelCalls": 1,
+                  "durationMs": 4494,
+                  "inputTokens": 1528,
+                  "outputTokens": 153,
+                  "instruction": "agent.assert \"검색어 \\\"플로렌스 게랭 출연 영화\\\" 의 YouTube 검색 결과 목록이 열려 있다\" → 참: 툴바의 검색어 버튼(@e15)이 \"플로렌스 게랭 출연 영화\"이고, 필터 칩 \"전체\"가 선택되어 있으며 results 목록(@e30)에 동영상 결과 항목들(@e32, @e37, @e42)이 표시되어 있어 해당 검색어의 YouTube 검색 결과 목록이 열려 있다."
+                }
+              ]
+            },
+            {
+              "testId": "YouTube 에서 Florence Guerin 영화를 찾는다",
+              "result": "passed",
+              "seconds": 19,
+              "steps": [
+                {
+                  "kind": "act",
+                  "modelCalls": 6,
+                  "durationMs": 15836,
+                  "inputTokens": 7823,
+                  "outputTokens": 586,
+                  "instruction": "act \"YouTube 앱에서 \\\"florence guerin 영화\\\" 를 검색해 검색 결과 목록을 연다\" → tap @e14(안전망: 사라짐), tap @e9, tap @e9(안전망: 사라짐), tap @e14, type @e8(안전망: 사라짐), done (6턴)"
+                },
+                {
+                  "kind": "assert",
+                  "modelCalls": 1,
+                  "durationMs": 2292,
+                  "inputTokens": 1359,
+                  "outputTokens": 135,
+                  "instruction": "agent.assert \"YouTube 검색 결과 목록이 열려 있고 Florence Guerin 과 관련된 영상이 하나 이상 보인다\" → 참: 검색어가 \"florence guerin 영화\"인 검색 결과 목록(@e30)이 열려 있고, \"ALL Florence Guérin Movies Ranked by Score\"(@e32)와 \"Florence Guérin 1985 : Le Déclic\"(@e37) 등 Florence Guérin 관련 영상이 보인다."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

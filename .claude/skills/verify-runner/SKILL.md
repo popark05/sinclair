@@ -60,3 +60,4 @@ SINCLAIR_TEST_USB=1 npx vitest run packages/device-layer/test/android-backend.de
 - 2026-11-07: 최초 시드. 실기기 실행 결과는 evidence 파일 참고.
 - 2026-11-08: 재시도 샘플 추가(retry-policy 티켓 01). SM-N981N 에서 passed/attempts 2 확인.
 - 2026-11-09: 에이전트 feature(agent-layer 08). SM-N981N 에서 대본 실행기로 배관 확인(passed 2·failed 1, 비밀값 검사 통과, left-app 알림 1). 같은 날 실제 모델(claude-sonnet-5-5)로 통과(71초, 모델 호출 25, 안전망 개입 3, 비밀값 검사 통과) — live 증거.
+- 2026-11-14: 실제 모델로 YouTube 검색(데몬 `--engine mobile --app com.google.android.youtube` + control-plane Cycle) — 결함 둘(입력 확정 툴 없음 → `submit`, 입력값 반영 지연으로 중복 입력 → engine-mobile type 대기)을 찾아 고친 뒤 type→submit 경로로 통과. 증거 `.scratch/agent-layer/evidence/09-youtube-search-live-latest.json`. 앱 상태가 남으면(검색창 글자·검색 기록) 그 경로를 지나지 않으니 테스트는 `app.restart()` 와 기록에 없는 검색어로.

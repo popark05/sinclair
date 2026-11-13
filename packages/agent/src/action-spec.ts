@@ -27,6 +27,12 @@ export const ACTIONS = {
     params: { ref, text: { type: 'string', description: '입력할 글자' } },
     run: (engine, { ref: r, text }) => engine.perform(r!, 'type', text),
   },
+  submit: {
+    // 검색·전송 버튼이 화면이 아니라 키보드에만 있는 앱(YouTube 검색 등)은 이것 없이는 입력을 확정할 수 없다 — 실기기에서 입력·지우기를 반복하다 턴 한도로 실패했다
+    description: '입력란의 내용을 확정한다: 키보드의 실행 키(검색·이동·완료·Enter)를 누른다. 방금 입력한 칸의 ref 를 준다. 화면에 검색·전송 버튼이 없을 때 쓴다.',
+    params: { ref },
+    run: (engine, { ref: r }) => engine.perform(r!, 'press', 'Enter'),
+  },
   scroll: {
     description: '스크롤 가능한 노드를 위나 아래로 한 화면 스크롤한다(보이지 않는 항목을 찾을 때).',
     params: { ref, direction: { type: 'string', description: '스크롤 방향', enum: ['up', 'down'] } },

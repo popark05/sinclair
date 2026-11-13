@@ -147,6 +147,24 @@ export function createMobileEngine(rpc: DeviceRpc, options: MobileEngineOptions)
     }
   }
 
+  /**
+   * 입력이 트리에 보일 때까지(상한 stabilityTimeoutMs) 기다린다. 실기기(YouTube 검색창)는 입력 뒤 약 200ms 동안 값이 비어 보여,
+   * 곧바로 관찰한 호출자(에이전트)가 빈 칸으로 알고 다시 입력했다. 끝내 안 보여도(앱이 글자를 바꾸거나 가림) 실패로 보지 않는다 —
+   * 입력 자체는 성공했고, 판단은 다음 관찰을 보는 호출자 몫이다. secure 칸은 값이 나오지 않으니 기다리지 않는다.
+   */
+  async function settleTyped(ref: string, before: SemanticNode, text: string): Promise<void> {
+    if (!text || before.states?.secure) return;
+    const desc = descriptors.get(ref);
+    const prior = before.value ?? '';
+    const deadline = Date.now() + stabilityTimeoutMs;
+    while (Date.now() < deadline) {
+      const now = resolveIn(await dump(), ref, desc);
+      const v = now?.value ?? '';
+      if (v.length > prior.length && v.includes(text)) return;
+      await new Promise((r) => setTimeout(r, stabilityPollMs));
+    }
+  }
+
   const tapAt = (p: { x: number; y: number }) => call('device.io.tap', { deviceId, x: p.x, y: p.y });
   const longPressAt = (p: { x: number; y: number }) => call('device.io.longpress', { deviceId, x: p.x, y: p.y, durationMs: longPressMs });
   const swipeBetween = (from: { x: number; y: number }, to: { x: number; y: number }) =>
@@ -191,6 +209,7 @@ export function createMobileEngine(rpc: DeviceRpc, options: MobileEngineOptions)
           if (!EDITABLE_ROLES.has(node.role)) throw new EngineError('not-actionable', `편집할 수 없는 노드: ${ref} (${node.role})`, { ref });
           await tapAt(center(node)); // 포커스
           await call('device.io.text', { deviceId, text: arg ?? '' });
+          await settleTyped(ref, node, arg ?? '');
           return;
         }
         case 'check': {

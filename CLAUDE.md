@@ -76,6 +76,9 @@ Plan(`intent/`) → Design(`specs/`, `/architect`로 타입 먼저) → Build(`t
 - **실기기 테스트에서 `settings put` 은 `--user 0`.** Secure Folder 가 있는 Samsung 은 기본 사용자가 150 으로 잡혀 설정이 엉뚱한 사용자에 쓰인다.
 - **막 설치한 접근성 서비스는 첫 `settings put … enabled_accessibility_services` 가 무시된다.** 접근성 관리자가 아직 모르는 컴포넌트를 목록에서 지운다(SM-N981N, Android 13). 1초 간격으로 몇 번 다시 쓴다(`android-backend.ts` `ACTIVATE_RETRIES`). 2026-11-08.
 
+- **입력 직후 화면 트리에는 값이 아직 없다.** 실기기 YouTube 검색창은 `device.io.text` 뒤 약 200ms 동안 value 가 비어 보여, 곧바로 관찰한 에이전트가 빈 칸으로 알고 두 번 입력했다(검색어 중복). engine-mobile `type` 은 값이 트리에 보일 때까지(상한 stabilityTimeoutMs) 기다린 뒤 끝난다. 2026-11-14.
+- **실행 키가 키보드에만 있는 앱이 있다.** YouTube 검색은 화면에 검색 버튼이 없고 IME 의 🔍 키뿐이라, 에이전트 툴에 입력 확정이 없으면 입력·지우기를 반복하다 턴 한도로 실패한다. 에이전트 툴 `submit(ref)`(그 칸에서 Enter). 2026-11-14.
+
 ## 참고 프로젝트에서 가져올 것 (2026-11-07 분석 요약)
 
 - **e2e**: 세 동사 분리(locator / act / 판정), `StepExecutor` 교체 구조(툴 루프·decision 모델·ACP), 녹화 캐시(검증 후 기록, descriptor 재탐색, 이어받기, strict 모드, 플러거블 스토어), `defineEngine` 계약과 JSON-RPC 엔진 프로토콜, 닫힌 Zod 툴 스키마와 redaction, trace.md/ai-trace/report 스키마. 약점: 판정은 캐시되지 않음, 코어 7만 줄이라 통째 포크 비현실적.
