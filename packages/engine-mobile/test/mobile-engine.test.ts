@@ -30,6 +30,26 @@ describe('createMobileEngine', () => {
     expect(after!.value).toBe('popark');
   });
 
+  it('type 은 입력값이 트리에 보일 때까지 기다린 뒤 끝난다: 바로 뒤 관찰에 값이 있다(값이 늦게 보이는 기기 — 실기기에서 에이전트가 빈 칸으로 보고 두 번 입력했다)', async () => {
+    const { backend, engine } = setup();
+    backend.textLagDumps = 3;
+    const [tb] = await engine.locate({ testId: 'username' });
+    await engine.perform(tb!.ref, 'type', 'popark');
+    const [after] = await engine.locate({ testId: 'username' });
+    expect(after!.value).toBe('popark');
+    expect(backend.calls.filter((c) => c.startsWith('text'))).toEqual(['text popark']); // 다시 입력하지 않는다
+  });
+
+  it('입력값이 끝내 보이지 않아도(앱이 바꾸거나 가림) type 은 기한 뒤 실패 없이 끝난다', async () => {
+    const { backend, engine } = setup({ stabilityTimeoutMs: 300 });
+    backend.textLagDumps = Infinity;
+    const [tb] = await engine.locate({ testId: 'username' });
+    const t0 = Date.now();
+    await engine.perform(tb!.ref, 'type', 'popark');
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(250);
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
+
   it('ref 는 dump 마다 바뀔 수 있으므로 perform 은 기억한 기술자(role/testId/name)로 노드를 다시 찾는다', async () => {
     const { backend, engine } = setup();
     const [btn] = await engine.locate({ role: 'button', name: '로그인' });

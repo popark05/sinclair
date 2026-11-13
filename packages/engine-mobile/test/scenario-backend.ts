@@ -17,6 +17,9 @@ export class ScenarioBackend implements DeviceBackend {
   /** true 면 다음 dump 마다 로그인 버튼 rect 가 움직인다(애니메이션 흉내). dumps 로 횟수를 센다. */
   animateButtonFor = 0;
   dumps = 0;
+  /** 입력이 트리에 늦게 보이는 기기 흉내: text 뒤 이 횟수의 dump 동안 값이 아직 없다(실기기 YouTube 검색창 약 200ms). Infinity 면 끝내 안 보인다 */
+  textLagDumps = 0;
+  private pendingText: { ref: string; text: string; dumpsLeft: number } | undefined;
 
   constructor(private readonly id = 'PHONE1') {}
 
@@ -44,6 +47,13 @@ export class ScenarioBackend implements DeviceBackend {
   async screenshot(): Promise<Uint8Array> { return PNG; }
   async dumpUi(): Promise<SemanticNode> {
     this.dumps++;
+    if (this.pendingText && this.screen) {
+      if (this.pendingText.dumpsLeft-- <= 0) {
+        const n = findNodeByRef(this.screen, this.pendingText.ref);
+        if (n) n.value = (n.value ?? '') + this.pendingText.text;
+        this.pendingText = undefined;
+      }
+    }
     const tree = structuredClone(this.screen ?? { ref: '@e0', role: 'root' });
     if (this.animateButtonFor > 0 && this.screen) {
       this.animateButtonFor--;
@@ -69,6 +79,7 @@ export class ScenarioBackend implements DeviceBackend {
     this.calls.push(`text ${t}`);
     // 실제 `input text` 처럼 포커스가 없으면 아무 일도 없다(오류 아님)
     if (!this.focused || !this.screen) return;
+    if (this.textLagDumps > 0) { this.pendingText = { ref: this.focused, text: t, dumpsLeft: this.textLagDumps }; return; }
     const n = findNodeByRef(this.screen, this.focused);
     if (n) n.value = (n.value ?? '') + t;
   }
