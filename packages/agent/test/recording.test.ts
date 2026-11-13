@@ -52,3 +52,31 @@ describe('runAct · 녹화', () => {
     expect(labels.join()).not.toMatch(/3:42|example/);
   });
 });
+
+describe('runAct · 녹화 기술자(실기기 YouTube 에서 찾은 것)', () => {
+  const history: SemanticNode = { ref: '@r0', role: 'root', children: [
+    { ref: '@r1', role: 'button', testId: 'com.app:id/row', children: [{ ref: '@r2', role: 'text', text: 'florence guerin 영화' }] },
+    { ref: '@r3', role: 'button', testId: 'com.app:id/row', children: [{ ref: '@r4', role: 'text', text: '뉴스공장' }] },
+  ] };
+  const done: SemanticNode = { ref: '@d0', role: 'root', children: [{ ref: '@d1', role: 'text', text: '검색 결과' }] };
+
+  it('이름 없는 대상은 자식 글자로 라벨을 만든다(검색 기록 줄)', async () => {
+    const engine = new FakeEngine({ root: history, onTap: (n) => (n.ref === '@r1' ? done : undefined) });
+    const r = await runAct(engine, '기록에서 고른다', { executor: scriptedExecutor([{ name: 'tap', input: { ref: '@r1' } }, { name: 'done', input: { summary: 'ok' } }]) });
+    expect(r.recording!.actions[0]!.target).toEqual({ role: 'button', label: 'florence guerin 영화', testId: 'com.app:id/row' });
+  });
+
+  it('녹화할 때 화면에서 기술자가 정확히 하나로 정해지지 않으면(같은 모양 둘) 그 act 는 녹화하지 않는다', async () => {
+    const twins: SemanticNode = { ref: '@t0', role: 'root', children: [{ ref: '@t1', role: 'button', testId: 'com.app:id/x' }, { ref: '@t2', role: 'button', testId: 'com.app:id/x' }] };
+    const engine = new FakeEngine({ root: twins, onTap: (n) => (n.ref === '@t1' ? done : undefined) });
+    const r = await runAct(engine, '아무거나', { executor: scriptedExecutor([{ name: 'tap', input: { ref: '@t1' } }, { name: 'done', input: { summary: 'ok' } }]) });
+    expect(r.ok).toBe(true);
+    expect(r.recording).toBeUndefined();
+  });
+
+  it('anchorsFrom 을 주면 끝 anchor 를 그 화면 기준으로 계산한다(이어받은 act — 재생 시작 화면)', async () => {
+    const engine = new FakeEngine({ root: done });
+    const r = await runAct(engine, '이미 결과 화면', { executor: scriptedExecutor([{ name: 'done', input: { summary: 'ok' } }]), anchorsFrom: history });
+    expect(r.recording!.end.anchors).toEqual([{ role: 'text', label: '검색 결과' }]);
+  });
+});

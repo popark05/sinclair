@@ -52,6 +52,24 @@ describe('replayRecording', () => {
     expect(r).toMatchObject({ outcome: 'diverged', executed: 2, total: 3, done: ['type textbox [아이디]', 'type textbox [비밀번호]'], reason: expect.stringMatching(/tap button "로그인".*찾지 못함/) });
   });
 
+  it('끝 anchor 는 과반만 보이면 된다(자동재생 영상 버튼 같은 우연한 UI 에 흔들리지 않게)', async () => {
+    const e = entry({ end: { anchors: [{ role: 'text', label: '환영합니다' }, { role: 'button', label: '로그아웃' }, { role: 'button', label: '음소거' }] } });
+    expect(await replayRecording(login(), e, { goal, secrets: secrets(), endTimeoutMs: 200 })).toMatchObject({ outcome: 'replayed' });
+    const e2 = entry({ end: { anchors: [{ role: 'text', label: '환영합니다' }, { role: 'button', label: '음소거' }, { role: 'button', label: '광고' }] } });
+    expect(await replayRecording(login(), e2, { goal, secrets: secrets(), endTimeoutMs: 200 })).toMatchObject({ outcome: 'diverged', reason: expect.stringMatching(/끝 화면/) });
+  });
+
+  it('이름 없는 대상은 자식 글자로 찾는다(녹화와 같은 규칙)', async () => {
+    const rows: SemanticNode = { ref: '@r0', role: 'root', children: [
+      { ref: '@r1', role: 'button', testId: 'com.app:id/row', children: [{ ref: '@r2', role: 'text', text: '뉴스공장' }] },
+      { ref: '@r3', role: 'button', testId: 'com.app:id/row', children: [{ ref: '@r4', role: 'text', text: 'florence guerin 영화' }] },
+    ] };
+    const engine = new FakeEngine({ root: rows, onTap: (n) => (n.ref === '@r3' ? { ref: '@d0', role: 'root', children: [{ ref: '@d1', role: 'text', text: '검색 결과' }] } : undefined) });
+    const r = await replayRecording(engine, entry({ start: {}, actions: [{ tool: 'tap', target: { role: 'button', label: 'florence guerin 영화', testId: 'com.app:id/row' }, summary: 'tap' }], end: { anchors: [{ role: 'text', label: '검색 결과' }] } }), { goal });
+    expect(r).toMatchObject({ outcome: 'replayed' });
+    expect(engine.performed.map((p) => p.ref)).toEqual(['@r3']);
+  });
+
   it('끝 anchor 가 끝내 보이지 않으면 diverged(끝 불일치) — 액션은 모두 했다', async () => {
     const r = await replayRecording(login((n) => (n.name === '로그인' ? { ref: '@x0', role: 'root', children: [{ ref: '@x1', role: 'text', text: '비밀번호가 틀립니다' }] } : undefined)), entry(), { goal, secrets: secrets(), endTimeoutMs: 200 });
     expect(r).toMatchObject({ outcome: 'diverged', executed: 3, reason: expect.stringMatching(/끝 화면.*환영합니다/) });

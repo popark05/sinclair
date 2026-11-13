@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import { CACHE_KEY, parseCacheEntry, type RunEvent, type SemanticNode } from '@sinclair/protocol';
 import { FakeEngine, HOME_SCREEN, LOGIN_SCREEN, cacheStoreContractSuite, createMemoryCacheStore, SAMPLE_CACHE_ENTRY as SAMPLE_ENTRY } from '@sinclair/protocol/testing';
 import { scriptedExecutor } from '@sinclair/agent';
-import { runTests, cacheKey, createFileCacheStore } from '../src/index.ts';
+import { runTests, cacheKey, createFileCacheStore, CACHE_POLICY } from '../src/index.ts';
 
 const fixture = (name: string) => path.resolve(import.meta.dirname, 'fixtures', name);
 const engine = () => new FakeEngine({ root: LOGIN_SCREEN, onTap: (n) => (n.name === '로그인' ? HOME_SCREEN : undefined) });
@@ -22,6 +22,7 @@ describe('cacheKey', () => {
     const base = { testId: 't', engine: 'mobile', app: 'com.a', instruction: '로그인', callIndex: 0 };
     const k = cacheKey(base);
     vexpect(CACHE_KEY.test(k)).toBe(true);
+    vexpect(CACHE_POLICY).toBe('exact/2'); // 이름 없는 대상의 자식 글자 라벨·끝 anchor 과반(2026-11-14 실기기) — 옛 녹화는 다시 녹화
     vexpect(cacheKey({ ...base, instruction: ' 로그인\r\n' })).toBe(k);
     vexpect(cacheKey({ ...base, instruction: '로그인'.normalize('NFD') })).toBe(k);
     for (const diff of [{ testId: 'u' }, { app: 'com.b' }, { callIndex: 1 }, { engine: 'fake' }, { instruction: '로그인 해' }]) vexpect(cacheKey({ ...base, ...diff })).not.toBe(k);
