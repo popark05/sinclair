@@ -60,6 +60,8 @@ export interface ActOptions {
   pii?: PiiFilter | false;
   /** 이 테스트가 등록한 비밀값. type 의 text 에 온 자리표시만 실제 값으로 바뀌고, 모델에 가는 관찰·오류 문구에서 값은 가려진다. 있으면 픽셀은 보내지 않는다 */
   secrets?: SecretBox;
+  /** 녹화 재생을 이어받는다(recording-cache 03): 재생이 이미 한 액션 요약·전체 수·멈춘 이유. 매 턴 요청에 안내로 실린다 */
+  replayedPrefix?: { done: string[]; total: number; reason: string };
 }
 export interface ActResult {
   ok: boolean;
@@ -130,6 +132,8 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
   };
   const result = (r: Pick<ActResult, 'ok' | 'summary' | 'reason' | 'recording'>): ActResult => ({ ...r, turns: history.length, modelCalls, ...(usage ? { usage } : {}), history, ...(recovered.size ? { incidents: [...recovered.values()] } : {}), ...(appPackage ? { startApp: appPackage } : {}) });
   const goalSecrets = new Set(SecretBox.mentioned(goal));
+  const rp = opts.replayedPrefix;
+  const handOff = rp ? hide(`녹화 재생이 이 목표의 액션 ${rp.done.length}/${rp.total} 을 이미 했다: ${rp.done.map((d, i) => `${i + 1}) ${d}`).join('; ')}. 멈춘 곳·이유: ${rp.reason}. 이 액션들을 다시 하지 말고 지금 화면에서 목표를 이어서 이뤄라 — 앞 액션의 결과가 화면에 반영됐는지 먼저 확인하라.`) : undefined;
     const fail = (reason: string): ActResult => result({ ok: false, reason: hide(reason) });
   // 픽셀은 가릴 수 없다: 비밀값이 있는 테스트에서는 이미지를 보내지 않는다
   const pixels = opts.executor.pixels === true && !(secrets && secrets.size > 0);
@@ -215,7 +219,7 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
         // 실행기가 시간 한도를 넘기면 기다리지 않는다. 스키마는 매번 새로(실행기가 고쳐도 다음 턴에 영향 없게)
         const incident = note; note = undefined;
         // 목표는 작성자의 글이라 개인정보 가림을 하지 않는다(작성자가 쓴 이메일·번호를 입력하는 목표가 있다) — 비밀값만
-        const request = { goal: secrets ? secrets.redact(goal) : goal, ...(incident ? { incident: hide(incident) } : {}), observation, history: history.map((h) => ({ ...h })), tools: toolSchemas(), ...(pixels && observed.pixels ? { pixels: observed.pixels } : {}) };
+        const request = { goal: secrets ? secrets.redact(goal) : goal, ...(handOff ? { handOff } : {}), ...(incident ? { incident: hide(incident) } : {}), observation, history: history.map((h) => ({ ...h })), tools: toolSchemas(), ...(pixels && observed.pixels ? { pixels: observed.pixels } : {}) };
         reply = await raceAbort(opts.executor.next(request, aborter.signal), aborter.signal);
       } catch (err) {
         if (err instanceof ModelConfigError) throw err; // 설정 문제는 테스트 실패가 아니다: 러너가 blocked 로 다룬다

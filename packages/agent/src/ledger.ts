@@ -16,6 +16,8 @@ const DETAIL_FULL = 300;
 const DETAIL_SHORT = 80;
 /** Incident 알림 상한(글자) */
 const INCIDENT_CAP = 300;
+/** 이어받기 안내 상한: 재생한 액션 요약이 길어도 목표·관찰 자리를 뺏지 않게 */
+const HAND_OFF_CAP = 800;
 /** 목표가 예산의 이만큼을 넘으면 앞부분만 남긴다(목표는 잃지 않되, 터무니없이 긴 목표가 나머지 영역을 다 먹지 않게) */
 const GOAL_SHARE = 0.25;
 /** 요약 영역이 커지면(긴 세션) 최근 묶음 이만큼만 따로 두고 그 앞은 집계 한 줄로 합친다 */
@@ -122,6 +124,7 @@ export function renderLedger(req: StepRequest, opts: LedgerOptions = {}): Ledger
   const goalRoom = Math.floor(budget * GOAL_SHARE);
   const goalText = estimateTokens(req.goal) <= goalRoom ? req.goal : `${cutToTokens(req.goal, goalRoom - 15)}… (목표 ${req.goal.length - cutToTokens(req.goal, goalRoom - 15).length}자 생략)`;
   const incident = req.incident ? cut(req.incident.replace(/\s+/g, ' '), INCIDENT_CAP) : undefined;
+  const handOff = req.handOff ? cut(req.handOff.replace(/\s+/g, ' '), HAND_OFF_CAP) : undefined;
 
   const build = (fold: number, detailCap: number, observation: string, keepBlocks = Infinity): string => {
     const folded: string[] = [];
@@ -138,6 +141,7 @@ export function renderLedger(req: StepRequest, opts: LedgerOptions = {}): Ledger
     }
     return [
       `목표: ${goalText}`,
+      ...(handOff ? ['', `↪ ${handOff}`] : []),
       ...(incident ? ['', `⚠ ${incident}`] : []),
       '',
       '지난 턴:',

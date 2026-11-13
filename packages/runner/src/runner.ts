@@ -6,7 +6,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { runAct, actProgressOf, replayRecording, appPackageOf, judgeAssert, judgeWaitFor, judgeExtract, ModelConfigError, SecretBox, SECRET_NAME, secretPlaceholder, DEFAULT_PII, type JudgeResult, type PiiFilter, type StepExecutor } from '@sinclair/agent';
-import { EngineError, parseRunEvent, CACHE_SCHEMA, type AttemptFinished, type AttemptResult, type CacheEntry, type CacheStore, type Engine, type RunEvent, type StepRecorded } from '@sinclair/protocol';
+import { EngineError, parseRunEvent, CACHE_SCHEMA, CACHE_LIMITS, type AttemptFinished, type AttemptResult, type CacheEntry, type CacheStore, type Engine, type RunEvent, type StepRecorded } from '@sinclair/protocol';
 import { cacheKey, normalizeInstruction, type CacheMode } from './recording-cache.ts';
 import { createScreen, type StepEvent } from './screen.ts';
 import { expect as makeExpect, AssertionError } from './expect.ts';
@@ -76,8 +76,8 @@ export interface TestResult {
   errorCode?: string;
   /** 결과에 영향 없는 경고(아티팩트 저장 실패 등) */
   warnings?: string[];
-  /** 녹화 캐시 기록(쓰기 모드일 때만): 커밋한 act 수, 뒤에 검증이 없어 버린 act 수 */
-  cache?: { saved: number; unconfirmed: number };
+  /** 녹화 캐시 기록(쓰기 모드일 때만): 커밋한 act 수, 뒤에 검증이 없어 버린 act 수, 실패와 함께라 지운 녹화 수 */
+  cache?: { saved: number; unconfirmed: number; evicted: number };
 }
 
 export interface RunReport {
@@ -249,6 +249,8 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
     const cacheMode: CacheMode = options.cache ? options.cache.mode ?? 'read-write' : 'off';
     const cacheOn = cacheMode !== 'off';
     const staged: Array<{ stepIndex: number; key: string; entry: CacheEntry }> = [];
+    /** 이 시도가 재생에 쓴 녹화(완전히 재생했거나 이어받음): 시도가 실패했는데 뒤 검증으로 확인되지 않았으면 지운다 */
+    const consumed: Array<{ stepIndex: number; key: string }> = [];
     let lastVerified = -1;
     const callIndexes = new Map<string, number>();
     const onStep = (step: StepEvent): void => {
@@ -262,15 +264,23 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
       steps.push(ev);
       emit(ev);
     };
-    /** Attempt 끝: 검증된 녹화만 쓰고 나머지는 버린다. 저장소 실패는 결과를 바꾸지 않는다(경고) */
-    const settleCache = async (): Promise<TestResult['cache']> => {
+    /** Attempt 끝: 검증된 녹화만 쓰고 나머지는 버린다. 실패한 시도가 재생에 쓴 확인되지 않은 녹화는 지운다(모델·비밀값·기기 같은 인프라 실패는 녹화 탓이 아니라 지우지 않는다). 저장소 실패는 결과를 바꾸지 않는다(경고) */
+    const settleCache = async (error?: Error): Promise<TestResult['cache']> => {
       if (cacheMode !== 'read-write') return undefined;
-      let saved = 0;
+      let saved = 0, evicted = 0;
+      const savedKeys = new Set<string>();
       for (const s of staged) {
         if (s.stepIndex >= lastVerified) continue;
-        try { await options.cache!.store.write(s.key, s.entry); saved++; } catch (err) { attemptWarnings.push(`녹화 캐시 저장 실패: ${errorMessage(err)}`); }
+        try { await options.cache!.store.write(s.key, s.entry); saved++; savedKeys.add(s.key); } catch (err) { attemptWarnings.push(`녹화 캐시 저장 실패: ${errorMessage(err)}`); }
       }
-      return { saved, unconfirmed: staged.filter((s) => s.stepIndex >= lastVerified).length };
+      const infra = error instanceof ModelConfigError || error instanceof SecretMissingError || (error instanceof EngineError && (error.code === 'device-unavailable' || error.code === 'engine-closed'));
+      if (error && !infra) {
+        for (const c of consumed) {
+          if (c.stepIndex < lastVerified || savedKeys.has(c.key)) continue;
+          try { await options.cache!.store.delete(c.key); evicted++; savedKeys.add(c.key); } catch (err) { attemptWarnings.push(`녹화 캐시 지우기 실패: ${errorMessage(err)}`); }
+        }
+      }
+      return { saved, unconfirmed: staged.filter((s) => s.stepIndex >= lastVerified).length, evicted };
     };
     /** screen 의 type 에 온 자리표시를 실제 값으로(에이전트와 같은 규칙: 등록된 이름만) */
     // 이 시도가 secret() 으로 등록한 이름만 치환한다(앞 테스트가 등록한 값을 자리표시만으로 꺼내지 못하게)
@@ -327,6 +337,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
           // 녹화 캐시: 키는 act 시작 화면의 앱으로. 첫 시도만 재생한다(재시도는 녹화를 의심할 이유가 있다 — 라이브로 돌고 기록만)
           let key: string | undefined;
           let handOff: string | undefined;
+          let prefix: { entry: CacheEntry; done: string[]; total: number; reason: string } | undefined;
           const brief = (t: string) => (t.length > 200 ? `${t.slice(0, 200)}…` : t);
           if (cacheOn) {
             key = cacheKey({ testId: tc.name, engine: engine.name, app: appPackageOf((await engine.observe()).root) ?? '', instruction: goal, callIndex });
@@ -338,15 +349,19 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
               const rp = await replayRecording(engine, entry, { goal, secrets: secretBox, ...(options.cache!.findTimeoutMs !== undefined ? { findTimeoutMs: options.cache!.findTimeoutMs } : {}), ...(options.cache!.endTimeoutMs !== undefined ? { endTimeoutMs: options.cache!.endTimeoutMs } : {}) });
               if (rp.outcome === 'replayed') {
                 onStep({ kind: 'act', instruction: `act ${JSON.stringify(goal)} → 재생 ${rp.executed}/${rp.total}`, durationMs: Date.now() - started, modelCalls: 0, cache: 'replayed' });
+                consumed.push({ stepIndex: steps.length - 1, key });
                 return;
               }
-              if (rp.outcome === 'diverged') handOff = `재생 ${rp.executed}/${rp.total} 뒤 이어받음(${brief(rp.reason)})`;
+              if (rp.outcome === 'diverged') {
+                handOff = `재생 ${rp.executed}/${rp.total} 뒤 이어받음(${brief(rp.reason)})`;
+                prefix = { entry, done: rp.done, total: rp.total, reason: rp.reason };
+              }
               else attemptWarnings.push(`녹화 캐시 재생 안 함: ${brief(rp.reason)}`);
             }
           }
           let r;
           try {
-            r = await runAct(engine, goal, { executor: options.agent.executor, secrets: secretBox, pii: pii ?? false, ...(options.agent.safetyNet ? { safetyNet: options.agent.safetyNet } : {}), ...(options.agent.incidents ? { incidents: options.agent.incidents } : {}), ...(options.agent.maxTurns !== undefined ? { maxTurns: options.agent.maxTurns } : {}), ...(options.agent.timeoutMs !== undefined ? { timeoutMs: options.agent.timeoutMs } : {}) });
+            r = await runAct(engine, goal, { executor: options.agent.executor, secrets: secretBox, pii: pii ?? false, ...(prefix ? { replayedPrefix: { done: prefix.done, total: prefix.total, reason: prefix.reason } } : {}), ...(options.agent.safetyNet ? { safetyNet: options.agent.safetyNet } : {}), ...(options.agent.incidents ? { incidents: options.agent.incidents } : {}), ...(options.agent.maxTurns !== undefined ? { maxTurns: options.agent.maxTurns } : {}), ...(options.agent.timeoutMs !== undefined ? { timeoutMs: options.agent.timeoutMs } : {}) });
           } catch (err) {
             // 관찰 실패·인프라 오류(기기 없음 등)로 루프가 던져도 act 스텝은 남긴다(act 하나 = 스텝 하나). 오류는 그대로 올려 엔진 코드가 errorCode 가 된다
             const p = actProgressOf(err); // 던지기 전까지 쓴 모델 호출·토큰도 비용으로 남긴다
@@ -368,10 +383,15 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
           const incidents = r.incidents?.length ? ` [Incident: ${r.incidents.map((i) => `${i.kind}→${i.action.slice(0, 40)} ×${i.count}`).join(', ')}]` : '';
           const instruction = `act ${JSON.stringify(goal)} → ${handOff ? `${handOff} → ` : ''}${tools || '(툴 없음)'} (${r.turns}턴)${incidents}`;
           onStep({ kind: 'act', instruction, durationMs: Date.now() - started, modelCalls: r.modelCalls, ...(r.usage ? { usage: r.usage } : {}), ...(r.ok ? {} : { error: r.reason ?? '실패' }), cache: handOff ? 'handed-off' : 'live' });
-          // 이어받은 act 는 녹화가 재생분과 이어받은 분으로 나뉜다 — 합쳐 다시 기록하는 것은 이어받기(03) 몫. 지금은 라이브로 처음부터 돈 act 만
-          if (r.ok && r.recording && cacheMode === 'read-write' && key && !handOff) {
-            const entry: CacheEntry = { schema: CACHE_SCHEMA, createdAt: new Date().toISOString(), recordedBy: { ...(options.agentId ? { agentId: options.agentId } : {}) }, start: { ...(r.startApp ? { app: r.startApp } : {}) }, ...r.recording };
-            staged.push({ stepIndex: steps.length - 1, key, entry });
+          if (prefix && key) consumed.push({ stepIndex: steps.length - 1, key });
+          // 이어받은 act 의 녹화 = 재생이 한 앞 액션 + 에이전트가 이어서 한 액션(시작 전제는 원래 녹화의 것). 검증 뒤 커밋되면 옛 녹화를 덮어 고친다
+          if (r.ok && r.recording && cacheMode === 'read-write' && key) {
+            const actions = prefix ? [...prefix.entry.actions.slice(0, prefix.done.length), ...r.recording.actions] : r.recording.actions;
+            const start = prefix ? prefix.entry.start : { ...(r.startApp ? { app: r.startApp } : {}) };
+            if (actions.length <= CACHE_LIMITS.actions) {
+              const entry: CacheEntry = { schema: CACHE_SCHEMA, createdAt: new Date().toISOString(), recordedBy: { ...(options.agentId ? { agentId: options.agentId } : {}) }, start, actions, end: r.recording.end };
+              staged.push({ stepIndex: steps.length - 1, key, entry });
+            }
           }
           if (!r.ok) throw new AgentActError(`agent.act ${JSON.stringify(goal)} 실패: ${r.reason}`);
         },
@@ -403,7 +423,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
       await capture(attemptId).catch((err: unknown) => attemptWarnings.push(`아티팩트 저장 실패: ${errorMessage(err)}`));
       // 실패한 시도가 남긴 앱 상태를 바로 버린다(재시도·다음 테스트·마지막 테스트 모두). 기기가 없으면 restart 도 안 되므로 건너뛴다
       if (!deviceGone) await session('restart').catch((err: unknown) => attemptWarnings.push(`restart 실패: ${errorMessage(err)}`));
-      const cache = await settleCache();
+      const cache = await settleCache(error);
       return finish(blocked ? 'blocked' : 'failed', error, cache);
     }
 

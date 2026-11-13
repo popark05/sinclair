@@ -24,6 +24,8 @@ export interface StepRequest {
   pixels?: Uint8Array;
   /** 자동 복구하지 못한 Incident(끼어든 창·연속 실패). 이번 턴에 먼저 해결하라는 알림 */
   incident?: string;
+  /** 녹화 재생을 이어받는 act 면 매 턴: 재생이 이미 한 액션·멈춘 곳·이유(recording-cache 03) */
+  handOff?: string;
 }
 
 /** 실행기의 답: 툴 호출 하나, 또는 툴 없이 낸 글(거부로 기록돼 다음 턴에 다시 묻는다). usage 는 이 턴의 토큰(모르면 생략) */
