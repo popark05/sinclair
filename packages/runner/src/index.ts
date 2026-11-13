@@ -5,3 +5,4 @@ export { runTests, MAX_RETRIES, CANCELLED_CODE, AGENT_CONFIG_CODE, SECRET_MISSIN
 export { createHttpReporter, type HttpReporter, type HttpReporterOptions } from './http-reporter.ts';
 export { postIngestBatch, type IngestOutcome } from './ingest-client.ts';
 export type { ExtractType, ExtractValue } from '@sinclair/agent';
+export { cacheKey, normalizeInstruction, createFileCacheStore, CACHE_POLICY, CACHE_MODES, type CacheMode, type CacheKeyFields } from './recording-cache.ts';

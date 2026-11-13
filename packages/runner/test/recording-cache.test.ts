@@ -34,7 +34,7 @@ describe('runTests · 녹화 캐시 기록', () => {
     const report = await runTests([fixture('agent-login.sinclair.ts')], { engine: engine(), timeoutMs: 500, agent: { executor: loginScript() }, cache: { store } });
     vexpect(report.tests[0]).toMatchObject({ result: 'passed' });
     vexpect(acts(report.events)).toEqual([vexpect.objectContaining({ cache: 'live' })]);
-    const key = cacheKey({ testId: '에이전트가 로그인한다', engine: 'fake', app: '', instruction: '아이디 qa 로 로그인해줘', callIndex: 0 });
+    const key = cacheKey({ testId: '에이전트가 로그인한다', engine: 'fake', app: 'com.app', instruction: '아이디 qa 로 로그인해줘', callIndex: 0 });
     const entry = await store.read(key);
     vexpect(parseCacheEntry(entry).ok).toBe(true);
     vexpect(entry!.actions.map((a) => [a.tool, a.target?.label ?? a.target?.placeholder])).toEqual([['type', '아이디'], ['tap', '로그인']]);
@@ -56,7 +56,7 @@ describe('runTests · 녹화 캐시 기록', () => {
     ]);
     const report = await runTests([fixture('agent-login-twice.sinclair.ts')], { engine: engine(), timeoutMs: 500, agent: { executor: exec }, cache: { store } });
     vexpect(report.tests[0]).toMatchObject({ result: 'passed', cache: { saved: 1, unconfirmed: 1 } });
-    const k = (i: number) => cacheKey({ testId: '로그인 두 번', engine: 'fake', app: '', instruction: '아이디 qa 로 로그인해줘', callIndex: i });
+    const k = (i: number) => cacheKey({ testId: '로그인 두 번', engine: 'fake', app: 'com.app', instruction: '아이디 qa 로 로그인해줘', callIndex: i });
     vexpect(await store.read(k(0))).toBeDefined();
     vexpect(await store.read(k(1))).toBeUndefined();
   });

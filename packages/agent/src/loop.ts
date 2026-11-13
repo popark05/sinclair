@@ -1,10 +1,11 @@
 // agent.act 툴 루프: 매 턴 화면을 관찰해 실행기(모델)에 다음 툴을 묻고, 닫힌 검사를 통과한 호출만 엔진에 실행한다.
 // 잘못된 호출(검사 실패)과 엔진 오류는 실행하지 않거나 실패한 채로 다음 턴의 기록에 실어 모델이 고치게 하고, 턴 한도에 센다.
 // done 이면 성공, 턴·시간 한도에 닿거나 실행기가 던지면 실패(사유).
-import { EngineError, type Engine, type EngineErrorCode, type SemanticNode, type StepUsage } from '@sinclair/protocol';
+import { EngineError, type Engine, type EngineErrorCode, type SemanticNode, type StepUsage, type CacheAction, type CacheTarget } from '@sinclair/protocol';
 import { ACTIONS, checkToolCall, toolSchemas, type ActionSpec } from './action-spec.ts';
 import { ModelConfigError, ModelCallError, type AgentTurn, type StepExecutor, type StepReply } from './executor.ts';
 import { renderObservation } from './observe.ts';
+import { actionSummary, endAnchors, targetLeaks, toCacheTarget } from './recording.ts';
 import { addUsage } from './usage.ts';
 import { SecretBox } from './secrets.ts';
 import { describeTarget, relocate } from './relocate.ts';
@@ -74,6 +75,10 @@ export interface ActResult {
   history: AgentTurn[];
   /** 결정적으로 복구한 Incident(종류·복구 동작·횟수) */
   incidents?: Array<{ kind: IncidentKind; action: string; count: number }>;
+  /** 녹화(recording-cache): 성공했고 기술자가 가림에 걸리지 않았을 때만. 실행한 툴 호출(대상 기술자·자리표시 글자)과 끝 anchor */
+  recording?: { actions: CacheAction[]; end: { anchors: CacheTarget[] } };
+  /** act 시작 화면의 foreground 앱(녹화 키·재생 전제) */
+  startApp?: string;
 }
 
 /** 에이전트 스텝(act·판정 동사)이 던질 때 그때까지 쓴 모델 호출 수·토큰. 오류 객체를 바꾸지 않고 옆에 둔다(러너가 실패 스텝에 싣는다) */
@@ -112,6 +117,10 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
   let lastFailedCall: string | undefined;
   let prevShown: SemanticNode | undefined;
   let failedInRow = 0;
+  // 녹화: 실행에 성공한 툴 호출. 기술자가 가림에 걸리면 이 act 의 녹화는 버린다
+  const recorded: CacheAction[] = [];
+  let recordable = true;
+  let startRoot: SemanticNode | undefined;
   const record = (kind: IncidentKind, rawAction: string, countAttempt = true): void => {
     const action = hide(rawAction);
     if (countAttempt) attempts.set(kind, (attempts.get(kind) ?? 0) + 1);
@@ -119,7 +128,7 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
     const r = recovered.get(key);
     if (r) r.count++; else recovered.set(key, { kind, action, count: 1 });
   };
-  const result = (r: Pick<ActResult, 'ok' | 'summary' | 'reason'>): ActResult => ({ ...r, turns: history.length, modelCalls, ...(usage ? { usage } : {}), history, ...(recovered.size ? { incidents: [...recovered.values()] } : {}) });
+  const result = (r: Pick<ActResult, 'ok' | 'summary' | 'reason' | 'recording'>): ActResult => ({ ...r, turns: history.length, modelCalls, ...(usage ? { usage } : {}), history, ...(recovered.size ? { incidents: [...recovered.values()] } : {}), ...(appPackage ? { startApp: appPackage } : {}) });
   const goalSecrets = new Set(SecretBox.mentioned(goal));
     const fail = (reason: string): ActResult => result({ ok: false, reason: hide(reason) });
   // 픽셀은 가릴 수 없다: 비밀값이 있는 테스트에서는 이미지를 보내지 않는다
@@ -186,6 +195,7 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
           throw err;
         }
       }
+      if (!startRoot) startRoot = observed.root;
       // 트리의 문자열 잎을 가린 뒤 그린다(그린 글에 가리면 JSON 이스케이프된 값을 놓친다)
       const shown = hideTree(observed.root);
       // Ledger: 앞 턴이 실행한 뒤 화면이 바뀐 부분을 그 턴의 기록에 붙인다(이전 관찰을 통째로 싣는 대신)
@@ -313,7 +323,22 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
       }
       lastFailedCall = undefined; failedInRow = 0;
       history.push({ call, result: 'ok', ...(retargeted ? { retargeted } : {}) });
-      if (spec.terminal) return result({ ok: true, ...(checked.call.input.summary ? { summary: checked.call.input.summary } : {}) });
+      if (spec.terminal) {
+        const recording = recordable ? { actions: recorded, end: { anchors: endAnchors(startRoot, observed.root, hide) } } : undefined;
+        return result({ ok: true, ...(checked.call.input.summary ? { summary: checked.call.input.summary } : {}), ...(recording ? { recording } : {}) });
+      }
+      if (recordable) {
+        const name = checked.call.name as CacheAction['tool'];
+        const t = target ? toCacheTarget(target) : undefined;
+        if (t && targetLeaks(t, hide)) recordable = false;
+        else {
+          // 글자는 모델이 쓴 그대로(비밀값은 자리표시) — 값 일치로 다시 가려 혹시 값이 그대로 온 경우도 남기지 않는다
+          const text = name === 'type' ? (secrets ? secrets.redact(checked.call.input.text ?? '') : checked.call.input.text ?? '') : undefined;
+          const direction = name === 'scroll' ? (checked.call.input.direction as 'up' | 'down') : undefined;
+          const a = { tool: name, ...(t ? { target: t } : {}), ...(text !== undefined ? { text } : {}), ...(direction ? { direction } : {}) };
+          recorded.push({ ...a, summary: actionSummary(a) });
+        }
+      }
     }
     return fail(`턴 한도 ${maxTurns} 안에 목표를 이루지 못함`);
   } catch (err) {
