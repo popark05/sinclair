@@ -9,4 +9,5 @@
 - [ ] 키 모양 검사(64자 16진수), 항목 크기 상한(64KiB), 항목 스키마 검사
 - [ ] 계약 스위트를 HTTP 저장소에도
 - [ ] 저장소 오류: 읽기 실패 = 미스, 쓰기 실패 = 경고 로그(테스트 결과 불변)
+- [ ] runner-agent `run`·`daemon` 의 `--cache off|read-only|read-write|strict`(`SINCLAIR_AGENT_CACHE`, 기본 read-write) — 04 에서 옮김
 - [ ] verify-runner-agent: 노드 A 가 녹화, 노드 B 가 재생(FakeEngine)

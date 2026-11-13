@@ -165,8 +165,8 @@ describe('runTests · 캐시 모드(recording-cache 04)', () => {
   });
 
   it('strict: 녹화가 없으면 모델을 부르지 않고 실패(cache-miss)', async () => {
-    const r = await runTests([fixture('agent-login.sinclair.ts')], { engine: engine(), timeoutMs: 500, agent: { executor: noModel }, cache: { store: createMemoryCacheStore(), mode: 'strict' } });
-    vexpect(r.tests[0]).toMatchObject({ result: 'failed', errorCode: 'cache-miss', error: vexpect.stringMatching(/녹화가 없음/) });
+    const r = await runTests([fixture('agent-login.sinclair.ts')], { engine: engine(), timeoutMs: 500, retries: 2, agent: { executor: noModel }, cache: { store: createMemoryCacheStore(), mode: 'strict' } });
+    vexpect(r.tests[0]).toMatchObject({ result: 'failed', errorCode: 'cache-miss', attempts: 1, error: vexpect.stringMatching(/녹화가 없음/) }); // 결정적 판정이라 재시도하지 않는다
   });
 
   it('strict: 재생이 어긋나면 이어받지 않고 실패(cache-stale), 녹화는 그대로', async () => {

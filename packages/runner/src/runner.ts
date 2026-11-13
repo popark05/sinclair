@@ -105,6 +105,12 @@ export class SecretMissingError extends Error {
 export const SECRET_MISSING_CODE = 'secret-missing';
 
 /** agent.act 가 목표를 이루지 못함(턴·시간 한도, 모델 오류). errorCode 'agent' 로 판정 실패와 구분된다 */
+/** strict 녹화 캐시가 재생할 수 없음: 녹화 없음(cache-miss) 또는 녹화와 어긋남(cache-stale). 테스트가 녹화와 맞지 않는다는 판정이라 failed 다(blocked 아님) */
+export class CacheReplayError extends Error {
+  override name = 'CacheReplayError';
+  constructor(readonly code: 'cache-miss' | 'cache-stale', message: string) { super(message); }
+}
+
 export class AgentActError extends Error {}
 /** 취소로 시작하지 못한 테스트의 skipped attempt 에 붙는 errorCode. control-plane Verdict 가 이것만 blocked 로 본다(같은 문자열을 따로 둔다) */
 export const CANCELLED_CODE = 'cancelled';
@@ -213,9 +219,10 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
     // 취소된 뒤에는 시작하지 않는다: skipped(errorCode cancelled) attempt 하나로 기록해, 작성자가 건너뛴 test.skip 과 Verdict 가 구분할 수 있게 한다
     if (options.signal?.aborted && !tc.skip) { cutShort = true; return runAttempt(tc, file, 1, true); }
     let last = await runAttempt(tc, file, 1);
-    // failed 만 다시 돈다: blocked 는 기기 문제라 반복해도 같고, skipped 는 attempt 하나(attemptNo 1)로 보고하고 끝난다
+    // failed 만 다시 돈다: blocked 는 기기 문제라 반복해도 같고, skipped 는 attempt 하나(attemptNo 1)로 보고하고 끝난다.
+    // strict 녹화 캐시 실패(cache-miss·cache-stale)도 다시 돌지 않는다: 녹화와 테스트가 맞지 않는다는 결정적 판정이다
     const earlierWarnings: string[] = [];
-    for (let no = 2; last.result === 'failed' && no <= retries + 1; no++) {
+    for (let no = 2; last.result === 'failed' && last.errorCode !== 'cache-miss' && last.errorCode !== 'cache-stale' && no <= retries + 1; no++) {
       // 취소되면 남은 재시도를 시작하지 않는다. 결과는 마지막 시도의 failed 그대로 두고, 못 돈 재시도가 있으니 run 은 cancelled
       if (options.signal?.aborted) { cutShort = true; break; }
       // 앞선 시도의 경고(아티팩트·restart 실패)는 재시도가 통과해도 버리지 않는다
@@ -235,7 +242,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
     emit({ ...base(), type: 'attempt.started', attemptId, testId: tc.name, attemptNo });
 
     const finish = (result: AttemptResult, error?: Error, cache?: TestResult['cache']): TestResult => {
-      const errorCode = cancelledSkip ? CANCELLED_CODE : error instanceof EngineError ? error.code : error instanceof AssertionError ? 'assertion' : error instanceof AgentActError ? 'agent' : error instanceof ModelConfigError ? AGENT_CONFIG_CODE : error instanceof SecretMissingError ? SECRET_MISSING_CODE : error ? 'error' : undefined;
+      const errorCode = cancelledSkip ? CANCELLED_CODE : error instanceof EngineError ? error.code : error instanceof AssertionError ? 'assertion' : error instanceof CacheReplayError ? error.code : error instanceof AgentActError ? 'agent' : error instanceof ModelConfigError ? AGENT_CONFIG_CODE : error instanceof SecretMissingError ? SECRET_MISSING_CODE : error ? 'error' : undefined;
       emit({ ...base(), type: 'attempt.finished', attemptId, result, ...(errorCode ? { errorCode } : {}), artifacts });
       return {
         name: tc.name, file, result, attempts: attemptNo, durationMs: Date.now() - started, steps, artifacts,
@@ -342,8 +349,14 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
           if (cacheOn) {
             key = cacheKey({ testId: tc.name, engine: engine.name, app: appPackageOf((await engine.observe()).root) ?? '', instruction: goal, callIndex });
             let entry: CacheEntry | undefined;
-            if (attemptNo === 1) {
+            // strict 는 모든 시도에서 재생한다(녹화와 맞는지가 곧 판정)
+            if (attemptNo === 1 || cacheMode === 'strict') {
               try { entry = await options.cache!.store.read(key); } catch (err) { attemptWarnings.push(`녹화 캐시 읽기 실패(미스로 봄): ${errorMessage(err)}`); }
+            }
+            if (!entry && cacheMode === 'strict') {
+              const msg = `act ${JSON.stringify(goal)}: strict 녹화 캐시에 녹화가 없음`;
+              onStep({ kind: 'act', instruction: `act ${JSON.stringify(goal)}`, durationMs: Date.now() - started, error: '녹화 없음(strict)' });
+              throw new CacheReplayError('cache-miss', msg);
             }
             if (entry) {
               const rp = await replayRecording(engine, entry, { goal, secrets: secretBox, ...(options.cache!.findTimeoutMs !== undefined ? { findTimeoutMs: options.cache!.findTimeoutMs } : {}), ...(options.cache!.endTimeoutMs !== undefined ? { endTimeoutMs: options.cache!.endTimeoutMs } : {}) });
@@ -351,6 +364,11 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
                 onStep({ kind: 'act', instruction: `act ${JSON.stringify(goal)} → 재생 ${rp.executed}/${rp.total}`, durationMs: Date.now() - started, modelCalls: 0, cache: 'replayed' });
                 consumed.push({ stepIndex: steps.length - 1, key });
                 return;
+              }
+              if (cacheMode === 'strict') {
+                const why = `재생 ${rp.executed}/${rp.total} 에서 어긋남(${brief(rp.reason)})`;
+                onStep({ kind: 'act', instruction: `act ${JSON.stringify(goal)}`, durationMs: Date.now() - started, error: `${why} — strict 라 이어받지 않음` });
+                throw new CacheReplayError('cache-stale', `act ${JSON.stringify(goal)}: ${why}`);
               }
               if (rp.outcome === 'diverged') {
                 handOff = `재생 ${rp.executed}/${rp.total} 뒤 이어받음(${brief(rp.reason)})`;
