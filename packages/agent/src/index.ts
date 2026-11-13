@@ -13,3 +13,4 @@ export { detectIncident, packageOf, appPackageOf, type Incident, type IncidentKi
 export { renderLedger, renderTurn, summarizeTurns, screenChange, estimateTokens, DEFAULT_LEDGER_BUDGET, DEFAULT_RECENT_TURNS, MIN_RECENT_TURNS, LEDGER_BLOCK, type LedgerOptions, type LedgerResult } from './ledger.ts';
 export { createPiiFilter, piiFromEnv, mapStrings, DEFAULT_PII, PII_PLACEHOLDER, type PiiFilter, type PiiOptions } from './pii.ts';
 export { toCacheTarget, actionSummary, endAnchors, targetLeaks } from './recording.ts';
+export { replayRecording, exactMatches, type ReplayOptions, type ReplayResult } from './replay.ts';

@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { runAct, actProgressOf, judgeAssert, judgeWaitFor, judgeExtract, ModelConfigError, SecretBox, SECRET_NAME, secretPlaceholder, DEFAULT_PII, type JudgeResult, type PiiFilter, type StepExecutor } from '@sinclair/agent';
+import { runAct, actProgressOf, replayRecording, appPackageOf, judgeAssert, judgeWaitFor, judgeExtract, ModelConfigError, SecretBox, SECRET_NAME, secretPlaceholder, DEFAULT_PII, type JudgeResult, type PiiFilter, type StepExecutor } from '@sinclair/agent';
 import { EngineError, parseRunEvent, CACHE_SCHEMA, type AttemptFinished, type AttemptResult, type CacheEntry, type CacheStore, type Engine, type RunEvent, type StepRecorded } from '@sinclair/protocol';
 import { cacheKey, normalizeInstruction, type CacheMode } from './recording-cache.ts';
 import { createScreen, type StepEvent } from './screen.ts';
@@ -46,7 +46,7 @@ export interface RunOptions {
   /** agent.act 의 실행기(모델)와 한도. 없으면 agent.act 는 설정 오류로 실패한다 */
   agent?: { executor: StepExecutor; maxTurns?: number; timeoutMs?: number; safetyNet?: { pixels?: boolean }; incidents?: { permission?: 'allow' | 'deny' }; pii?: PiiFilter | false };
   /** 녹화 캐시(recording-cache): agent.act 가 한 액션을 기록해 두고 다음 실행에 재생한다. 없거나 mode off 면 끔. 기본 mode read-write */
-  cache?: { store: CacheStore; mode?: CacheMode };
+  cache?: { store: CacheStore; mode?: CacheMode; /** 재생: 대상이 없을 때 기다리는 상한(기본 3초) */ findTimeoutMs?: number; /** 재생: 끝 anchor 를 기다리는 상한(기본 5초) */ endTimeoutMs?: number };
   /** failed 테스트를 다시 돌리는 횟수(기본 0, 최대 5). 시도마다 새 Attempt(attemptNo 2, 3…)로 보고하고 재시도 전에 앱을 다시 띄운다. blocked·skipped 는 재시도하지 않는다 */
   retries?: number;
   /** locator 액션 기한(ms, 기본 10초). 판정(expect) 기한은 그 절반: 판정은 화면이 이미 그 상태여야 하므로 액션보다 짧게 잡아 실패를 빨리 드러낸다 */
@@ -324,6 +324,26 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
           const norm = normalizeInstruction(goal);
           const callIndex = callIndexes.get(norm) ?? 0;
           callIndexes.set(norm, callIndex + 1);
+          // 녹화 캐시: 키는 act 시작 화면의 앱으로. 첫 시도만 재생한다(재시도는 녹화를 의심할 이유가 있다 — 라이브로 돌고 기록만)
+          let key: string | undefined;
+          let handOff: string | undefined;
+          const brief = (t: string) => (t.length > 200 ? `${t.slice(0, 200)}…` : t);
+          if (cacheOn) {
+            key = cacheKey({ testId: tc.name, engine: engine.name, app: appPackageOf((await engine.observe()).root) ?? '', instruction: goal, callIndex });
+            let entry: CacheEntry | undefined;
+            if (attemptNo === 1) {
+              try { entry = await options.cache!.store.read(key); } catch (err) { attemptWarnings.push(`녹화 캐시 읽기 실패(미스로 봄): ${errorMessage(err)}`); }
+            }
+            if (entry) {
+              const rp = await replayRecording(engine, entry, { goal, secrets: secretBox, ...(options.cache!.findTimeoutMs !== undefined ? { findTimeoutMs: options.cache!.findTimeoutMs } : {}), ...(options.cache!.endTimeoutMs !== undefined ? { endTimeoutMs: options.cache!.endTimeoutMs } : {}) });
+              if (rp.outcome === 'replayed') {
+                onStep({ kind: 'act', instruction: `act ${JSON.stringify(goal)} → 재생 ${rp.executed}/${rp.total}`, durationMs: Date.now() - started, modelCalls: 0, cache: 'replayed' });
+                return;
+              }
+              if (rp.outcome === 'diverged') handOff = `재생 ${rp.executed}/${rp.total} 뒤 이어받음(${brief(rp.reason)})`;
+              else attemptWarnings.push(`녹화 캐시 재생 안 함: ${brief(rp.reason)}`);
+            }
+          }
           let r;
           try {
             r = await runAct(engine, goal, { executor: options.agent.executor, secrets: secretBox, pii: pii ?? false, ...(options.agent.safetyNet ? { safetyNet: options.agent.safetyNet } : {}), ...(options.agent.incidents ? { incidents: options.agent.incidents } : {}), ...(options.agent.maxTurns !== undefined ? { maxTurns: options.agent.maxTurns } : {}), ...(options.agent.timeoutMs !== undefined ? { timeoutMs: options.agent.timeoutMs } : {}) });
@@ -346,11 +366,12 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
           }).join(', ');
           // 자동 복구한 Incident: 종류→복구 동작 ×횟수(버튼 문구는 시스템 창의 것이라 비밀값이 아니지만 길이를 묶는다)
           const incidents = r.incidents?.length ? ` [Incident: ${r.incidents.map((i) => `${i.kind}→${i.action.slice(0, 40)} ×${i.count}`).join(', ')}]` : '';
-          const instruction = `act ${JSON.stringify(goal)} → ${tools || '(툴 없음)'} (${r.turns}턴)${incidents}`;
-          onStep({ kind: 'act', instruction, durationMs: Date.now() - started, modelCalls: r.modelCalls, ...(r.usage ? { usage: r.usage } : {}), ...(r.ok ? {} : { error: r.reason ?? '실패' }), cache: 'live' });
-          if (r.ok && r.recording && cacheMode === 'read-write') {
+          const instruction = `act ${JSON.stringify(goal)} → ${handOff ? `${handOff} → ` : ''}${tools || '(툴 없음)'} (${r.turns}턴)${incidents}`;
+          onStep({ kind: 'act', instruction, durationMs: Date.now() - started, modelCalls: r.modelCalls, ...(r.usage ? { usage: r.usage } : {}), ...(r.ok ? {} : { error: r.reason ?? '실패' }), cache: handOff ? 'handed-off' : 'live' });
+          // 이어받은 act 는 녹화가 재생분과 이어받은 분으로 나뉜다 — 합쳐 다시 기록하는 것은 이어받기(03) 몫. 지금은 라이브로 처음부터 돈 act 만
+          if (r.ok && r.recording && cacheMode === 'read-write' && key && !handOff) {
             const entry: CacheEntry = { schema: CACHE_SCHEMA, createdAt: new Date().toISOString(), recordedBy: { ...(options.agentId ? { agentId: options.agentId } : {}) }, start: { ...(r.startApp ? { app: r.startApp } : {}) }, ...r.recording };
-            staged.push({ stepIndex: steps.length - 1, key: cacheKey({ testId: tc.name, engine: engine.name, app: r.startApp ?? '', instruction: goal, callIndex }), entry });
+            staged.push({ stepIndex: steps.length - 1, key, entry });
           }
           if (!r.ok) throw new AgentActError(`agent.act ${JSON.stringify(goal)} 실패: ${r.reason}`);
         },

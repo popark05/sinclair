@@ -102,7 +102,7 @@ describe('runTests · 녹화 재생', () => {
     // 아이디 칸의 placeholder 가 바뀐 화면: 첫 액션부터 녹화와 맞지 않는다
     const changed: SemanticNode = structuredClone(LOGIN_SCREEN); changed.children![1] = { ...changed.children![1]!, placeholder: '아이디(이메일)' };
     const moved = new FakeEngine({ root: changed, onTap: (n) => (n.name === '로그인' ? HOME_SCREEN : undefined) });
-    const r = await runTests([fixture('agent-login.sinclair.ts')], { engine: moved, timeoutMs: 500, agent: { executor: loginScript() }, cache: { store, replayFindTimeoutMs: 100 } as never });
+    const r = await runTests([fixture('agent-login.sinclair.ts')], { engine: moved, timeoutMs: 500, agent: { executor: loginScript() }, cache: { store, findTimeoutMs: 100 } });
     vexpect(r.tests[0]).toMatchObject({ result: 'passed' });
     vexpect(acts(r.events)[0]).toMatchObject({ cache: 'live', modelCalls: 3 });
     const broken = createMemoryCacheStore();
