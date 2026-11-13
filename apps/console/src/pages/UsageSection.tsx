@@ -15,7 +15,9 @@ export function UsageSection({ api, cycleId, live = false }: { api: Api; cycleId
   if (load.state === 'loading') return null;
   if (load.state === 'error') return <Failure message={load.message} />;
   const u = load.data;
-  if (u.total.modelCalls === 0) return null; // 에이전트 스텝이 없는 Cycle
+  const rec = u.recording;
+  const recTotal = rec ? rec.replayed + rec.handedOff + rec.live : 0;
+  if (u.total.modelCalls === 0 && recTotal === 0) return null; // 에이전트 스텝이 없는 Cycle(모두 재생된 Cycle 은 호출이 0 이어도 보인다)
   return (
     <section aria-label="모델 사용">
       <h2>모델 사용</h2>
@@ -25,6 +27,16 @@ export function UsageSection({ api, cycleId, live = false }: { api: Api; cycleId
         ))}
       </dl>
       <p className="muted">대체된(버려진) Run 의 호출도 센다. 캐시 적중률 = 캐시 읽기 / (입력 + 캐시 읽기 + 캐시 쓰기).</p>
+      {rec && recTotal > 0 ? (
+        <>
+          <dl className="cards" aria-label="녹화 캐시" role="list">
+            {([['재생', n(rec.replayed)], ['이어받음', n(rec.handedOff)], ['라이브', n(rec.live)], ['재생률', rate(rec.replayRate)]] as const).map(([k, v]) => (
+              <div key={k} className="card" role="listitem"><dt>{k}</dt><dd>{v}</dd></div>
+            ))}
+          </dl>
+          <p className="muted">녹화 캐시: agent.act 를 녹화해 두고 모델 없이 재생한 수(재생), 재생이 어긋나 에이전트가 이어받은 수(이어받음), 처음부터 모델로 돈 수(라이브).</p>
+        </>
+      ) : null}
       {Object.keys(u.byModel).length ? <Models rows={u.byModel} /> : null}
       <Breakdown name="타깃별" rows={u.byTarget} />
       <Breakdown name="테스트별" rows={u.byTest} />

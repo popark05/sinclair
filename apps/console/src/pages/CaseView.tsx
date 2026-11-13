@@ -99,6 +99,7 @@ function StepRow({ s }: { s: Step }) {
         {m.guard ? <span className="mark mark-guard">안전망 {m.guard}</span> : null}
         {m.retarget ? <span className="mark mark-retarget">다시 찾음 {m.retarget}</span> : null}
         {m.incident ? <span className="mark mark-incident">Incident</span> : null}
+        {s.cache === 'replayed' ? <span className="mark mark-replayed">녹화 재생</span> : s.cache === 'handed-off' ? <span className="mark mark-handed-off">녹화 이어받음</span> : null}
       </td>
       <td>{(s.durationMs / 1000).toFixed(1)}초</td>
       <td>{s.modelCalls || ''}</td>

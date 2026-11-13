@@ -14,7 +14,9 @@ export interface UsageTotals {
 export type ModelTotals = Omit<UsageTotals, 'modelCalls'>;
 export interface CycleUsage { cycleId: string; total: UsageTotals; byTarget: Record<string, UsageTotals>; byTest: Record<string, UsageTotals>;
   /** 스텝이 보고한 모델별 내역의 합(본 모델·요약 모델·fallback 모델은 단가가 다르다). 내역이 없는 스텝은 합계에만 든다 */
-  byModel: Record<string, ModelTotals> }
+  byModel: Record<string, ModelTotals>;
+  /** 녹화 캐시(recording-cache 06): act 스텝의 캐시 결정 수와 재생률 = 재생/(재생+이어받음+라이브). 캐시를 끈 실행의 스텝은 세지 않는다 */
+  recording?: { replayed: number; handedOff: number; live: number; replayRate: number | null } }
 
 type Sum = Omit<UsageTotals, 'cacheHitRate'>;
 const zero = (): Sum => ({ modelCalls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 });
@@ -30,6 +32,7 @@ export async function cycleUsage(events: EventStore, cycles: CycleStore, cycleId
   const byTarget = new Map<string, Sum>();
   const byTest = new Map<string, Sum>();
   const byModel = new Map<string, Sum>();
+  const rec = { replayed: 0, handedOff: 0, live: 0 };
   for (const reg of await cycles.runsForCycle(cycleId)) {
     const view = projectRun(await events.eventsForRun(reg.runId));
     const target = byTarget.get(reg.targetId) ?? zero();
@@ -44,6 +47,11 @@ export async function cycleUsage(events: EventStore, cycles: CycleStore, cycleId
         acc.cacheReadTokens += s.usage?.cacheReadTokens ?? 0;
         acc.cacheWriteTokens += s.usage?.cacheWriteTokens ?? 0;
       }
+      for (const s of a.steps) {
+        if (s.cache === 'replayed') rec.replayed++;
+        else if (s.cache === 'handed-off') rec.handedOff++;
+        else if (s.cache === 'live') rec.live++;
+      }
       for (const s of a.steps) for (const [model, u] of Object.entries(s.usage?.byModel ?? {})) {
         const m = byModel.get(model) ?? zero();
         byModel.set(model, m);
@@ -53,7 +61,8 @@ export async function cycleUsage(events: EventStore, cycles: CycleStore, cycleId
   }
   const map = (m: Map<string, Sum>) => Object.fromEntries([...m].map(([k, v]) => [k, finish(v)]));
   const models = Object.fromEntries([...byModel].map(([k, v]) => { const { modelCalls: _n, ...rest } = finish(v); return [k, rest]; }));
-  return { cycleId, total: finish(total), byTarget: map(byTarget), byTest: map(byTest), byModel: models };
+  const decided = rec.replayed + rec.handedOff + rec.live;
+  return { cycleId, total: finish(total), byTarget: map(byTarget), byTest: map(byTest), byModel: models, recording: { ...rec, replayRate: decided ? rec.replayed / decided : null } };
 }
 
 export interface HistoryCell { cycleId: string; build: string; createdAt: string; targetId: string; verdict: CaseVerdict }
