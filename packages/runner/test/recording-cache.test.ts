@@ -3,7 +3,7 @@ import { describe, it, expect as vexpect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { CACHE_KEY, parseCacheEntry, type RunEvent } from '@sinclair/protocol';
+import { CACHE_KEY, parseCacheEntry, type RunEvent, type SemanticNode } from '@sinclair/protocol';
 import { FakeEngine, HOME_SCREEN, LOGIN_SCREEN, cacheStoreContractSuite, createMemoryCacheStore, SAMPLE_CACHE_ENTRY as SAMPLE_ENTRY } from '@sinclair/protocol/testing';
 import { scriptedExecutor } from '@sinclair/agent';
 import { runTests, cacheKey, createFileCacheStore } from '../src/index.ts';
@@ -76,6 +76,39 @@ describe('runTests · 녹화 캐시 기록', () => {
     store.write = async () => { throw new Error('디스크 가득'); };
     const report = await runTests([fixture('agent-login.sinclair.ts')], { engine: engine(), timeoutMs: 500, agent: { executor: loginScript() }, cache: { store } });
     vexpect(report.tests[0]).toMatchObject({ result: 'passed', warnings: [vexpect.stringMatching(/녹화 캐시 저장 실패.*디스크 가득/)] });
+  });
+});
+
+describe('runTests · 녹화 재생', () => {
+  const noModel = { next: () => Promise.reject(new Error('모델을 부르면 안 된다')) };
+
+  it('같은 테스트를 다시 돌리면 녹화를 재생한다: 실행기를 부르지 않고 act 스텝은 cache replayed·modelCalls 0·"재생 2/2", 테스트 통과', async () => {
+    const store = createMemoryCacheStore();
+    await runTests([fixture('agent-login.sinclair.ts')], { engine: engine(), timeoutMs: 500, agent: { executor: loginScript() }, cache: { store } });
+    const again = await runTests([fixture('agent-login.sinclair.ts')], { engine: engine(), timeoutMs: 500, agent: { executor: noModel }, cache: { store } });
+    vexpect(again.tests[0]).toMatchObject({ result: 'passed' });
+    vexpect(acts(again.events)).toEqual([vexpect.objectContaining({ cache: 'replayed', modelCalls: 0, instruction: vexpect.stringMatching(/^act "아이디 qa 로 로그인해줘" → 재생 2\/2$/) })]);
+  });
+
+  it('녹화가 없으면 live 로 돈다(실행기 호출)', async () => {
+    const store = createMemoryCacheStore();
+    const r = await runTests([fixture('agent-login.sinclair.ts')], { engine: engine(), timeoutMs: 500, agent: { executor: loginScript() }, cache: { store } });
+    vexpect(acts(r.events)[0]).toMatchObject({ cache: 'live', modelCalls: 3 });
+  });
+
+  it('첫 액션 전에 어긋나면(대상이 없음) live 로 돌고, 저장소 읽기 오류는 미스로 본다(경고)', async () => {
+    const store = createMemoryCacheStore();
+    await runTests([fixture('agent-login.sinclair.ts')], { engine: engine(), timeoutMs: 500, agent: { executor: loginScript() }, cache: { store } });
+    // 아이디 칸의 placeholder 가 바뀐 화면: 첫 액션부터 녹화와 맞지 않는다
+    const changed: SemanticNode = structuredClone(LOGIN_SCREEN); changed.children![1] = { ...changed.children![1]!, placeholder: '아이디(이메일)' };
+    const moved = new FakeEngine({ root: changed, onTap: (n) => (n.name === '로그인' ? HOME_SCREEN : undefined) });
+    const r = await runTests([fixture('agent-login.sinclair.ts')], { engine: moved, timeoutMs: 500, agent: { executor: loginScript() }, cache: { store, replayFindTimeoutMs: 100 } as never });
+    vexpect(r.tests[0]).toMatchObject({ result: 'passed' });
+    vexpect(acts(r.events)[0]).toMatchObject({ cache: 'live', modelCalls: 3 });
+    const broken = createMemoryCacheStore();
+    broken.read = async () => { throw new Error('네트워크'); };
+    const r2 = await runTests([fixture('agent-login.sinclair.ts')], { engine: engine(), timeoutMs: 500, agent: { executor: loginScript() }, cache: { store: broken } });
+    vexpect(r2.tests[0]).toMatchObject({ result: 'passed', warnings: [vexpect.stringMatching(/녹화 캐시 읽기 실패.*네트워크/)] });
   });
 });
 
