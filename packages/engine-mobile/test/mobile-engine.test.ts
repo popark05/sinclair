@@ -4,9 +4,10 @@ import { createDeviceServer } from '@sinclair/device-layer';
 import { createMobileEngine, rpcOverDispatcher } from '../src/index.ts';
 import { ScenarioBackend } from './scenario-backend.ts';
 
-function setup(opts: { stabilityTimeoutMs?: number; settleChangeMs?: number } = {}) {
+function setup(opts: { stabilityTimeoutMs?: number; settleChangeMs?: number; launchSettleMs?: number } = {}) {
   const backend = new ScenarioBackend();
-  const engine = createMobileEngine(rpcOverDispatcher(createDeviceServer([backend])), { deviceId: 'PHONE1', appId: 'com.example.app', ...opts });
+  // 가짜 앱은 testId 에 패키지가 없어 '이미 떠 있음' 을 모른다: 실행 대기 상한을 짧게(실행 대기 자체는 그 테스트가 기본값으로 본다)
+  const engine = createMobileEngine(rpcOverDispatcher(createDeviceServer([backend])), { deviceId: 'PHONE1', appId: 'com.example.app', launchSettleMs: 200, ...opts });
   return { backend, engine };
 }
 
@@ -50,13 +51,21 @@ describe('createMobileEngine', () => {
   });
 
   it('앱 실행(open·restart)은 스플래시·로딩을 지나 화면이 잠잠해질 때까지 기다린다: 바로 뒤 관찰이 첫 화면이다(실기기에서 실행 직후 관찰로 사라질 노드를 탭했다)', async () => {
-    const { backend, engine } = setup();
+    const { backend, engine } = setup({ launchSettleMs: 8_000 });
     backend.launchStageDumps = 4;
     await engine.session!.restart();
     expect(JSON.stringify((await engine.observe()).root)).toContain('로그인');
     backend.launchStageDumps = 3;
     await engine.session!.open('com.example.app');
     expect(JSON.stringify((await engine.observe()).root)).toContain('로그인');
+  });
+
+  it('이미 그 앱이 화면을 차지하고 있으면(노드 resource-id 의 패키지) open 은 기다리지 않는다', async () => {
+    const { backend, engine } = setup({ launchSettleMs: 8_000 });
+    backend.setScreen({ ref: '@e0', role: 'root', children: [{ ref: '@e1', role: 'button', name: '검색', testId: 'com.example.app:id/search', rect: { x: 0, y: 0, width: 100, height: 100 } }] });
+    const t0 = Date.now();
+    await engine.session!.open('com.example.app');
+    expect(Date.now() - t0).toBeLessThan(500);
   });
 
   it('화면이 바뀌지 않는 탭은 변화 대기 상한(settleChangeMs) 뒤에 끝난다', async () => {

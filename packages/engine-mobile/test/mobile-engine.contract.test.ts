@@ -5,7 +5,7 @@ import { createMobileEngine, rpcOverDispatcher } from '../src/index.ts';
 import { ScenarioBackend } from './scenario-backend.ts';
 
 engineContractSuite('engine-mobile(ScenarioBackend)', {
-  makeEngine: () => createMobileEngine(rpcOverDispatcher(createDeviceServer([new ScenarioBackend()])), { deviceId: 'PHONE1', appId: 'com.example.app', settleChangeMs: 50 }), // 계약 스위트는 안 바뀌는 화면에 모든 액션을 해 본다: 변화 대기를 짧게
+  makeEngine: () => createMobileEngine(rpcOverDispatcher(createDeviceServer([new ScenarioBackend()])), { deviceId: 'PHONE1', appId: 'com.example.app', settleChangeMs: 50, launchSettleMs: 200 }), // 계약 스위트는 안 바뀌는 화면에 모든 액션·실행을 해 본다: 대기를 짧게
   scenario: LOGIN_SCENARIO,
   navTimeoutMs: 2_000,
 });

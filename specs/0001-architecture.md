@@ -6,7 +6,7 @@
 ## 레이어
 
 1. **디바이스 레이어** (`packages/device-layer`): mobilecli 스타일 JSON-RPC 서버. Android는 접근성 헬퍼(artemis 방식, UiAutomation 비독점) + 입력 주입, iOS는 usbmux/go-ios 방식 + XCUITest 러너. 메서드 명명은 `device.io.tap`, `device.dump.ui` 계열. UI 트리는 `ScreenElement` + `@ref`.
-2. **엔진** (`packages/engine-mobile`): 러너의 `Engine` 계약(observe/locate/perform + 선택 메서드) 구현. 액션은 결과가 트리에 보인 뒤 끝난다(2026-11-14): `type` 은 입력값이 보일 때까지, 화면을 바꿀 수 있는 액션은 트리(역할·이름·testId)가 바뀌고 멈출 때까지(변화 대기 `settleChangeMs` 1초, 전체 `stabilityTimeoutMs` 2초, 상한은 실패 아님). 구현한 메서드로 capability 결정. locator 해석의 모바일 세부(testId가 identifier/resourceId/Flutter key 매칭, bounds 기반 체이닝 fallback, 두 번 연속 같은 bounds일 때 actionable)는 mobilewright 참고.
+2. **엔진** (`packages/engine-mobile`): 러너의 `Engine` 계약(observe/locate/perform + 선택 메서드) 구현. 액션은 결과가 트리에 보인 뒤 끝난다(2026-11-14): `type` 은 입력값이 보일 때까지, 화면을 바꿀 수 있는 액션은 트리(역할·이름·testId)가 바뀌고 멈출 때까지(변화 대기 `settleChangeMs` 1초, 전체 `stabilityTimeoutMs` 2초, 상한은 실패 아님). 앱 실행(`session.open`·`restart`)은 스플래시·로딩을 지나 500ms 조용해질 때까지(상한 `launchSettleMs` 8초), 이미 그 앱이 화면이면 `open` 은 기다리지 않는다. 구현한 메서드로 capability 결정. locator 해석의 모바일 세부(testId가 identifier/resourceId/Flutter key 매칭, bounds 기반 체이닝 fallback, 두 번 연속 같은 bounds일 때 actionable)는 mobilewright 참고.
 3. **러너** (`packages/runner`): e2e 구조. 세 동사 분리(결정적 `screen` locator, 계획형 `agent.act`, 판정 `agent.assert/waitFor/extract`). 워커는 타깃당 1개, 실패 후 교체. 녹화 캐시는 검증 통과 후에만 기록, descriptor로 재탐색, 실패 시 스텝 중간부터 에이전트 이어받기, CI는 strict/read-only.
 4. **에이전트**: 툴 루프 + artemis의 액션 전 안전망(XML 가중치 재탐색, 픽셀/VLM 비교), Incident 복구, Ledger 컨텍스트 관리. 닫힌 툴 스키마, secure 필드 redaction.
 5. **백엔드** (`apps/control-plane`, `apps/runner-agent`): 아래 도메인 모델.
