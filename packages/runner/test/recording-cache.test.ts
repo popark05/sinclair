@@ -141,6 +141,55 @@ describe('runTests · 이어받기와 지우기', () => {
   });
 });
 
+describe('runTests · 캐시 모드(recording-cache 04)', () => {
+  const noModel = { next: () => Promise.reject(new Error('모델을 부르면 안 된다')) };
+  const recorded = async () => {
+    const store = createMemoryCacheStore();
+    await runTests([fixture('agent-login.sinclair.ts')], { engine: engine(), timeoutMs: 500, agent: { executor: loginScript() }, cache: { store } });
+    return store;
+  };
+  const renamedApp = () => {
+    const renamed: SemanticNode = structuredClone(LOGIN_SCREEN); renamed.children![3] = { ...renamed.children![3]!, name: '로그인하기' };
+    return new FakeEngine({ root: renamed, onTap: (n) => (n.name === '로그인하기' ? HOME_SCREEN : undefined) });
+  };
+
+  it('read-only: 재생은 하지만 라이브로 돈 act 를 기록하지 않고, 실패해도 지우지 않는다', async () => {
+    const empty = createMemoryCacheStore();
+    const live = await runTests([fixture('agent-login.sinclair.ts')], { engine: engine(), timeoutMs: 500, agent: { executor: loginScript() }, cache: { store: empty, mode: 'read-only' } });
+    vexpect(acts(live.events)[0]).toMatchObject({ cache: 'live' });
+    vexpect(empty.size()).toBe(0);
+    const store = await recorded();
+    const broken = await runTests([fixture('agent-login-broken.sinclair.ts')], { engine: engine(), timeoutMs: 500, agent: { executor: noModel }, cache: { store, mode: 'read-only' } });
+    vexpect(acts(broken.events)[0]).toMatchObject({ cache: 'replayed' });
+    vexpect(store.size()).toBe(1);
+  });
+
+  it('strict: 녹화가 없으면 모델을 부르지 않고 실패(cache-miss)', async () => {
+    const r = await runTests([fixture('agent-login.sinclair.ts')], { engine: engine(), timeoutMs: 500, agent: { executor: noModel }, cache: { store: createMemoryCacheStore(), mode: 'strict' } });
+    vexpect(r.tests[0]).toMatchObject({ result: 'failed', errorCode: 'cache-miss', error: vexpect.stringMatching(/녹화가 없음/) });
+  });
+
+  it('strict: 재생이 어긋나면 이어받지 않고 실패(cache-stale), 녹화는 그대로', async () => {
+    const store = await recorded();
+    const r = await runTests([fixture('agent-login.sinclair.ts')], { engine: renamedApp(), timeoutMs: 500, agent: { executor: noModel }, cache: { store, mode: 'strict', findTimeoutMs: 100 } });
+    vexpect(r.tests[0]).toMatchObject({ result: 'failed', errorCode: 'cache-stale', error: vexpect.stringMatching(/재생 1\/2.*로그인/) });
+    vexpect(store.size()).toBe(1);
+  });
+
+  it('strict: 녹화대로 재생되면 통과하고 재시도에서도 재생한다', async () => {
+    const store = await recorded();
+    const r = await runTests([fixture('agent-login.sinclair.ts')], { engine: engine(), timeoutMs: 500, agent: { executor: noModel }, cache: { store, mode: 'strict' } });
+    vexpect(r.tests[0]).toMatchObject({ result: 'passed' });
+    vexpect(acts(r.events)[0]).toMatchObject({ cache: 'replayed' });
+  });
+
+  it('read-write(기본): 재시도 Attempt 는 재생하지 않고 라이브로 돈다', async () => {
+    const store = await recorded();
+    const r = await runTests([fixture('agent-login-broken.sinclair.ts')], { engine: engine(), timeoutMs: 500, retries: 1, agent: { executor: loginScript() }, cache: { store } });
+    vexpect(acts(r.events).map((e) => e.cache)).toEqual(['replayed', 'live']);
+  });
+});
+
 let dir: string;
 beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sinclair-cache-')); });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
