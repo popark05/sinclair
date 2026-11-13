@@ -3,8 +3,8 @@ import { describe, it, expect } from 'vitest';
 import { ACTIONS, toolSchemas, checkToolCall } from '../src/index.ts';
 
 describe('action spec', () => {
-  it('툴 다섯(tap·type·scroll·back·done) 모두 설명·인자 스키마·실행을 가진다', () => {
-    expect(Object.keys(ACTIONS).sort()).toEqual(['back', 'done', 'scroll', 'tap', 'type']);
+  it('툴 여섯(tap·type·submit·scroll·back·done) 모두 설명·인자 스키마·실행을 가진다', () => {
+    expect(Object.keys(ACTIONS).sort()).toEqual(['back', 'done', 'scroll', 'submit', 'tap', 'type']);
     for (const [name, a] of Object.entries(ACTIONS)) {
       expect(a.description, name).toMatch(/\S/);
       expect(typeof a.run, name).toBe('function');
@@ -22,6 +22,15 @@ describe('action spec', () => {
     const scroll = schemas.find((s) => s.name === 'scroll')!;
     expect(scroll.input_schema.properties.direction).toMatchObject({ type: 'string', enum: ['up', 'down'] });
     expect(schemas.find((s) => s.name === 'back')!.input_schema).toMatchObject({ required: [], properties: {} });
+    // 입력 확정(키보드의 검색·완료·Enter): 실행 키가 화면이 아니라 키보드에만 있는 앱(YouTube 검색 등)을 위해
+    expect(schemas.find((s) => s.name === 'submit')!.input_schema).toEqual({ type: 'object', additionalProperties: false, required: ['ref'], properties: { ref: { type: 'string', description: expect.any(String) } } });
+  });
+
+  it('submit 은 그 입력란에서 Enter 를 누른다(엔진 press)', async () => {
+    const calls: unknown[][] = [];
+    const engine = { perform: async (...a: unknown[]) => { calls.push(a); } } as unknown as Parameters<typeof ACTIONS.submit.run>[0];
+    await ACTIONS.submit.run(engine, { ref: '@e21' });
+    expect(calls).toEqual([['@e21', 'press', 'Enter']]);
   });
 
   it('검사기는 스키마와 같은 판단: 모르는 툴·빠진 인자·모르는 인자·틀린 타입·enum 밖 값을 거부한다', () => {

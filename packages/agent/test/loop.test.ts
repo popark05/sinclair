@@ -38,6 +38,18 @@ describe('runAct', () => {
     for (const req of exec.requests) expect(JSON.stringify(req)).not.toMatch(/hunter2/); // secure 값은 모델에 가지 않는다
   });
 
+  it('검색어 입력 뒤 submit 으로 확정한다: 엔진에 Enter 가 눌리고 다음 턴 기록에 남는다(실행 키가 키보드에만 있는 화면)', async () => {
+    const engine = login();
+    const performed: string[] = [];
+    const perform = engine.perform.bind(engine);
+    engine.perform = async (ref, action, arg) => { performed.push(`${action} ${ref}${arg !== undefined ? ` ${arg}` : ''}`); return perform(ref, action, arg); };
+    const exec = scriptedExecutor([{ name: 'type', input: { ref: '@e2', text: 'qa' } }, { name: 'submit', input: { ref: '@e2' } }, { name: 'done', input: { summary: '확정함' } }]);
+    const r = await runAct(engine, '아이디를 입력하고 확정', { executor: exec });
+    expect(r).toMatchObject({ ok: true, turns: 3 });
+    expect(performed).toEqual(['type @e2 qa', 'press @e2 Enter']);
+    expect(exec.requests[2]!.history.map((h) => [h.call?.name, h.result])).toEqual([['type', 'ok'], ['submit', 'ok']]);
+  });
+
   it('닫힌 스키마를 어긴 호출은 실행하지 않고 다음 턴에 거부 사유를 돌려주며 턴에 센다', async () => {
     const engine = login();
     const exec = scriptedExecutor([{ name: 'tap', input: { ref: '@e4', force: true } }, ...script]);
