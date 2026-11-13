@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { FakeEngine, HOME_SCREEN, LOGIN_SCREEN } from '@sinclair/protocol/testing';
 import { CACHE_SCHEMA, type CacheEntry, type SemanticNode } from '@sinclair/protocol';
-import { replayRecording, SecretBox, secretPlaceholder } from '../src/index.ts';
+import { replayRecording, runAct, renderLedger, scriptedExecutor, SecretBox, secretPlaceholder } from '../src/index.ts';
 
 const P = secretPlaceholder('QA_PASSWORD');
 const VALUE = 'Tr0ub4dor&3';
@@ -60,5 +60,15 @@ describe('replayRecording', () => {
   it('목표에 없는 비밀값 자리표시는 입력하지 않는다(그 액션에서 멈춤)', async () => {
     const r = await replayRecording(login(), entry(), { goal: '아이디 qa 로 로그인', secrets: secrets(), findTimeoutMs: 200 });
     expect(r).toMatchObject({ outcome: 'diverged', executed: 1, reason: expect.stringMatching(/비밀값/) });
+  });
+});
+
+describe('runAct · 이어받기(recording-cache 03)', () => {
+  it('replayedPrefix 를 주면 매 턴 요청에 이어받기 안내(한 액션 요약·멈춘 곳·이유, 다시 하지 말라)가 실리고 Ledger 가 목표 아래에 그린다', async () => {
+    const exec = scriptedExecutor([{ name: 'tap', input: { ref: '@e4' } }, { name: 'done', input: { summary: 'ok' } }]);
+    const r = await runAct(login(), '로그인', { executor: exec, replayedPrefix: { done: ['type textbox [아이디]'], total: 2, reason: '2/2 tap button "로그인": 대상을 찾지 못함' } });
+    expect(r.ok).toBe(true);
+    for (const req of exec.requests) expect(req.handOff).toMatch(/1\/2.*type textbox \[아이디\].*찾지 못함.*다시 하지/s);
+    expect(renderLedger(exec.requests[0]!).text).toMatch(/^목표: 로그인\n\n↪ .*type textbox/);
   });
 });

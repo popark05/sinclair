@@ -38,7 +38,7 @@ describe('runTests · 녹화 캐시 기록', () => {
     const entry = await store.read(key);
     vexpect(parseCacheEntry(entry).ok).toBe(true);
     vexpect(entry!.actions.map((a) => [a.tool, a.target?.label ?? a.target?.placeholder])).toEqual([['type', '아이디'], ['tap', '로그인']]);
-    vexpect(report.tests[0]!.cache).toEqual({ saved: 1, unconfirmed: 0 });
+    vexpect(report.tests[0]!.cache).toEqual({ saved: 1, unconfirmed: 0, evicted: 0 });
   });
 
   it('뒤에 검증이 없으면(또는 검증 전에 실패하면) 저장하지 않는다', async () => {
@@ -109,6 +109,35 @@ describe('runTests · 녹화 재생', () => {
     broken.read = async () => { throw new Error('네트워크'); };
     const r2 = await runTests([fixture('agent-login.sinclair.ts')], { engine: engine(), timeoutMs: 500, agent: { executor: loginScript() }, cache: { store: broken } });
     vexpect(r2.tests[0]).toMatchObject({ result: 'passed', warnings: [vexpect.stringMatching(/녹화 캐시 읽기 실패.*네트워크/)] });
+  });
+});
+
+describe('runTests · 이어받기와 지우기', () => {
+  it('재생이 중간에 어긋나면 그 화면부터 에이전트가 이어받는다: 접두부 안내, cache handed-off, 성공·검증 뒤 녹화는 재생분 + 이어받은 분으로 갱신', async () => {
+    const store = createMemoryCacheStore();
+    await runTests([fixture('agent-login.sinclair.ts')], { engine: engine(), timeoutMs: 500, agent: { executor: loginScript() }, cache: { store } });
+    // 로그인 버튼 이름이 바뀐 앱: 아이디 입력(1/2)까지 재생되고 버튼에서 어긋난다
+    const renamed: SemanticNode = structuredClone(LOGIN_SCREEN); renamed.children![3] = { ...renamed.children![3]!, name: '로그인하기' };
+    const exec = scriptedExecutor([{ name: 'tap', input: { ref: '@e4' } }, { name: 'done', input: { summary: '환영합니다' } }]);
+    const app2 = new FakeEngine({ root: renamed, onTap: (n) => (n.name === '로그인하기' ? HOME_SCREEN : undefined) });
+    const r = await runTests([fixture('agent-login.sinclair.ts')], { engine: app2, timeoutMs: 500, agent: { executor: exec }, cache: { store, findTimeoutMs: 100 } });
+    vexpect(r.tests[0]).toMatchObject({ result: 'passed', cache: { saved: 1, unconfirmed: 0 } });
+    vexpect(acts(r.events)[0]).toMatchObject({ cache: 'handed-off', modelCalls: 2, instruction: vexpect.stringMatching(/재생 1\/2 뒤 이어받음\(.*로그인.*\) → tap @e4/) });
+    vexpect(exec.requests[0]!.handOff).toMatch(/type textbox \[아이디\]/);
+    const key = cacheKey({ testId: '에이전트가 로그인한다', engine: 'fake', app: 'com.app', instruction: '아이디 qa 로 로그인해줘', callIndex: 0 });
+    vexpect((await store.read(key))!.actions.map((a) => a.summary)).toEqual(['type textbox [아이디]', 'tap button "로그인하기"']);
+  });
+
+  it('재생에 쓴 녹화가 검증 실패와 함께였으면 지운다(다음엔 라이브로 다시 녹화)', async () => {
+    const store = createMemoryCacheStore();
+    await runTests([fixture('agent-login.sinclair.ts')], { engine: engine(), timeoutMs: 500, agent: { executor: loginScript() }, cache: { store } });
+    const key = cacheKey({ testId: '에이전트가 로그인한다', engine: 'fake', app: 'com.app', instruction: '아이디 qa 로 로그인해줘', callIndex: 0 });
+    vexpect(await store.read(key)).toBeDefined();
+    const r = await runTests([fixture('agent-login-broken.sinclair.ts')], { engine: engine(), timeoutMs: 500, agent: { executor: { next: () => Promise.reject(new Error('x')) } }, cache: { store } });
+    vexpect(r.tests[0]).toMatchObject({ result: 'failed' });
+    vexpect(acts(r.events)[0]).toMatchObject({ cache: 'replayed' });
+    vexpect(await store.read(key)).toBeUndefined();
+    vexpect(r.tests[0]!.cache).toMatchObject({ evicted: 1 });
   });
 });
 
