@@ -15,6 +15,9 @@ export interface ReplayOptions {
   findTimeoutMs?: number;
   /** 끝 anchor 를 기다리는 상한(기본 5초) */
   endTimeoutMs?: number;
+  /** 끝 확인 뒤 화면이 이만큼 바뀌지 않아야 끝낸다(기본 1.5초, 상한 settleCapMs) — 늦게 채워지는 목록(검색 결과)을 기다린다 */
+  quietMs?: number;
+  settleCapMs?: number;
 }
 export type ReplayResult =
   | { outcome: 'replayed'; executed: number; total: number; done: string[] }
@@ -43,6 +46,20 @@ const describe = (t: CacheTarget): string => `${t.role}${t.label ? ` "${t.label}
 /** 화면 정체: 노드마다 역할·이름(글자)·testId — 재생이 화면을 바꿨는지 볼 때 */
 const signature = (root: SemanticNode): string => [...walk(root)].map((n) => `${n.role}|${labelOf(n) ?? ''}|${n.testId ?? ''}`).join('\n');
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * 화면이 quietMs 동안 바뀌지 않을 때까지(상한 capMs) 기다린다. 재생은 모델이 생각하는 시간이 없어 라이브보다 훨씬 빨리 끝나므로,
+ * 검색 결과처럼 늦게 채워지는 화면을 뒤 스텝(판정)이 비어 있는 채로 보지 않게 한다(2026-11-14 실기기 YouTube). 상한에 닿아도 실패가 아니다
+ */
+async function settleQuiet(engine: Engine, sig: string, quietMs: number, capMs: number): Promise<void> {
+  const start = Date.now();
+  let last = sig, since = Date.now();
+  while (Date.now() - since < quietMs && Date.now() - start < capMs) {
+    await sleep(END_POLL_MS);
+    const now = signature((await engine.observe()).root);
+    if (now !== last) { last = now; since = Date.now(); }
+  }
+}
 
 export async function replayRecording(engine: Engine, entry: CacheEntry, opts: ReplayOptions): Promise<ReplayResult> {
   const total = entry.actions.length;
@@ -100,7 +117,10 @@ export async function replayRecording(engine: Engine, entry: CacheEntry, opts: R
     const root = (await engine.observe()).root;
     const missing = anchors.filter((t) => exactMatches(t, root).length === 0);
     const changed = signature(root) !== startSig;
-    if (anchors.length - missing.length >= need && changed) return { outcome: 'replayed', executed: total, total, done };
+    if (anchors.length - missing.length >= need && changed) {
+      await settleQuiet(engine, signature(root), opts.quietMs ?? 1_500, opts.settleCapMs ?? 8_000);
+      return { outcome: 'replayed', executed: total, total, done };
+    }
     if (Date.now() >= endDeadline) return stop(anchors.length - missing.length < need ? `끝 화면에 ${missing.slice(0, 3).map(describe).join(', ')} 이 없음(${anchors.length - missing.length}/${anchors.length} 보임)` : '재생 뒤 화면이 바뀌지 않음');
     await sleep(END_POLL_MS);
   }

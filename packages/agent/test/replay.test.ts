@@ -76,8 +76,9 @@ describe('replayRecording', () => {
     const full: SemanticNode = structuredClone(head); full.children![2]!.children = [{ ref: '@h4', role: 'text', text: '결과 하나' }, { ref: '@h5', role: 'text', text: '결과 둘' }];
     const engine = login((n) => (n.name === '로그인' ? head : undefined));
     const observe = engine.observe.bind(engine);
-    let after = 0;
-    engine.observe = async (o) => { const r = await observe(o); if (JSON.stringify(r.root).includes('@h3')) { if (++after === 4) engine.setRoot(full); } return r; };
+    let scheduled = false;
+    // 머리가 처음 보이고 250ms 뒤에 목록이 채워진다(네트워크로 결과를 받는 시간)
+    engine.observe = async (o) => { const r = await observe(o); if (!scheduled && JSON.stringify(r.root).includes('@h3')) { scheduled = true; setTimeout(() => engine.setRoot(full), 250); } return r; };
     const r = await replayRecording(engine, entry(), { goal, secrets: secrets(), quietMs: 300 });
     expect(r).toMatchObject({ outcome: 'replayed' });
     expect(JSON.stringify((await engine.observe()).root)).toContain('결과 둘');
