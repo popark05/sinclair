@@ -37,6 +37,14 @@ describe('UsageSection', () => {
     expect(byModel.textContent).toMatch(/claude-haiku-5-5.*740.*82/);
   });
 
+  it('녹화 캐시: 재생·이어받음·라이브 act 와 재생률 카드. 모두 재생돼 모델 호출이 0 이어도 절을 보인다', async () => {
+    const replayedOnly: CycleUsage = { cycleId: 'c1', total: t(0, 0, 0, 0, 0), byTarget: {}, byTest: {}, byModel: {}, recording: { replayed: 3, handedOff: 1, live: 0, replayRate: 0.75 } };
+    render(<UsageSection api={{ ...base, usage: async () => replayedOnly }} cycleId="c1" />);
+    const sec = await screen.findByRole('region', { name: '모델 사용' });
+    const rec = within(sec).getByRole('list', { name: '녹화 캐시' });
+    expect(rec.textContent).toMatch(/재생\s*3.*이어받음\s*1.*라이브\s*0.*재생률\s*75\.0%/);
+  });
+
   it('모델을 한 번도 안 불렀으면 절을 숨긴다(불러온 뒤에도)', async () => {
     let loaded = false;
     const { container } = render(<UsageSection api={{ ...base, usage: async () => { loaded = true; return { cycleId: 'c1', total: t(0, 0, 0, 0, 0), byTarget: {}, byTest: {}, byModel: {} }; } }} cycleId="c1" />);

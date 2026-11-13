@@ -24,6 +24,19 @@ function run(runId: string, cycleId: string, targetId: string, tests: Array<{ te
 }
 
 describe('GET /cycles/:id/usage', () => {
+  it('녹화 캐시: act 스텝의 cache 결정을 센다(재생·이어받음·라이브), 재생률 = 재생/(셋의 합), 캐시 결정 없는 스텝은 세지 않음', async () => {
+    server = await serveControlPlane(createMemoryEventStore());
+    await post('/cycles', { cycleId: 'rc', build: '1.0', targets: ['android'] });
+    await post('/cycles/rc/runs', { targetId: 'android', runId: 'rr' });
+    const a = 'rr-a';
+    const step = (i: number, cache: string | undefined, modelCalls: number) => ev('rr', { type: 'step.recorded', attemptId: a, stepIndex: i, kind: 'act', instruction: 'act', modelCalls, durationMs: 1, ...(cache ? { cache } : {}) });
+    await post('/ingest', [ev('rr', { type: 'run.started', cycleId: 'rc', targetId: 'android' }), ev('rr', { type: 'attempt.started', attemptId: a, testId: 'T', attemptNo: 1 }),
+      step(0, 'replayed', 0), step(1, 'replayed', 0), step(2, 'handed-off', 2), step(3, 'live', 3), step(4, undefined, 1),
+      ev('rr', { type: 'attempt.finished', attemptId: a, result: 'passed', artifacts: [] }), ev('rr', { type: 'run.finished', state: 'finished' })]);
+    const u = (await (await fetch(url('/cycles/rc/usage'))).json()) as CycleUsage;
+    expect(u.recording).toEqual({ replayed: 2, handedOff: 1, live: 1, replayRate: 0.5 });
+  });
+
   it('모델 호출·토큰을 Cycle 합계·타깃별·테스트별로(대체된 Run 포함), 캐시 적중률 = 읽기/(입력+읽기+쓰기); 요약의 진행률은 대체된 Run 을 뺀다', async () => {
     let now = Date.parse('2026-11-09T00:00:00Z');
     server = await serveControlPlane(createMemoryEventStore(), { now: () => now, leaseTtlMs: 1000 });

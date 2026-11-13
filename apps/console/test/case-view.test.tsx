@@ -31,6 +31,22 @@ const runs: Record<string, RunView> = {
 };
 const api: Api = { ...STUBS, cycleSummaries: async () => [], fleet: async () => { throw new Error('x'); }, cycle: async () => cycle, run: async (id) => { const r = runs[id]; if (!r) throw new Error(`404 ${id}`); return r; } };
 
+describe('CaseView · 녹화 캐시 표지', () => {
+  it('act 스텝에 재생·이어받음 표지(라이브는 표지 없음)', async () => {
+    const steps = [
+      { stepIndex: 0, kind: 'act' as const, instruction: 'act "로그인" → 재생 2/2', cache: 'replayed' as const, modelCalls: 0, durationMs: 900 },
+      { stepIndex: 1, kind: 'act' as const, instruction: 'act "검색" → 재생 1/3 뒤 이어받음(…) → tap @e4, done (2턴)', cache: 'handed-off' as const, modelCalls: 2, durationMs: 3000 },
+      { stepIndex: 2, kind: 'act' as const, instruction: 'act "x" → done (1턴)', cache: 'live' as const, modelCalls: 1, durationMs: 1000 },
+    ];
+    const one: RunView = { runId: 'r1', state: 'finished', targetId: 'android', attempts: [{ attemptId: 'a1', testId: T, attemptNo: 1, result: 'passed', artifacts: [], steps }] };
+    render(<CaseView api={{ ...api, cycle: async () => ({ ...cycle, runs: [{ runId: 'r1', targetId: 'android', state: 'finished' }] }), run: async () => one }} cycleId="c1" testId={T} targetId="android" />);
+    const rows = within(await screen.findByRole('region', { name: '시도 1 (r1)' })).getAllByRole('row').slice(1);
+    expect(rows[0]!.textContent).toMatch(/녹화 재생/);
+    expect(rows[1]!.textContent).toMatch(/녹화 이어받음/);
+    expect(rows[2]!.textContent).not.toMatch(/녹화/);
+  });
+});
+
 describe('CaseView · Issue 링크', () => {
   const issue = (id: string, runId: string, attemptId: string): IssueView => ({ id, errorCode: 'agent', summary: '턴 한도', count: 1, tests: [T], occurrences: [{ cycleId: 'c1', build: '2.1.0', testId: T, targetId: 'android', runId, attemptId }] });
 
