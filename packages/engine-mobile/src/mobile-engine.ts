@@ -15,6 +15,8 @@ export interface MobileEngineOptions {
   stabilityTimeoutMs?: number;
   /** 안정화 재확인 간격(ms) */
   stabilityPollMs?: number;
+  /** 화면을 바꿀 수 있는 액션(탭·키·스크롤·뒤로) 뒤 트리가 바뀌기를 기다리는 상한(ms). 안 바뀌는 액션은 이만큼 늦어진다. 0 이면 기다리지 않는다 */
+  settleChangeMs?: number;
   /** 롱프레스·스와이프 기본 시간(ms). Android 롱프레스 기준 500ms 보다 넉넉히 */
   longPressMs?: number;
   swipeMs?: number;
@@ -22,6 +24,8 @@ export interface MobileEngineOptions {
 
 const DEFAULT_STABILITY_TIMEOUT_MS = 2_000;
 const DEFAULT_STABILITY_POLL_MS = 100;
+/** 실기기 화면 전환은 탭 뒤 보통 100~300ms 안에 트리에 나타난다. 그보다 넉넉히 */
+const DEFAULT_SETTLE_CHANGE_MS = 1_000;
 const DEFAULT_LONG_PRESS_MS = 800;
 /** 스와이프 한 번의 시간. 너무 빠르면 플링(관성)으로, 너무 느리면 드래그로 해석된다. adb shell input swipe 의 관례값 */
 const DEFAULT_SWIPE_MS = 300;
@@ -53,6 +57,13 @@ function describe(n: SemanticNode): Descriptor {
   };
 }
 
+/** 화면 정체 비교용: 노드마다 역할·이름·testId(문서 순서). 글자·값·rect 는 넣지 않는다(시계·카운트다운·애니메이션) */
+function screenSignature(root: SemanticNode): string {
+  const parts: string[] = [];
+  forEachNode(root, (n) => { parts.push(`${n.role}|${n.name ?? ''}|${n.testId ?? ''}`); });
+  return parts.join('\n');
+}
+
 function sameDescriptor(a: Descriptor, b: Descriptor): boolean {
   return a.role === b.role && a.testId === b.testId && a.name === b.name && a.text === b.text && a.placeholder === b.placeholder;
 }
@@ -81,6 +92,7 @@ export function createMobileEngine(rpc: DeviceRpc, options: MobileEngineOptions)
   const { deviceId } = options;
   const stabilityTimeoutMs = options.stabilityTimeoutMs ?? DEFAULT_STABILITY_TIMEOUT_MS;
   const stabilityPollMs = options.stabilityPollMs ?? DEFAULT_STABILITY_POLL_MS;
+  const settleChangeMs = options.settleChangeMs ?? DEFAULT_SETTLE_CHANGE_MS;
   const longPressMs = options.longPressMs ?? DEFAULT_LONG_PRESS_MS;
   const swipeMs = options.swipeMs ?? DEFAULT_SWIPE_MS;
   const descriptors = new Map<string, Descriptor>();
@@ -114,10 +126,37 @@ export function createMobileEngine(rpc: DeviceRpc, options: MobileEngineOptions)
     forEachNode(root, (n) => descriptors.set(n.ref, describe(n)));
   }
 
+  /** 가장 최근 dump. 액션 뒤 화면 변화를 잴 기준이 된다 */
+  let lastRoot: SemanticNode | undefined;
+
   async function dump(): Promise<SemanticNode> {
     const root = (await call('device.dump.ui', { deviceId })) as SemanticNode;
     remember(root);
+    lastRoot = root;
     return root;
+  }
+
+  /**
+   * 화면을 바꿀 수 있는 액션 뒤: 트리가 액션 전과 달라질 때까지(상한 settleChangeMs), 달라졌으면 멈출 때까지(전체 상한 stabilityTimeoutMs) 기다린다.
+   * 실기기는 탭 직후 관찰에 옛 화면이 보여, 에이전트가 같은 탭을 반복했다(안전망이 막지만 턴 낭비). 비교는 노드의 역할·이름·testId 만 —
+   * 재생 시간·광고 카운트다운 같은 글자, 애니메이션 rect 는 보지 않는다(그것 때문에 상한까지 기다리지 않게). 상한에 닿아도 실패가 아니다.
+   */
+  async function settleAfter(before: SemanticNode | undefined): Promise<void> {
+    if (!before || settleChangeMs <= 0) return;
+    const start = Date.now();
+    let prev = screenSignature(before);
+    let changed = false;
+    while (Date.now() - start < stabilityTimeoutMs) {
+      await new Promise((r) => setTimeout(r, stabilityPollMs));
+      const sig = screenSignature(await dump());
+      if (!changed) {
+        if (sig !== prev) { changed = true; prev = sig; continue; }
+        if (Date.now() - start >= settleChangeMs) return;
+        continue;
+      }
+      if (sig === prev) return;
+      prev = sig;
+    }
   }
 
   /** 새 dump 에서 ref 의 노드를 찾는다. 같은 ref 가 같은 기술자를 가리키면 그것, 아니면 기술자로 재탐색 */
@@ -202,9 +241,9 @@ export function createMobileEngine(rpc: DeviceRpc, options: MobileEngineOptions)
       const node = await resolveStable(ref, action !== 'press');
       if (node.states?.disabled) throw new EngineError('not-actionable', `비활성 노드: ${ref}`, { ref });
       switch (action) {
-        case 'tap': return void (await tapAt(center(node)));
-        case 'double_tap': { const p = center(node); await tapAt(p); await tapAt(p); return; }
-        case 'long_press': return void (await longPressAt(center(node)));
+        case 'tap': { const before = lastRoot; await tapAt(center(node)); await settleAfter(before); return; }
+        case 'double_tap': { const before = lastRoot; const p = center(node); await tapAt(p); await tapAt(p); await settleAfter(before); return; }
+        case 'long_press': { const before = lastRoot; await longPressAt(center(node)); await settleAfter(before); return; }
         case 'type': {
           if (!EDITABLE_ROLES.has(node.role)) throw new EngineError('not-actionable', `편집할 수 없는 노드: ${ref} (${node.role})`, { ref });
           await tapAt(center(node)); // 포커스
@@ -217,7 +256,7 @@ export function createMobileEngine(rpc: DeviceRpc, options: MobileEngineOptions)
           await tapAt(center(node));
           return;
         }
-        case 'press': return void (await keys([keyCode(arg ?? 'Enter')]));
+        case 'press': { const before = lastRoot; await keys([keyCode(arg ?? 'Enter')]); await settleAfter(before); return; }
         case 'scroll':
         case 'scroll_to': {
           const r = node.rect!;
@@ -225,7 +264,9 @@ export function createMobileEngine(rpc: DeviceRpc, options: MobileEngineOptions)
           const v = SCROLL_VECTORS[arg ?? 'down'];
           if (!v) throw new EngineError('not-actionable', `scroll 방향은 up/down/left/right 중 하나: ${arg}`, { ref, arg });
           const dx = Math.round(r.width * SCROLL_FRACTION) * v.dx, dy = Math.round(r.height * SCROLL_FRACTION) * v.dy;
+          const before = lastRoot;
           await swipeBetween({ x: c.x - dx, y: c.y - dy }, { x: c.x + dx, y: c.y + dy });
+          await settleAfter(before);
           return;
         }
         default:
@@ -258,7 +299,7 @@ export function createMobileEngine(rpc: DeviceRpc, options: MobileEngineOptions)
         if (appId) await call('device.apps.launch', { deviceId, appId });
         else await button('home');
       },
-      back: async () => { assertOpen(); await button('back'); },
+      back: async () => { assertOpen(); const before = await dump(); await button('back'); await settleAfter(before); },
       restart: async () => {
         assertOpen();
         if (!options.appId) throw new EngineError('unsupported-action', 'restart 에는 appId 가 필요하다');

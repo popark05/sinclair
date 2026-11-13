@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-13T22:04:56.888Z",
+  "at": "2026-11-13T22:13:11.898Z",
   "device": "SM-N981N (Android 13), 직접 USB, 헬퍼 ready",
   "model": "claude-sonnet-5-5",
   "app": "com.google.android.youtube",
@@ -127,5 +127,58 @@
         }
       ]
     }
-  ]
+  ],
+  "settle": {
+    "note": "engine-mobile 액션 뒤 화면 전환 대기(settleAfter) 전후 비교: 6차(전) vs 7차(후). 같은 탭 반복(안전망: 사라짐) 3→1, 턴 7→5, 시간 29→19초(한국어)",
+    "cycleId": "youtube-florence-7",
+    "verdict": "verified",
+    "attempts": [
+      {
+        "testId": "YouTube 에서 플로렌스 게랭 주연 작품를 한국어로 검색한다",
+        "result": "passed",
+        "seconds": 19,
+        "steps": [
+          {
+            "kind": "act",
+            "modelCalls": 5,
+            "durationMs": 14955,
+            "inputTokens": 6401,
+            "outputTokens": 556,
+            "instruction": "act \"YouTube 앱에서 검색창에 \\\"플로렌스 게랭 주연 작품\\\" 를 직접 입력해 검색하고 검색 결과 목록을 연다\" → tap @e14(안전망: 사라짐), tap @e9, type @e8, submit @e8, done (5턴)"
+          },
+          {
+            "kind": "assert",
+            "modelCalls": 1,
+            "durationMs": 3265,
+            "inputTokens": 1384,
+            "outputTokens": 149,
+            "instruction": "agent.assert \"검색어 \\\"플로렌스 게랭 주연 작품\\\" 의 YouTube 검색 결과 목록이 열려 있다\" → 참: 검색창(@e13)에 검색어 \"플로렌스 게랭 주연 작품\"이 표시되어 있고, 그 아래에 필터 칩(@e17 \"전체\" 선택됨)과 결과 목록(@e28 results)에 동영상 항목들이 나열되어 있어 해당 검색어의 YouTube 검색 결과 목록이 열려 있다."
+          }
+        ]
+      },
+      {
+        "testId": "YouTube 에서 Florence Guerin 영화를 찾는다",
+        "result": "passed",
+        "seconds": 18,
+        "steps": [
+          {
+            "kind": "act",
+            "modelCalls": 5,
+            "durationMs": 14939,
+            "inputTokens": 6348,
+            "outputTokens": 607,
+            "instruction": "act \"YouTube 앱에서 \\\"florence guerin 영화\\\" 를 검색해 검색 결과 목록을 연다\" → tap @e14(안전망: 사라짐), tap @e9, tap @e14, scroll @e5→@e12(다시 찾음), done (5턴)"
+          },
+          {
+            "kind": "assert",
+            "modelCalls": 1,
+            "durationMs": 2369,
+            "inputTokens": 1502,
+            "outputTokens": 149,
+            "instruction": "agent.assert \"YouTube 검색 결과 목록이 열려 있고 Florence Guerin 과 관련된 영상이 하나 이상 보인다\" → 참: 검색창(@e15)에 \"florence guerin 영화\"가 입력되어 있고 결과 목록(@e30)에 \"Florence Guérin 1985 : Le Déclic\"(@e32), \"Florence Guerin Movie Scenes Compilation\"(@e37), \"TOP 3 Florence Guerin Best Movies\"(@e42) 영상이 보인다."
+          }
+        ]
+      }
+    ]
+  }
 }
