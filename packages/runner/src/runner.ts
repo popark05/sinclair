@@ -6,7 +6,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { runAct, actProgressOf, replayRecording, appPackageOf, judgeAssert, judgeWaitFor, judgeExtract, ModelConfigError, SecretBox, SECRET_NAME, secretPlaceholder, DEFAULT_PII, type JudgeResult, type PiiFilter, type StepExecutor } from '@sinclair/agent';
-import { EngineError, parseRunEvent, CACHE_SCHEMA, CACHE_LIMITS, type AttemptFinished, type AttemptResult, type CacheEntry, type CacheStore, type Engine, type RunEvent, type StepRecorded } from '@sinclair/protocol';
+import { EngineError, parseRunEvent, CACHE_SCHEMA, CACHE_LIMITS, type AttemptFinished, type AttemptResult, type CacheEntry, type CacheStore, type Engine, type RunEvent, type SemanticNode, type StepRecorded } from '@sinclair/protocol';
 import { cacheKey, normalizeInstruction, type CacheMode } from './recording-cache.ts';
 import { createScreen, type StepEvent } from './screen.ts';
 import { expect as makeExpect, AssertionError } from './expect.ts';
@@ -344,7 +344,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
           // 녹화 캐시: 키는 act 시작 화면의 앱으로. 첫 시도만 재생한다(재시도는 녹화를 의심할 이유가 있다 — 라이브로 돌고 기록만)
           let key: string | undefined;
           let handOff: string | undefined;
-          let prefix: { entry: CacheEntry; done: string[]; total: number; reason: string } | undefined;
+          let prefix: { entry: CacheEntry; done: string[]; total: number; reason: string; startRoot?: SemanticNode } | undefined;
           const brief = (t: string) => (t.length > 200 ? `${t.slice(0, 200)}…` : t);
           if (cacheOn) {
             key = cacheKey({ testId: tc.name, engine: engine.name, app: appPackageOf((await engine.observe()).root) ?? '', instruction: goal, callIndex });
@@ -372,14 +372,14 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
               }
               if (rp.outcome === 'diverged') {
                 handOff = `재생 ${rp.executed}/${rp.total} 뒤 이어받음(${brief(rp.reason)})`;
-                prefix = { entry, done: rp.done, total: rp.total, reason: rp.reason };
+                prefix = { entry, done: rp.done, total: rp.total, reason: rp.reason, ...(rp.startRoot ? { startRoot: rp.startRoot } : {}) };
               }
               else attemptWarnings.push(`녹화 캐시 재생 안 함: ${brief(rp.reason)}`);
             }
           }
           let r;
           try {
-            r = await runAct(engine, goal, { executor: options.agent.executor, secrets: secretBox, pii: pii ?? false, ...(prefix ? { replayedPrefix: { done: prefix.done, total: prefix.total, reason: prefix.reason } } : {}), ...(options.agent.safetyNet ? { safetyNet: options.agent.safetyNet } : {}), ...(options.agent.incidents ? { incidents: options.agent.incidents } : {}), ...(options.agent.maxTurns !== undefined ? { maxTurns: options.agent.maxTurns } : {}), ...(options.agent.timeoutMs !== undefined ? { timeoutMs: options.agent.timeoutMs } : {}) });
+            r = await runAct(engine, goal, { executor: options.agent.executor, secrets: secretBox, pii: pii ?? false, ...(prefix ? { replayedPrefix: { done: prefix.done, total: prefix.total, reason: prefix.reason }, ...(prefix.startRoot ? { anchorsFrom: prefix.startRoot } : {}) } : {}), ...(options.agent.safetyNet ? { safetyNet: options.agent.safetyNet } : {}), ...(options.agent.incidents ? { incidents: options.agent.incidents } : {}), ...(options.agent.maxTurns !== undefined ? { maxTurns: options.agent.maxTurns } : {}), ...(options.agent.timeoutMs !== undefined ? { timeoutMs: options.agent.timeoutMs } : {}) });
           } catch (err) {
             // 관찰 실패·인프라 오류(기기 없음 등)로 루프가 던져도 act 스텝은 남긴다(act 하나 = 스텝 하나). 오류는 그대로 올려 엔진 코드가 errorCode 가 된다
             const p = actProgressOf(err); // 던지기 전까지 쓴 모델 호출·토큰도 비용으로 남긴다

@@ -5,6 +5,22 @@ import type { TargetDescriptor } from './relocate.ts';
 
 const labelOf = (n: SemanticNode): string | undefined => n.name ?? n.text;
 
+/**
+ * 녹화·재생이 같은 규칙으로 쓰는 대상 라벨: 이름, 없으면 글자, 그것도 없으면 첫 자손의 글자(문서 순서).
+ * 이름 없는 줄 버튼(검색 기록 줄처럼 글자를 자식으로 가진 것)이 testId 만으로는 여럿이라 재생이 애매해지는 것을 막는다(2026-11-14 실기기 YouTube).
+ */
+export function cacheLabelOf(n: SemanticNode): string | undefined {
+  const own = labelOf(n);
+  if (own) return own;
+  for (const c of n.children ?? []) { const d = cacheLabelOf(c); if (d) return d; }
+  return undefined;
+}
+
+/** 녹화 기술자: 그 노드의 역할·라벨(cacheLabelOf)·testId·placeholder */
+export function cacheTargetOf(n: SemanticNode): CacheTarget {
+  return toCacheTarget({ role: n.role, ...(cacheLabelOf(n) ? { label: cacheLabelOf(n)!.slice(0, CACHE_LIMITS.label) } : {}), ...(n.testId ? { testId: n.testId } : {}), ...(n.placeholder ? { placeholder: n.placeholder } : {}) });
+}
+
 export function toCacheTarget(d: Pick<TargetDescriptor, 'role' | 'label' | 'testId' | 'placeholder'>): CacheTarget {
   return { role: d.role, ...(d.label ? { label: d.label } : {}), ...(d.testId ? { testId: d.testId } : {}), ...(d.placeholder ? { placeholder: d.placeholder } : {}) };
 }

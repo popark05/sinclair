@@ -5,6 +5,7 @@ import { EngineError, type CacheEntry, type CacheTarget, type Engine, type Seman
 import { ACTIONS } from './action-spec.ts';
 import { appPackageOf } from './incidents.ts';
 import { SecretBox } from './secrets.ts';
+import { cacheLabelOf } from './recording.ts';
 
 export interface ReplayOptions {
   /** act 의 목표(비밀값은 목표에 나온 이름만 채운다 — 라이브 act 와 같은 규칙) */
@@ -20,7 +21,7 @@ export type ReplayResult =
   /** 첫 액션 전에 멈춤: 아무것도 하지 않았다 — 호출자는 처음부터 라이브로 */
   | { outcome: 'missed'; executed: 0; total: number; done: []; reason: string }
   /** 액션을 하나 이상 한 뒤 멈춤: 그 화면부터 이어받아야 한다 */
-  | { outcome: 'diverged'; executed: number; total: number; done: string[]; reason: string };
+  | { outcome: 'diverged'; executed: number; total: number; done: string[]; reason: string; startRoot?: SemanticNode };
 
 const BACKOFF_MS = [100, 300, 600, 1000];
 const END_POLL_MS = 200;
@@ -33,7 +34,7 @@ export function exactMatches(target: CacheTarget, root: SemanticNode): SemanticN
   const out: SemanticNode[] = [];
   for (const n of walk(root)) {
     if (n.role !== target.role) continue;
-    if (sameField(labelOf(n), target.label) && sameField(n.testId, target.testId) && sameField(n.placeholder, target.placeholder)) out.push(n);
+    if (sameField(cacheLabelOf(n)?.slice(0, 300), target.label) && sameField(n.testId, target.testId) && sameField(n.placeholder, target.placeholder)) out.push(n);
   }
   return out;
 }
@@ -46,13 +47,15 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export async function replayRecording(engine: Engine, entry: CacheEntry, opts: ReplayOptions): Promise<ReplayResult> {
   const total = entry.actions.length;
   const done: string[] = [];
-  const stop = (reason: string): ReplayResult => (done.length === 0 ? { outcome: 'missed', executed: 0, total, done: [], reason } : { outcome: 'diverged', executed: done.length, total, done: [...done], reason });
+  let startRoot: SemanticNode | undefined;
+  const stop = (reason: string): ReplayResult => (done.length === 0 ? { outcome: 'missed', executed: 0, total, done: [], reason } : { outcome: 'diverged', executed: done.length, total, done: [...done], reason, ...(startRoot ? { startRoot } : {}) });
   const findTimeoutMs = opts.findTimeoutMs ?? 3_000;
   const goalSecrets = new Set(SecretBox.mentioned(opts.goal));
 
   const first = await engine.observe();
   const app = appPackageOf(first.root);
   if (entry.start.app && app && entry.start.app !== app) return stop(`시작 앱이 다름(녹화 ${entry.start.app}, 지금 ${app})`);
+  startRoot = first.root;
   const startSig = signature(first.root);
 
   for (const [i, a] of entry.actions.entries()) {
@@ -88,15 +91,17 @@ export async function replayRecording(engine: Engine, entry: CacheEntry, opts: R
     done.push(a.summary);
   }
 
-  // 끝 확인: anchor 가 모두 보이고(각각 하나 이상), 재생 전과 화면이 달라졌다
+  // 끝 확인: anchor 의 과반이 보이고(각각 하나 이상), 재생 전과 화면이 달라졌다.
+  // 과반인 까닭: 끝 화면에는 자동재생 영상 버튼·광고처럼 그때그때 다른 UI 가 섞여 anchor 가 되기도 한다(2026-11-14 실기기 YouTube)
   const endDeadline = Date.now() + (opts.endTimeoutMs ?? 5_000);
-  let missing: CacheTarget | undefined;
+  const anchors = entry.end.anchors;
+  const need = Math.ceil(anchors.length / 2);
   for (;;) {
     const root = (await engine.observe()).root;
-    missing = entry.end.anchors.find((t) => exactMatches(t, root).length === 0);
+    const missing = anchors.filter((t) => exactMatches(t, root).length === 0);
     const changed = signature(root) !== startSig;
-    if (!missing && changed) return { outcome: 'replayed', executed: total, total, done };
-    if (Date.now() >= endDeadline) return stop(missing ? `끝 화면에 ${describe(missing)} 이 없음` : '재생 뒤 화면이 바뀌지 않음');
+    if (anchors.length - missing.length >= need && changed) return { outcome: 'replayed', executed: total, total, done };
+    if (Date.now() >= endDeadline) return stop(anchors.length - missing.length < need ? `끝 화면에 ${missing.slice(0, 3).map(describe).join(', ')} 이 없음(${anchors.length - missing.length}/${anchors.length} 보임)` : '재생 뒤 화면이 바뀌지 않음');
     await sleep(END_POLL_MS);
   }
 }

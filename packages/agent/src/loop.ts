@@ -5,7 +5,8 @@ import { EngineError, type Engine, type EngineErrorCode, type SemanticNode, type
 import { ACTIONS, checkToolCall, toolSchemas, type ActionSpec } from './action-spec.ts';
 import { ModelConfigError, ModelCallError, type AgentTurn, type StepExecutor, type StepReply } from './executor.ts';
 import { renderObservation } from './observe.ts';
-import { actionSummary, endAnchors, targetLeaks, toCacheTarget } from './recording.ts';
+import { actionSummary, cacheTargetOf, endAnchors, targetLeaks } from './recording.ts';
+import { exactMatches } from './replay.ts';
 import { addUsage } from './usage.ts';
 import { SecretBox } from './secrets.ts';
 import { describeTarget, relocate } from './relocate.ts';
@@ -62,6 +63,8 @@ export interface ActOptions {
   secrets?: SecretBox;
   /** 녹화 재생을 이어받는다(recording-cache 03): 재생이 이미 한 액션 요약·전체 수·멈춘 이유. 매 턴 요청에 안내로 실린다 */
   replayedPrefix?: { done: string[]; total: number; reason: string };
+  /** 끝 anchor 를 계산할 시작 화면(이어받은 act 는 재생 시작 화면 — 없으면 이 act 의 첫 관찰) */
+  anchorsFrom?: SemanticNode;
 }
 export interface ActResult {
   ok: boolean;
@@ -328,13 +331,15 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
       lastFailedCall = undefined; failedInRow = 0;
       history.push({ call, result: 'ok', ...(retargeted ? { retargeted } : {}) });
       if (spec.terminal) {
-        const recording = recordable ? { actions: recorded, end: { anchors: endAnchors(startRoot, observed.root, hide) } } : undefined;
+        const recording = recordable ? { actions: recorded, end: { anchors: endAnchors(opts.anchorsFrom ?? startRoot, observed.root, hide) } } : undefined;
         return result({ ok: true, ...(checked.call.input.summary ? { summary: checked.call.input.summary } : {}), ...(recording ? { recording } : {}) });
       }
       if (recordable) {
         const name = checked.call.name as CacheAction['tool'];
-        const t = target ? toCacheTarget(target) : undefined;
-        if (t && targetLeaks(t, hide)) recordable = false;
+        // 기술자는 모델이 본 화면의 그 노드에서(이름 없으면 자식 글자). 그 화면에서 정확히 하나로 정해지지 않으면 재생할 수 없으니 이 act 는 녹화하지 않는다
+        const node = checked.call.input.ref !== undefined ? findRef(observed.root, checked.call.input.ref) : undefined;
+        const t = node ? cacheTargetOf(node) : undefined;
+        if (t && (targetLeaks(t, hide) || exactMatches(t, observed.root).length !== 1)) recordable = false;
         else {
           // 글자는 모델이 쓴 그대로(비밀값은 자리표시) — 값 일치로 다시 가려 혹시 값이 그대로 온 경우도 남기지 않는다
           const text = name === 'type' ? (secrets ? secrets.redact(checked.call.input.text ?? '') : checked.call.input.text ?? '') : undefined;
