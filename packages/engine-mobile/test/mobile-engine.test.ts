@@ -49,6 +49,16 @@ describe('createMobileEngine', () => {
     expect(JSON.stringify(after.root)).toContain('환영합니다');
   });
 
+  it('앱 실행(open·restart)은 스플래시·로딩을 지나 화면이 잠잠해질 때까지 기다린다: 바로 뒤 관찰이 첫 화면이다(실기기에서 실행 직후 관찰로 사라질 노드를 탭했다)', async () => {
+    const { backend, engine } = setup();
+    backend.launchStageDumps = 4;
+    await engine.session!.restart();
+    expect(JSON.stringify((await engine.observe()).root)).toContain('로그인');
+    backend.launchStageDumps = 3;
+    await engine.session!.open('com.example.app');
+    expect(JSON.stringify((await engine.observe()).root)).toContain('로그인');
+  });
+
   it('화면이 바뀌지 않는 탭은 변화 대기 상한(settleChangeMs) 뒤에 끝난다', async () => {
     const { engine } = setup({ settleChangeMs: 200 });
     const [tb] = await engine.locate({ testId: 'username' });

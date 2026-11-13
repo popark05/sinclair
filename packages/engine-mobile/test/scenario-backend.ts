@@ -21,6 +21,9 @@ export class ScenarioBackend implements DeviceBackend {
   textLagDumps = 0;
   /** 화면 전환이 트리에 늦게 보이는 기기 흉내: 로그인 탭 뒤 이 횟수의 dump 동안 이전 화면이 보인다(실기기 탭 직후 관찰에 옛 화면) */
   screenLagDumps = 0;
+  /** 앱 실행이 여러 단계로 보이는 기기 흉내: launch 뒤 스플래시·로딩 화면을 각각 이 횟수의 dump 동안 보인 뒤 로그인 화면(실기기 앱 실행 직후 관찰에 스플래시) */
+  launchStageDumps = 0;
+  private launchStages: Array<{ screen: SemanticNode; dumps: number }> = [];
   private pendingScreen: { screen: SemanticNode; dumpsLeft: number } | undefined;
   private pendingText: { ref: string; text: string; dumpsLeft: number } | undefined;
 
@@ -50,6 +53,11 @@ export class ScenarioBackend implements DeviceBackend {
   async screenshot(): Promise<Uint8Array> { return PNG; }
   async dumpUi(): Promise<SemanticNode> {
     this.dumps++;
+    if (this.launchStages.length) {
+      const stage = this.launchStages[0]!;
+      this.screen = structuredClone(stage.screen);
+      if (--stage.dumps <= 0) { this.launchStages.shift(); if (!this.launchStages.length) this.screen = structuredClone(LOGIN_SCREEN); }
+    }
     if (this.pendingScreen && this.pendingScreen.dumpsLeft-- <= 0) { this.screen = this.pendingScreen.screen; this.pendingScreen = undefined; }
     if (this.pendingText && this.screen) {
       if (this.pendingText.dumpsLeft-- <= 0) {
@@ -95,7 +103,17 @@ export class ScenarioBackend implements DeviceBackend {
     this.calls.push(`button ${b}`);
     if (b === 'back' && this.screen?.ref === HOME_SCREEN.ref) this.screen = structuredClone(LOGIN_SCREEN);
   }
-  async launchApp(_: string, a: string) { this.calls.push(`launch ${a}`); this.screen = structuredClone(LOGIN_SCREEN); this.focused = undefined; }
+  async launchApp(_: string, a: string) {
+    this.calls.push(`launch ${a}`); this.focused = undefined;
+    if (this.launchStageDumps > 0) {
+      const splash: SemanticNode = { ref: '@e0', role: 'root', children: [{ ref: '@e1', role: 'image', name: '로고', rect: { x: 0, y: 0, width: 1080, height: 400 } }] };
+      const loading: SemanticNode = { ref: '@e0', role: 'root', children: [{ ref: '@e1', role: 'progressbar', name: '불러오는 중', rect: { x: 0, y: 0, width: 1080, height: 100 } }] };
+      this.launchStages = [{ screen: splash, dumps: this.launchStageDumps }, { screen: loading, dumps: this.launchStageDumps }];
+      this.screen = structuredClone(splash);
+      return;
+    }
+    this.screen = structuredClone(LOGIN_SCREEN);
+  }
   async terminateApp(_: string, a: string) { this.calls.push(`terminate ${a}`); this.screen = undefined; }
   async openUrl(_: string, u: string) { this.calls.push(`url ${u}`); }
 }
