@@ -154,7 +154,7 @@ describe('runDaemon', () => {
 
 describe('parseDaemonArgs', () => {
   it('필수값·타깃 목록·기본값, 잘못된 값', () => {
-    expect(parseDaemonArgs(['--control-plane', 'http://x', '--targets', 'android, ios', '--tests', 'd', '--poll', '100'], { HOME: '/h' }, 'linux')).toEqual({ controlPlane: 'http://x', targets: ['android', 'ios'], tests: 'd', engine: 'mobile', spool: '/h/.local/share/sinclair/spool', helperCache: '/h/.local/share/sinclair/cache/helper', pollMs: 100 });
+    expect(parseDaemonArgs(['--control-plane', 'http://x', '--targets', 'android, ios', '--tests', 'd', '--poll', '100'], { HOME: '/h' }, 'linux')).toEqual({ controlPlane: 'http://x', targets: ['android', 'ios'], tests: 'd', engine: 'mobile', cache: 'read-write', spool: '/h/.local/share/sinclair/spool', helperCache: '/h/.local/share/sinclair/cache/helper', pollMs: 100 });
     expect(() => parseDaemonArgs(['--control-plane', 'http://x', '--targets', 'a', '--tests', 'd', '--poll', '50'], {})).toThrow(/100 이상/);
     // --targets 는 선택(device-fleet 03): 조건 타깃만 쓰는 Cycle 이면 선언할 이름이 없다
     expect(parseDaemonArgs(['--control-plane', 'http://x', '--tests', 'd'], { HOME: '/h' }, 'linux')).toMatchObject({ targets: [] });

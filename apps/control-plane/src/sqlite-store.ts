@@ -5,13 +5,13 @@ import type { IssueStore, IssueTriage } from './issues.ts';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { RunEvent } from '@sinclair/protocol';
+import { assertCacheKey, parseCacheEntry, type CacheStore, type RunEvent } from '@sinclair/protocol';
 import type { EventStore } from './store.ts';
 import { activeDeviceLeases, lastClaimedByDevice, leaseExpired, newLease, pickDevice, type CycleRecord, type CycleStore, type RunRegistration } from './cycle-store.ts';
 import { nextNodeRecord, type FleetStore, type NodeRecord } from './fleet.ts';
 
 /** PRAGMA user_version. 스키마를 바꾸면 올리고 SQLITE_MIGRATIONS 에 단계를 더한다 */
-export const SQLITE_SCHEMA_VERSION = 4;
+export const SQLITE_SCHEMA_VERSION = 5;
 
 /** MIGRATIONS[v] 는 버전 v 에서 v+1 로 가는 SQL. 순서대로 적용된다 */
 export const SQLITE_MIGRATIONS: readonly string[] = [
@@ -46,6 +46,12 @@ export const SQLITE_MIGRATIONS: readonly string[] = [
   `CREATE TABLE issues (
      id       TEXT PRIMARY KEY,                      -- issueSignature 의 id
      triage   TEXT NOT NULL                          -- IssueTriage JSON
+   );`,
+  // 4 → 5: 녹화 캐시(recording-cache 05). 노드들이 공유하는 act 녹화
+  `CREATE TABLE recording_cache (
+     key        TEXT PRIMARY KEY,                    -- cacheKey(sha256 16진수)
+     entry      TEXT NOT NULL,                       -- CacheEntry JSON
+     updated_at TEXT NOT NULL
    );`,
 ];
 
@@ -248,5 +254,28 @@ export function createSqliteIssueStore(source: string | DatabaseSync): IssueStor
   return {
     async get(id) { const row = select.get(id) as { triage: string } | undefined; return row ? (JSON.parse(row.triage) as IssueTriage) : undefined; },
     async set(id, t) { upsert.run(id, JSON.stringify(t)); },
+  };
+}
+
+export function createSqliteCacheStore(source: string | DatabaseSync): CacheStore {
+  const db = typeof source === 'string' ? openSqlite(source) : source;
+  const upsert = db.prepare('INSERT INTO recording_cache (key, entry, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET entry = excluded.entry, updated_at = excluded.updated_at');
+  const select = db.prepare('SELECT entry FROM recording_cache WHERE key = ?');
+  const remove = db.prepare('DELETE FROM recording_cache WHERE key = ?');
+  return {
+    async read(key) {
+      assertCacheKey(key);
+      const row = select.get(key) as { entry: string } | undefined;
+      if (!row) return undefined;
+      const parsed = parseCacheEntry(JSON.parse(row.entry));
+      return parsed.ok ? parsed.value : undefined; // 계약이 바뀐 옛 항목은 미스
+    },
+    async write(key, entry) {
+      assertCacheKey(key);
+      const parsed = parseCacheEntry(entry);
+      if (!parsed.ok) throw new Error(`녹화 캐시 항목이 계약을 통과하지 못함: ${parsed.errors.join('; ')}`);
+      upsert.run(key, JSON.stringify(entry), new Date().toISOString());
+    },
+    async delete(key) { assertCacheKey(key); remove.run(key); },
   };
 }

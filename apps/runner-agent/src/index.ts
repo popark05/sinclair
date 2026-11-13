@@ -9,3 +9,4 @@ export { createSpoolReporter, resumeSpool, drainSpool, spoolFiles, spoolOwnerAli
 export { resolveHelperApk, helperApkFileName, HelperApkError, HELPER_APK_VERSION, DEFAULT_BUNDLED_DIR, DEFAULT_REPO_BUILD, type HelperApkSource, type ResolveHelperApkOptions, type ResolvedHelperApk } from './helper-apk.ts';
 export { resourcesDir, isBundled } from './resources.ts';
 export { runInWorker, type ToWorker, type FromWorker, type WorkerDevice } from './worker.ts';
+export { createHttpCacheStore } from './cache-store.ts';

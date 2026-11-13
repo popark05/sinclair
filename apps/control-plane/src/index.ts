@@ -3,7 +3,7 @@ export { projectRun, type RunView, type AttemptView, type StepView } from './pro
 export { createMemoryEventStore, type EventStore, type AppendOutcome } from './store.ts';
 export { ingestBatch, type IngestResponse } from './ingest.ts';
 export { serveControlPlane, summarizeRun, resolveConsoleFile, type ControlPlaneOptions, type ControlPlaneServer, type RunSummary, type CycleSummary, MAX_SUITE_RETRIES } from './http.ts';
-export { createSqliteEventStore, createSqliteCycleStore, createSqliteFleetStore, createSqliteIssueStore, openSqlite, SQLITE_SCHEMA_VERSION, SQLITE_MIGRATIONS } from './sqlite-store.ts';
+export { createSqliteEventStore, createSqliteCycleStore, createSqliteFleetStore, createSqliteIssueStore, createSqliteCacheStore, openSqlite, SQLITE_SCHEMA_VERSION, SQLITE_MIGRATIONS } from './sqlite-store.ts';
 export { activeDeviceLeases, lastClaimedByDevice, pickDevice, type ClaimOptions, type DeviceLease } from './cycle-store.ts';
 export { createMemoryCycleStore, leaseExpired, newLease, type CycleStore, type CycleRecord, type RunRegistration, type RunLease, type SuiteFilter, type HeartbeatResult } from './cycle-store.ts';
 export { computeCycle, tagsOf, type CycleView, type CaseCell, DEFAULT_RETRY_LIMIT, MAX_RETRY_LIMIT, CANCELLED_CODE } from './verdict.ts';

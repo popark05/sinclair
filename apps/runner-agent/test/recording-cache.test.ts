@@ -7,7 +7,7 @@ import * as path from 'node:path';
 import { cacheStoreContractSuite } from '@sinclair/protocol/testing';
 import { scriptedExecutor } from '@sinclair/agent';
 import { startControlPlane, type RunningControlPlane } from '@sinclair/control-plane';
-import { createHttpCacheStore, parseRunArgs, parseDaemonArgs, runOnce, EXIT, AgentConfigError } from '../src/index.ts';
+import { createHttpCacheStore, parseRunArgs, parseDaemonArgs, runOnce, EXIT, AgentConfigError, type RunArgs, type DaemonCliArgs } from '../src/index.ts';
 
 const MEMORY = { host: '127.0.0.1', port: 0, store: 'memory', db: 'unused-in-memory-mode' } as const;
 let cp: RunningControlPlane;
@@ -29,11 +29,12 @@ describe('createHttpCacheStore', () => {
 describe('--cache', () => {
   it('run·daemon 모두 off|read-only|read-write|strict, 기본 read-write, 환경변수 SINCLAIR_AGENT_CACHE, 그 밖은 설정 오류', () => {
     const base = ['--control-plane', url, '--cycle', 'c', '--target', 't', '--tests', '.'];
-    expect(parseRunArgs(base, {}).cache).toBe('read-write');
-    expect(parseRunArgs([...base, '--cache', 'strict'], {}).cache).toBe('strict');
-    expect(parseRunArgs(base, { SINCLAIR_AGENT_CACHE: 'off' }).cache).toBe('off');
+    const run = (argv: string[], env: NodeJS.ProcessEnv = {}) => (parseRunArgs(argv, env) as RunArgs).cache;
+    expect(run(base)).toBe('read-write');
+    expect(run([...base, '--cache', 'strict'])).toBe('strict');
+    expect(run(base, { SINCLAIR_AGENT_CACHE: 'off' })).toBe('off');
     expect(() => parseRunArgs([...base, '--cache', 'on'], {})).toThrow(AgentConfigError);
-    expect(parseDaemonArgs(['--control-plane', url, '--tests', '.', '--cache', 'read-only'], {}).cache).toBe('read-only');
+    expect((parseDaemonArgs(['--control-plane', url, '--tests', '.', '--cache', 'read-only'], {}) as DaemonCliArgs).cache).toBe('read-only');
   });
 });
 

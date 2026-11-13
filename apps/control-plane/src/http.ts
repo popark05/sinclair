@@ -19,6 +19,7 @@
 //   POST /runs/:id/heartbeat { agentId } → { expiresAt } (200) | 409 not-owner·replaced | 404
 //   PUT  /fleet/nodes/:agentId { devices[] } → { ttlMs } (200) | 400 — 노드의 기기 보고(통째 교체)
 //   GET  /fleet              → FleetView(노드별 기기와 idle/untrusted/offline). 보고가 끊긴 지 보존 기간(nodeRetentionMs)이 지난 노드는 이때 지운다
+//   GET|PUT|DELETE /cache/:key → 녹화 캐시 항목(recording-cache 05): GET 200 | 404, PUT 204 | 400(키·항목 검증), DELETE 204. 노드들이 공유한다
 //   DELETE /fleet/nodes/:agentId → 204 | 404 | 409 node-online — offline 노드 기록 삭제(다시 보고하면 새로 나타난다)
 //   GET  /health             200
 import http from 'node:http';
@@ -30,7 +31,7 @@ import { projectRun, type RunView } from './projection.ts';
 import type { EventStore } from './store.ts';
 import { createMemoryCycleStore, type CycleStore, type RunRegistration } from './cycle-store.ts';
 import { MAX_RETRY_LIMIT, type CycleView } from './verdict.ts';
-import { matchesTarget, parseCycleTargets, parseNodeReport, type NodeDevice } from '@sinclair/protocol';
+import { matchesTarget, parseCycleTargets, parseNodeReport, parseCacheEntry, createMemoryCacheStore, CACHE_KEY, type CacheStore, type NodeDevice } from '@sinclair/protocol';
 import { buildFleetView, createMemoryFleetStore, type FleetStore } from './fleet.ts';
 import { buildCycleView, sweepAbandoned, sweepAllAbandoned } from './cycle-view.ts';
 import { cycleUsage, testHistory } from './insights.ts';
@@ -55,6 +56,8 @@ export interface ControlPlaneOptions {
   consoleDir?: string;
   /** Issue 분류 저장소(없으면 메모리) */
   issues?: IssueStore;
+  /** 녹화 캐시 공유 저장소(없으면 메모리) */
+  recordingCache?: CacheStore;
   /** 아티팩트 저장소(없으면 메모리) */
   artifacts?: ArtifactStore;
   maxArtifactBytes?: number;
@@ -172,6 +175,7 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
   };
   const artifacts = opts.artifacts ?? createMemoryArtifactStore();
   const issues = opts.issues ?? createMemoryIssueStore();
+  const recordingCache = opts.recordingCache ?? createMemoryCacheStore();
   /** 본문 바이트. 상한을 넘으면 413 을 보내고 undefined */
   const readBytes = async (req: http.IncomingMessage, res: http.ServerResponse, limit: number): Promise<Uint8Array | undefined> => {
     const chunks: Buffer[] = [];
@@ -272,6 +276,22 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         return usage ? json(res, 200, usage) : json(res, 404, { error: '모르는 Cycle' });
       }
       // Issue: 최근 N Cycle(기본 20, 최대 50)의 실패를 서명으로 묶은 목록과 사람이 단 분류
+      if (parts[0] === 'cache' && parts.length === 2 && (req.method === 'GET' || req.method === 'PUT' || req.method === 'DELETE')) {
+        const key = parts[1]!;
+        if (!CACHE_KEY.test(key)) return json(res, 400, { error: '녹화 캐시 키는 64자 소문자 16진수여야 함' });
+        if (req.method === 'GET') {
+          const entry = await recordingCache.read(key);
+          return entry ? json(res, 200, entry) : json(res, 404, { error: '녹화 없음', code: 'cache-miss' });
+        }
+        if (req.method === 'DELETE') { await recordingCache.delete(key); res.writeHead(204).end(); return; }
+        const read = await readJson(req, res);
+        if (!read) return;
+        const parsed = parseCacheEntry(read.body);
+        if (!parsed.ok) return json(res, 400, { error: '녹화 캐시 항목이 올바르지 않음', errors: parsed.errors });
+        await recordingCache.write(key, parsed.value);
+        res.writeHead(204).end();
+        return;
+      }
       if (req.method === 'GET' && url.pathname === '/issues') {
         const limitText = url.searchParams.get('limit') ?? '20';
         const limit = Number(limitText);

@@ -1,6 +1,7 @@
 // `sinclair-agent run` 인자: 플래그 > 환경변수(SINCLAIR_AGENT_*) > 기본값. 옵션 표 하나가 파서·도움말·환경변수 이름을 만든다.
 import * as path from 'node:path';
 import { parseArgs } from 'node:util';
+import { CACHE_MODES, type CacheMode } from '@sinclair/runner';
 
 export interface RunArgs {
   /** control-plane 주소, 예: http://127.0.0.1:4780 */
@@ -32,6 +33,8 @@ export interface RunArgs {
   helperApk?: string;
   /** 헬퍼 APK 다운로드 캐시. 기본 OS 데이터 디렉터리/sinclair/cache/helper */
   helperCache: string;
+  /** 녹화 캐시 모드(control-plane 공유 저장). 없으면 read-write */
+  cache?: CacheMode;
 }
 
 /** OS 데이터 디렉터리/sinclair/cache/helper */
@@ -102,6 +105,7 @@ const OPTIONS = [
   { name: 'upload-artifacts', key: 'uploadArtifacts', env: 'SINCLAIR_AGENT_UPLOAD_ARTIFACTS', required: false, help: 'on(기본)|off — 실패 스냅샷(스크린샷·화면 트리)을 control-plane 에 올린다. 스크린샷은 화면 그대로라 개인정보가 보일 수 있다' },
   { name: 'timeout', key: 'timeoutMs', env: 'SINCLAIR_AGENT_TIMEOUT', required: false, help: 'locator 액션 기한 ms (기본 10000)' },
   { name: 'retries', key: 'retries', env: 'SINCLAIR_AGENT_RETRIES', required: false, help: 'failed 테스트 재시도 횟수 0~5 (기본 0). daemon 은 Cycle 의 suite.retries 가 있으면 그것을 우선' },
+  { name: 'cache', key: 'cache', env: 'SINCLAIR_AGENT_CACHE', required: false, help: '녹화 캐시 off|read-only|read-write|strict (기본 read-write). agent.act 를 control-plane 에 녹화해 두고 다음부터 모델 없이 재생, 어긋나면 에이전트가 이어받음. strict 는 녹화와 다르면 실패' },
   { name: 'agent', key: 'agent', env: 'SINCLAIR_AGENT_ID', required: false, help: '이 노드의 id (기본 호스트명; 한 머신에 에이전트를 여럿 띄우면 서로 다르게 줘야 lease 가 구분된다). run.started.agentId' },
   { name: 'spool', key: 'spool', env: 'SINCLAIR_AGENT_SPOOL', required: false, help: '스풀 디렉터리 (기본 OS 데이터 디렉터리/sinclair/spool). 서버가 없어도 이벤트가 여기 남는다' },
   { name: 'helper-apk', key: 'helperApk', env: 'SINCLAIR_AGENT_HELPER_APK', required: false, help: 'mobile: 헬퍼 APK 파일. 없으면 번들 → 리포 빌드 → SINCLAIR_AGENT_HELPER_URL 다운로드(sha256 검증) 순' },
@@ -166,6 +170,12 @@ export function parseResumeArgs(argv: string[], env: NodeJS.ProcessEnv, platform
   return { spool, ...(controlPlane ? { controlPlane } : {}) };
 }
 
+function cacheMode(v: string | undefined): CacheMode {
+  const m = v ?? 'read-write';
+  if (!(CACHE_MODES as readonly string[]).includes(m)) throw new AgentConfigError(`--cache 는 ${CACHE_MODES.join('|')} 중 하나여야 함: ${m}`);
+  return m as CacheMode;
+}
+
 export function parseRunArgs(argv: string[], env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): RunArgs | { help: true } {
   const parsed = parseWithTable(OPTIONS, argv, env);
   if (parsed.help) return { help: true };
@@ -177,7 +187,8 @@ export function parseRunArgs(argv: string[], env: NodeJS.ProcessEnv, platform: N
   const timeoutMs = positiveInt('timeout', timeoutText);
   const retries = positiveInt('retries', retriesText, 0, MAX_RETRIES);
   if (out.uploadArtifacts !== undefined && out.uploadArtifacts !== 'on' && out.uploadArtifacts !== 'off') throw new AgentConfigError(`--upload-artifacts 는 on|off 여야 함: ${out.uploadArtifacts}`);
-  return { ...rest, engine, spool: out.spool ?? defaultSpoolDir(env, platform), helperCache: out.helperCache ?? defaultHelperCacheDir(env, platform), ...(timeoutMs !== undefined ? { timeoutMs } : {}), ...(retries !== undefined ? { retries } : {}) } as unknown as RunArgs;
+  const cache = cacheMode(out.cache);
+  return { ...rest, cache, engine, spool: out.spool ?? defaultSpoolDir(env, platform), helperCache: out.helperCache ?? defaultHelperCacheDir(env, platform), ...(timeoutMs !== undefined ? { timeoutMs } : {}), ...(retries !== undefined ? { retries } : {}) } as unknown as RunArgs;
 }
 
 /** daemon 옵션: run 의 표에서 cycle/target/run 을 빼고 targets/poll 을 더한다 */
@@ -185,7 +196,7 @@ const DAEMON_OPTIONS: readonly OptionSpec[] = [
   OPTIONS.find((o) => o.name === 'control-plane')!,
   { name: 'targets', key: 'targets', env: 'SINCLAIR_AGENT_TARGETS', required: false, help: '이 노드가 맡는 이름 타깃들, 쉼표 구분. 조건 타깃(플랫폼·모델·OS)은 기기가 맞으면 선언 없이 받는다' },
   { ...OPTIONS.find((o) => o.name === 'tests')!, help: 'Cycle 에 suite 가 없을 때 쓸 기본 테스트 디렉터리' },
-  ...OPTIONS.filter((o) => ['engine', 'device', 'app', 'artifacts', 'upload-artifacts', 'timeout', 'retries', 'agent', 'spool', 'helper-apk', 'helper-cache'].includes(o.name)),
+  ...OPTIONS.filter((o) => ['engine', 'device', 'app', 'artifacts', 'upload-artifacts', 'timeout', 'retries', 'cache', 'agent', 'spool', 'helper-apk', 'helper-cache'].includes(o.name)),
   { name: 'poll', key: 'pollMs', env: 'SINCLAIR_AGENT_POLL', required: false, help: '대기 중인 Run 이 없을 때 다시 묻는 간격 ms (기본 5000, 최소 100)' },
   { name: 'fake-devices', key: 'fakeDevices', env: 'SINCLAIR_AGENT_FAKE_DEVICES', required: false, help: '--engine fake 전용: 보고할 가짜 기기 목록 JSON 파일([{id, platform, model, osVersion, connection, helper?, locked?}]). 없으면 fake-<agent> 한 대' },
   { name: 'concurrency', key: 'concurrency', env: 'SINCLAIR_AGENT_CONCURRENCY', required: false, help: '동시에 돌리는 run 수 상한 (기본: 쓸 수 있는 기기 수, run 마다 워커 프로세스)' },
@@ -221,5 +232,6 @@ export function parseDaemonArgs(argv: string[], env: NodeJS.ProcessEnv, platform
   const retries = positiveInt('retries', out.retries, 0, MAX_RETRIES);
   const { targets: _t, pollMs: _p, timeoutMs: _m, retries: _r, concurrency: _cc, ...rest } = out;
   if (out.uploadArtifacts !== undefined && out.uploadArtifacts !== 'on' && out.uploadArtifacts !== 'off') throw new AgentConfigError(`--upload-artifacts 는 on|off 여야 함: ${out.uploadArtifacts}`);
-  return { ...rest, targets, engine, spool: out.spool ?? defaultSpoolDir(env, platform), helperCache: out.helperCache ?? defaultHelperCacheDir(env, platform), ...(timeoutMs !== undefined ? { timeoutMs } : {}), ...(retries !== undefined ? { retries } : {}), ...(pollMs !== undefined ? { pollMs } : {}), ...(concurrency !== undefined ? { concurrency } : {}) } as unknown as DaemonCliArgs;
+  const cache = cacheMode(out.cache);
+  return { ...rest, cache, targets, engine, spool: out.spool ?? defaultSpoolDir(env, platform), helperCache: out.helperCache ?? defaultHelperCacheDir(env, platform), ...(timeoutMs !== undefined ? { timeoutMs } : {}), ...(retries !== undefined ? { retries } : {}), ...(pollMs !== undefined ? { pollMs } : {}), ...(concurrency !== undefined ? { concurrency } : {}) } as unknown as DaemonCliArgs;
 }

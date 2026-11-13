@@ -1,6 +1,6 @@
 // 녹화 캐시 저장소 계약 스위트와 메모리 구현(테스트·단일 프로세스용). 구현체(파일·control-plane·HTTP)는 이 스위트를 통과해야 한다.
 import { describe, it, expect } from 'vitest';
-import { assertCacheKey, parseCacheEntry, CACHE_SCHEMA, type CacheEntry, type CacheStore } from '../recording-cache.ts';
+import { CACHE_SCHEMA, type CacheEntry, type CacheStore } from '../recording-cache.ts';
 
 export const SAMPLE_CACHE_ENTRY: CacheEntry = {
   schema: CACHE_SCHEMA, createdAt: '2026-11-14T00:00:00.000Z', recordedBy: { model: 'claude-sonnet-5-5' },
@@ -15,28 +15,7 @@ export const SAMPLE_CACHE_ENTRY: CacheEntry = {
   end: { anchors: [{ role: 'text', label: '검색 결과' }] },
 };
 
-export interface MemoryCacheStore extends CacheStore { size(): number }
-
-export function createMemoryCacheStore(): MemoryCacheStore {
-  const entries = new Map<string, string>();
-  return {
-    async read(key) {
-      assertCacheKey(key);
-      const raw = entries.get(key);
-      if (raw === undefined) return undefined;
-      const parsed = parseCacheEntry(JSON.parse(raw));
-      return parsed.ok ? parsed.value : undefined;
-    },
-    async write(key, entry) {
-      assertCacheKey(key);
-      const parsed = parseCacheEntry(entry);
-      if (!parsed.ok) throw new Error(`녹화 캐시 항목이 계약을 통과하지 못함: ${parsed.errors.join('; ')}`);
-      entries.set(key, JSON.stringify(entry));
-    },
-    async delete(key) { assertCacheKey(key); entries.delete(key); },
-    size: () => entries.size,
-  };
-}
+export { createMemoryCacheStore, type MemoryCacheStore } from '../recording-cache.ts';
 
 export function cacheStoreContractSuite(name: string, make: () => CacheStore | Promise<CacheStore>, sample: CacheEntry = SAMPLE_CACHE_ENTRY): void {
   describe(`CacheStore 계약: ${name}`, () => {

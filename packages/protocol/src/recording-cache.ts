@@ -91,3 +91,26 @@ export function parseCacheEntry(input: unknown): CacheEntryParse {
   if (!errors.length && JSON.stringify(input).length > CACHE_LIMITS.bytes) errors.push(`항목이 ${CACHE_LIMITS.bytes} 바이트를 넘음`);
   return errors.length ? { ok: false, errors } : { ok: true, value: input as unknown as CacheEntry };
 }
+
+/** 메모리 저장소(단일 프로세스·테스트용, control-plane memory 모드). 항목은 JSON 문자열로 보관해 사본을 돌려준다 */
+export interface MemoryCacheStore extends CacheStore { size(): number }
+export function createMemoryCacheStore(): MemoryCacheStore {
+  const entries = new Map<string, string>();
+  return {
+    async read(key) {
+      assertCacheKey(key);
+      const raw = entries.get(key);
+      if (raw === undefined) return undefined;
+      const parsed = parseCacheEntry(JSON.parse(raw));
+      return parsed.ok ? parsed.value : undefined;
+    },
+    async write(key, entry) {
+      assertCacheKey(key);
+      const parsed = parseCacheEntry(entry);
+      if (!parsed.ok) throw new Error(`녹화 캐시 항목이 계약을 통과하지 못함: ${parsed.errors.join('; ')}`);
+      entries.set(key, JSON.stringify(entry));
+    },
+    async delete(key) { assertCacheKey(key); entries.delete(key); },
+    size: () => entries.size,
+  };
+}

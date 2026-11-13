@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { agentFromEnv, ModelConfigError, type AgentSetup } from '@sinclair/agent';
 import { runTests, type Reporter } from '@sinclair/runner';
+import { createHttpCacheStore } from './cache-store.ts';
 import type { RunEvent } from '@sinclair/protocol';
 import { AgentConfigError, type RunArgs } from './args.ts';
 import { ControlPlaneError, registerRun, type RegisteredRun } from './control-plane-client.ts';
@@ -99,7 +100,9 @@ export async function executeRun(args: RunArgs, run: RegisteredRun, files: strin
     const report = await runTests(files, {
       engine: handle.engine, reporter, runId: run.runId, cycleId: run.cycleId, targetId: run.targetId, agentId, agent, ...(agent.pii ? { pii: agent.pii } : {}),
       ...(flushBudgetMs !== undefined ? { reporterFlushTimeoutMs: flushBudgetMs } : {}),
-      ...(handle.deviceId ? { deviceId: handle.deviceId } : {}), artifactsDir, ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}), ...(args.retries !== undefined ? { retries: args.retries } : {}), ...(deps.signal ? { signal: deps.signal } : {}),
+      ...(handle.deviceId ? { deviceId: handle.deviceId } : {}), artifactsDir,
+      // 녹화 캐시: control-plane 공유 저장. 기본 read-write
+      ...((args.cache ?? 'read-write') !== 'off' ? { cache: { store: createHttpCacheStore(args.controlPlane), mode: args.cache ?? 'read-write' } } : {}), ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}), ...(args.retries !== undefined ? { retries: args.retries } : {}), ...(deps.signal ? { signal: deps.signal } : {}),
     });
     const s = report.summary;
     const stats = (reporter as { stats?: { sent: number; accepted: number; duplicate: number; rejected: number; retries: number } }).stats;
