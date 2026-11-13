@@ -19,6 +19,9 @@ export class ScenarioBackend implements DeviceBackend {
   dumps = 0;
   /** 입력이 트리에 늦게 보이는 기기 흉내: text 뒤 이 횟수의 dump 동안 값이 아직 없다(실기기 YouTube 검색창 약 200ms). Infinity 면 끝내 안 보인다 */
   textLagDumps = 0;
+  /** 화면 전환이 트리에 늦게 보이는 기기 흉내: 로그인 탭 뒤 이 횟수의 dump 동안 이전 화면이 보인다(실기기 탭 직후 관찰에 옛 화면) */
+  screenLagDumps = 0;
+  private pendingScreen: { screen: SemanticNode; dumpsLeft: number } | undefined;
   private pendingText: { ref: string; text: string; dumpsLeft: number } | undefined;
 
   constructor(private readonly id = 'PHONE1') {}
@@ -47,6 +50,7 @@ export class ScenarioBackend implements DeviceBackend {
   async screenshot(): Promise<Uint8Array> { return PNG; }
   async dumpUi(): Promise<SemanticNode> {
     this.dumps++;
+    if (this.pendingScreen && this.pendingScreen.dumpsLeft-- <= 0) { this.screen = this.pendingScreen.screen; this.pendingScreen = undefined; }
     if (this.pendingText && this.screen) {
       if (this.pendingText.dumpsLeft-- <= 0) {
         const n = findNodeByRef(this.screen, this.pendingText.ref);
@@ -70,7 +74,10 @@ export class ScenarioBackend implements DeviceBackend {
     const n = this.hit(p);
     if (!n) return;
     if (n.role === 'textbox') this.focused = n.ref;
-    if (n.role === 'button' && n.name === '로그인' && !n.states?.disabled) this.screen = structuredClone(HOME_SCREEN);
+    if (n.role === 'button' && n.name === '로그인' && !n.states?.disabled) {
+      if (this.screenLagDumps > 0) this.pendingScreen = { screen: structuredClone(HOME_SCREEN), dumpsLeft: this.screenLagDumps };
+      else this.screen = structuredClone(HOME_SCREEN);
+    }
     if (n.role === 'button' && n.name === '로그아웃') this.screen = structuredClone(LOGIN_SCREEN);
   }
   async longPress(_: string, p: Point, d: number) { this.calls.push(`longpress ${p.x},${p.y} ${d}`); }

@@ -4,7 +4,7 @@ import { createDeviceServer } from '@sinclair/device-layer';
 import { createMobileEngine, rpcOverDispatcher } from '../src/index.ts';
 import { ScenarioBackend } from './scenario-backend.ts';
 
-function setup(opts: { stabilityTimeoutMs?: number } = {}) {
+function setup(opts: { stabilityTimeoutMs?: number; settleChangeMs?: number } = {}) {
   const backend = new ScenarioBackend();
   const engine = createMobileEngine(rpcOverDispatcher(createDeviceServer([backend])), { deviceId: 'PHONE1', appId: 'com.example.app', ...opts });
   return { backend, engine };
@@ -38,6 +38,24 @@ describe('createMobileEngine', () => {
     const [after] = await engine.locate({ testId: 'username' });
     expect(after!.value).toBe('popark');
     expect(backend.calls.filter((c) => c.startsWith('text'))).toEqual(['text popark']); // 다시 입력하지 않는다
+  });
+
+  it('화면을 바꾸는 탭은 바뀐 화면이 트리에 보일 때까지 기다린 뒤 끝난다: 바로 뒤 관찰이 새 화면이다(실기기에서 에이전트가 옛 화면을 보고 같은 탭을 반복했다)', async () => {
+    const { backend, engine } = setup();
+    backend.screenLagDumps = 3;
+    const [btn] = await engine.locate({ role: 'button', name: '로그인' });
+    await engine.perform(btn!.ref, 'tap');
+    const after = await engine.observe();
+    expect(JSON.stringify(after.root)).toContain('환영합니다');
+  });
+
+  it('화면이 바뀌지 않는 탭은 변화 대기 상한(settleChangeMs) 뒤에 끝난다', async () => {
+    const { engine } = setup({ settleChangeMs: 200 });
+    const [tb] = await engine.locate({ testId: 'username' });
+    const t0 = Date.now();
+    await engine.perform(tb!.ref, 'tap');
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(150);
+    expect(Date.now() - t0).toBeLessThan(1500);
   });
 
   it('입력값이 끝내 보이지 않아도(앱이 바꾸거나 가림) type 은 기한 뒤 실패 없이 끝난다', async () => {
