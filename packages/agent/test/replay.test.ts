@@ -70,6 +70,19 @@ describe('replayRecording', () => {
     expect(engine.performed.map((p) => p.ref)).toEqual(['@r3']);
   });
 
+  it('끝 확인을 통과해도 화면이 잠잠해질 때까지 기다린다: 검색 결과처럼 늦게 채워지는 목록이 다 보인 뒤에 끝난다(실기기 YouTube)', async () => {
+    // 로그인 직후 머리만 보이고, 관찰 몇 번 뒤에 목록 항목이 채워지는 화면
+    const head: SemanticNode = { ref: '@h0', role: 'root', children: [{ ref: '@h1', role: 'text', text: '환영합니다' }, { ref: '@h2', role: 'button', name: '로그아웃' }, { ref: '@h3', role: 'list', testId: 'results' }] };
+    const full: SemanticNode = structuredClone(head); full.children![2]!.children = [{ ref: '@h4', role: 'text', text: '결과 하나' }, { ref: '@h5', role: 'text', text: '결과 둘' }];
+    const engine = login((n) => (n.name === '로그인' ? head : undefined));
+    const observe = engine.observe.bind(engine);
+    let after = 0;
+    engine.observe = async (o) => { const r = await observe(o); if (JSON.stringify(r.root).includes('@h3')) { if (++after === 4) engine.setRoot(full); } return r; };
+    const r = await replayRecording(engine, entry(), { goal, secrets: secrets(), quietMs: 300 });
+    expect(r).toMatchObject({ outcome: 'replayed' });
+    expect(JSON.stringify((await engine.observe()).root)).toContain('결과 둘');
+  });
+
   it('끝 anchor 가 끝내 보이지 않으면 diverged(끝 불일치) — 액션은 모두 했다', async () => {
     const r = await replayRecording(login((n) => (n.name === '로그인' ? { ref: '@x0', role: 'root', children: [{ ref: '@x1', role: 'text', text: '비밀번호가 틀립니다' }] } : undefined)), entry(), { goal, secrets: secrets(), endTimeoutMs: 200 });
     expect(r).toMatchObject({ outcome: 'diverged', executed: 3, reason: expect.stringMatching(/끝 화면.*환영합니다/) });
