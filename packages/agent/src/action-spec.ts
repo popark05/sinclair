@@ -71,7 +71,7 @@ export const ACTIONS = {
     blocks: true,
   },
   done: {
-    description: '목표를 이루었을 때 부른다. 무엇을 확인했는지 summary 에 짧게 쓴다.',
+    description: '목표를 이루었을 때 부른다. 무엇을 확인했는지 summary 에 짧게 쓴다. 목표를 이루지 못했으면("결과를 알려 줘" 같은 목표라도 실패를 알리려고) done 을 부르지 않는다 — 진행할 수 없으면 blocked 를 부른다.',
     params: { summary: { type: 'string', description: '목표를 이룬 근거(화면에서 본 것)' } },
     run: async () => {},
     terminal: true,

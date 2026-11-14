@@ -89,6 +89,8 @@ Plan(`intent/`) → Design(`specs/`, `/architect`로 타입 먼저) → Build(`t
 
 - **앱 중간 PIN 화면에서 에이전트가 헛돈다.** 목표에 PIN 이 없어 모델이 글로만 물었고(거부), 같은 탭 세 개를 다섯 번 돌다 턴 한도로 끝났다(실기 Studio, 2026-11-14). 에이전트 툴 `blocked`(지어내지 않고 멈춤)·`enter_secret`(키패드에 비밀값, 값은 모델에 없음), 반복 고리 감지(같은 호출 묶음 세 번 알림·네 번 멈춤), Studio 비밀값 칸(`.scratch/agent-secrets/`).
 
+- **Studio 개발 모드에서 화면만 새 코드이고 메인·작업 프로세스는 옛 코드일 수 있다.** `electron-vite dev` 는 렌더러만 HMR 이라, 새 화면이 보낸 비밀값을 옛 메인의 닫힌 요청 검사가 조용히 버려 세션에 비밀값이 없었다(실기, 2026-11-14). `dev` 는 `--watch`(메인·preload·작업 프로세스 번들 변경 시 재빌드·재시작). 작업 프로세스가 런타임에 읽는 워크스페이스 패키지(agent·runner 등)를 바꿨으면 Studio 를 다시 띄운다.
+
 - **Electron 메인 ↔ plain Node 자식의 IPC 는 `serialization: 'json'`.** 둘의 V8 버전이 달라 `'advanced'`(V8 직렬화) 메시지를 풀지 못한다("Unable to deserialize cloned data") — 같은 Node 로 도는 테스트에서는 드러나지 않는다(Studio 작업 프로세스, 2026-11-14).
 
 ## 참고 프로젝트에서 가져올 것 (2026-11-07 분석 요약)
