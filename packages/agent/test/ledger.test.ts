@@ -77,7 +77,7 @@ describe('screenChange', () => {
 describe('Ledger · 대본 모델 50턴 세션', () => {
   it('runAct 의 매 요청을 Ledger 로 그리면 예산 이하이고, 목표와 마지막 3턴이 늘 있다', async () => {
     const goal = '목록 끝까지 내려가 "더 보기" 를 찾아라';
-    const exec = scriptedExecutor((_req, i) => (i < 50 ? (i % 5 === 4 ? { name: 'tap', input: { ref: '@없음' } } : { name: 'scroll', input: { ref: '@e0', direction: 'down' } }) : { name: 'done', input: { summary: 'x' } }));
+    const exec = scriptedExecutor((_req, i) => (i < 50 ? (i % 5 === 4 ? { name: 'tap', input: { ref: '@없음' } } : { name: 'scroll', input: { ref: i % 2 ? '@e0' : '@e1', direction: 'down' } }) : { name: 'done', input: { summary: 'x' } })); // 대상을 번갈아(같은 호출 진척 없음으로 멈추지 않게)
     const r = await runAct(new FakeEngine({ root: LOGIN_SCREEN }), goal, { executor: exec, maxTurns: 60 });
     expect(r.ok).toBe(true);
     expect(exec.requests).toHaveLength(51);

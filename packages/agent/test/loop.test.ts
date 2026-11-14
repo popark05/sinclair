@@ -95,10 +95,11 @@ describe('runAct', () => {
   });
 
   it('턴 한도·시간 한도에 닿으면 사유와 함께 실패한다', async () => {
-    const loop = scriptedExecutor(() => ({ name: 'scroll', input: { ref: '@e0', direction: 'down' } }));
+    // 대상을 번갈아: 같은 호출이 화면을 바꾸지 않으면 진척 없음으로 먼저 멈춘다(incident-loop 가 다룬다)
+    const loop = scriptedExecutor((_r, i) => ({ name: 'scroll', input: { ref: i % 2 ? '@e0' : '@e1', direction: 'down' } }));
     const r = await runAct(login(), '끝나지 않는 목표', { executor: loop, maxTurns: 5 });
     expect(r).toMatchObject({ ok: false, turns: 5, modelCalls: 5, reason: expect.stringMatching(/턴 한도 5/) });
-    const slow = scriptedExecutor(async () => { await new Promise((res) => setTimeout(res, 50)); return { name: 'scroll', input: { ref: '@e0', direction: 'down' } }; });
+    const slow = scriptedExecutor(async () => { await new Promise((res) => setTimeout(res, 50)); return { name: 'scroll', input: { ref: '@e0', direction: 'down' } }; }); // 시간 한도가 진척 없음(4턴)보다 먼저
     const t = await runAct(login(), '느린 목표', { executor: slow, timeoutMs: 120 });
     expect(t).toMatchObject({ ok: false, reason: expect.stringMatching(/시간 한도 120ms/) });
   });

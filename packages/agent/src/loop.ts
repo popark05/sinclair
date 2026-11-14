@@ -27,6 +27,10 @@ const CORRECTABLE: ReadonlySet<EngineErrorCode> = new Set(['not-found', 'not-act
 const INCIDENT_LIMIT: Record<Exclude<IncidentKind, 'action-failed'>, number> = { permission: 3, 'app-error': 2, 'left-app': 2, keyboard: 2 };
 /** 같은 호출의 연속 실패: 이만큼이면 모델에게 알리고, 한 번 더면 act 를 멈춘다. 거부된 턴(실행 안 함)은 끊지 않는다 */
 const SAME_CALL_FAILS_NOTE = 2;
+/** 같은 호출이 성공했지만 화면을 바꾸지 않음(진척 없음): 이만큼 연달아면 모델에게 알리고, NO_CHANGE_STOP 이면 act 를 멈춘다.
+ *  실기기 지도 앱에서 13px 카드 손잡이를 17번 스크롤해 턴 한도까지 갔다(2026-11-14) — 끝까지 내린 목록처럼 정당한 반복도 있어 바로 멈추지 않는다 */
+const NO_CHANGE_NOTE = 2;
+const NO_CHANGE_STOP = 4;
 /** 모델에 돌려줄 오류 문구 상한 */
 const MAX_DETAIL = 300;
 
@@ -141,6 +145,9 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
   let lastFailedCall: string | undefined;
   let prevShown: SemanticNode | undefined;
   let failedInRow = 0;
+  // 진척 없음: 성공했지만 화면을 바꾸지 않은 같은 호출의 연속
+  let noChangeInRow = 0;
+  let lastNoChangeCall: string | undefined;
   // 녹화: 실행에 성공한 툴 호출. 기술자가 가림에 걸리면 이 act 의 녹화는 버린다
   const recorded: CacheAction[] = [];
   let recordable = true;
@@ -231,6 +238,13 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
         // 실행한 턴에는 늘 붙인다('없음' 도 — 계산하지 않은 것과 구별). 그 사이 Incident 복구가 있었으면 복구 뒤 화면이라고 밝힌다(모델이 자기 탭의 결과로 오해하지 않게)
         const change = screenChange(prevShown, shown) ?? '없음';
         prevTurn.change = recoveredThisTurn ? `Incident 복구 뒤: ${change}` : change;
+        // 진척 없음: 성공한 같은 호출이 연달아 화면을 바꾸지 않으면(복구가 끼지 않은 턴만) 모델에게 알리고, 계속되면 멈춘다
+        const ref = (prevTurn.call.input as { ref?: unknown } | null)?.ref;
+        const key = `${prevTurn.call.name}${typeof ref === 'string' ? ` ${ref}` : ''}`;
+        if (prevTurn.result === 'ok' && change === '없음' && !recoveredThisTurn) { noChangeInRow = key === lastNoChangeCall ? noChangeInRow + 1 : 1; lastNoChangeCall = key; }
+        else { noChangeInRow = 0; lastNoChangeCall = undefined; }
+        if (noChangeInRow >= NO_CHANGE_STOP) return fail(`Incident: 같은 호출(${hide(key)})이 네 번 연달아 화면을 바꾸지 않음 — 진척 없음`);
+        if (noChangeInRow === NO_CHANGE_NOTE) { addNote(`Incident: 같은 호출(${hide(key)})이 두 번 연달아 화면을 바꾸지 않음 — 그 대상은 이 동작에 반응하지 않는다. 다른 대상이나 방법(검색창·다른 버튼·목록 자체)을 골라라`); record('action-failed', '진척 없음 알림', false); }
       }
       prevShown = shown;
       const observation = renderObservation(shown);
