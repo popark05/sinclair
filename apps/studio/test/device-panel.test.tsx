@@ -82,6 +82,14 @@ describe('DevicePanel · Inspector 연동(studio 04)', () => {
     expect([box.style.left, box.style.top, box.style.width, box.style.height]).toEqual(['200px', '300px', '27px', '60px']);
   });
 
+  it('하이라이트는 화면을 가리지 않는다: 채움은 반투명(테마의 muted 색은 다크에서 불투명 #474747 이라 화면 전체 크기 노드를 고르면 화면이 사라진 것처럼 보였다)', () => {
+    const { view, api } = setup();
+    view.rerender(<DevicePanel api={api} deviceId="SER1" snapshot={snap} selectedRef="@e1" />);
+    const box = screen.getByLabelText('선택한 노드 영역');
+    expect(box.style.background).not.toContain('--color-accent-muted');
+    expect(box.style.background).toMatch(/transparent/);
+  });
+
   it('화면을 클릭하면 탭과 함께 그 자리의 가장 안쪽 노드를 고른다', async () => {
     const picked: string[] = [];
     const { calls, img } = setup({ onSelectNode: (r) => picked.push(r) });
