@@ -31,6 +31,8 @@ describe('action spec', () => {
     expect(schemas.find((s) => s.name === 'enter_secret')!.input_schema).toEqual({ type: 'object', additionalProperties: false, required: ['ref', 'name'], properties: { ref: { type: 'string', description: expect.any(String) }, name: { type: 'string', description: expect.stringMatching(/자리표시/) } } });
     expect(schemas.find((s) => s.name === 'blocked')!.input_schema).toEqual({ type: 'object', additionalProperties: false, required: ['reason', 'secret'], properties: { reason: { type: 'string', description: expect.any(String) }, secret: { type: 'string', description: expect.any(String) } } });
     expect(ACTIONS.blocked.description).toMatch(/지어내지/);
+    // 실기: '성공 여부를 알려줘' 목표에서 실패를 done 으로 보고해 세션이 "성공" 으로 보였다 — 이루지 못했으면 done 이 아니다
+    expect(ACTIONS.done.description).toMatch(/이루지 못했으면.*blocked/);
   });
 
   it('submit 은 그 입력란에서 Enter 를 누른다(엔진 press)', async () => {
