@@ -1,4 +1,4 @@
-// Inspector 모델(studio 04): 화면 트리에서 노드 찾기, 속성 행, locator 후보. 후보는 러너 screen 과 같은 질의(LocatorQuery)이고
+// 화면 트리 노드 → locator 후보·속성(studio 04, 06): Inspector(렌더러)와 세션 턴의 결정적 locator(작업 프로세스)가 같은 규칙을 쓴다.
 // 매치 수는 엔진과 같은 규칙(protocol locateInTree)으로 센다 — Inspector 가 1 이라고 하면 테스트에서도 하나로 정해진다.
 import { locateInTree, type LocatorQuery, type SemanticNode } from '@sinclair/protocol';
 
@@ -52,4 +52,10 @@ export function treeLabel(n: SemanticNode): string {
   const label = n.name ?? (n.states?.secure ? undefined : n.text);
   const id = n.testId ? n.testId.split('/').pop() : undefined;
   return `${n.role}${label ? ` "${label.length > 40 ? `${label.slice(0, 40)}…` : label}"` : ''}${id ? ` · ${id}` : ''}`;
+}
+
+/** 그 화면에서 정확히 하나로 정해지는 첫 후보(우선순위대로). 없으면 undefined — 결정적 내보내기가 TODO 로 남긴다 */
+export function uniqueLocator(root: SemanticNode, ref: string): string | undefined {
+  const node = findNode(root, ref);
+  return node ? locatorCandidates(root, node).find((c) => c.count === 1)?.code : undefined;
 }

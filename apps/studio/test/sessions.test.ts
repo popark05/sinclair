@@ -26,6 +26,15 @@ describe('createSessionManager', () => {
     expect(end).toMatchObject({ type: 'done', result: { ok: true, summary: '환영합니다', modelCalls: 3, recording: { actions: [expect.objectContaining({ tool: 'type' }), expect.objectContaining({ tool: 'tap' })] } } });
   });
 
+  it('턴마다 그 화면에서 하나로 정해지는 locator(결정적 내보내기용), 결과에 시작 앱', async () => {
+    const { m, events, done } = setup(script());
+    const { sessionId } = await m.start('SER1', '로그인');
+    const end = await done(sessionId);
+    const turns = events.filter((e) => e.event.type === 'turn').map((e) => (e.event.type === 'turn' ? e.event.turn.locator : undefined));
+    expect(turns).toEqual(["screen.getByTestId('com.app:id/username')", "screen.getByRole('button', { name: '로그인', exact: true })", undefined]);
+    expect(end).toMatchObject({ result: { startApp: 'com.app' } });
+  });
+
   it('중지하면 done(ok false, 중지됨)', async () => {
     const slow: StepExecutor = { next: (_r, sig) => new Promise((_, rej) => sig.addEventListener('abort', () => rej(new Error('aborted')), { once: true })) };
     const { m, done } = setup(slow);

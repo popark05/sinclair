@@ -290,6 +290,9 @@ importers:
       '@astryxdesign/cli':
         specifier: 0.7.15
         version: 0.7.15(@astryxdesign/core@0.7.15(@stylexjs/stylex@0.19.2)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))
+      '@sinclair/control-plane':
+        specifier: workspace:*
+        version: link:../control-plane
       '@testing-library/react':
         specifier: 16.3.0
         version: 16.3.0(@testing-library/dom@10.4.2)(@types/react-dom@19.1.9(@types/react@19.1.12))(@types/react@19.1.12)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)

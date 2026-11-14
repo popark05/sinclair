@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 // 세션 패널(studio 05): 목표 → 실행(기기·에이전트 준비돼야), 턴 타임라인, 끝 결과, 중지, 판정 추가.
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, cleanup, act, fireEvent, within } from '@testing-library/react';
 import { SessionPanel } from '../src/renderer/src/SessionPanel.tsx';
 import type { SessionEvent, StudioApi } from '../src/shared/studio-ipc.ts';
 
 afterEach(cleanup);
+// CodeBlock(문법 강조) 첫 렌더가 jsdom·병렬 실행에서 수 초 걸린다
+vi.setConfig({ testTimeout: 20_000 });
 function setup(over: Partial<StudioApi> = {}, deviceId = 'SER1') {
   let listener: ((e: { kind: 'session'; sessionId: string; payload: SessionEvent }) => void) | undefined;
   const calls: string[] = [];

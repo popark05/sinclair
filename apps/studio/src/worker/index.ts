@@ -8,6 +8,7 @@ import { agentFromEnv, claudeOptionsFromEnv, probeClaude, DEFAULT_AGENT_MODEL } 
 import type { AgentStatus, FromWorker, StudioRequest, StudioResponses, ToWorker } from '../shared/studio-ipc.ts';
 import { connectDevices, type DeviceConnection } from './device-session.ts';
 import { createSessionManager, type SessionAgent } from './sessions.ts';
+import { saveRecording } from './save-recording.ts';
 
 const send = (m: FromWorker): void => { process.send?.(m); };
 
@@ -66,6 +67,7 @@ async function handle(req: StudioRequest): Promise<StudioResponses[StudioRequest
   if (req.kind === 'session-start') return sessions.start(req.deviceId, req.goal);
   if (req.kind === 'session-stop') { await sessions.stop(req.sessionId); return null; }
   if (req.kind === 'session-assert') return sessions.assert(req.deviceId, req.statement);
+  if (req.kind === 'save-recording') return saveRecording(req);
   const c = await devices();
   if (req.kind === 'connection') return c.connection;
   switch (req.kind) {

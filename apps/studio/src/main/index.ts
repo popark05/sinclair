@@ -1,7 +1,8 @@
 // Studio 메인 프로세스: 창 하나와 작업 프로세스 하나(ADR 0005). 기기·러너·에이전트는 작업 프로세스가 맡고, 메인은 중계만 한다.
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
-import { parseStudioRequest, STUDIO_CHANNELS } from '../shared/studio-ipc.ts';
+import { MAX_EXPORT_BYTES, parseStudioRequest, STUDIO_CHANNELS } from '../shared/studio-ipc.ts';
 import { createWorkerHost, resolveWorkerNode } from './worker-host.ts';
 
 let win: BrowserWindow | undefined;
@@ -19,6 +20,16 @@ ipcMain.handle(STUDIO_CHANNELS.request, (_e, raw: unknown) => {
   const req = parseStudioRequest(raw);
   if (!req) throw new Error('알 수 없는 요청');
   return worker.request(req as never);
+});
+
+// 내보낸 테스트 저장: 사용자가 저장 대화상자에서 고른 경로에만 쓴다(렌더러가 경로를 정하지 못한다)
+ipcMain.handle(STUDIO_CHANNELS.saveTestFile, async (_e, suggested: unknown, content: unknown) => {
+  if (typeof content !== 'string' || Buffer.byteLength(content) > MAX_EXPORT_BYTES) throw new Error('내보낼 코드가 올바르지 않음');
+  const name = typeof suggested === 'string' && /^[\p{L}\p{N} ._-]{1,80}$/u.test(suggested) ? suggested : 'studio-test';
+  const r = await dialog.showSaveDialog({ title: '테스트로 저장', defaultPath: `${name}.sinclair.ts`, filters: [{ name: 'Sinclair 테스트', extensions: ['ts'] }] });
+  if (r.canceled || !r.filePath) return null;
+  await writeFile(r.filePath, content, 'utf8');
+  return r.filePath;
 });
 
 function createWindow(): void {

@@ -48,7 +48,7 @@ export function Workspace({ api }: { api: StudioApi }) {
   // 고른 기기·앱(기기 화면·세션이 쓴다). 화면 폴링은 여기서 한 번 — Device 패널과 Inspector 가 같은 스냅샷을 본다
   const [deviceId, setDeviceId] = useState('');
   const [deviceLabel, setDeviceLabel] = useState('');
-  const [, setAppId] = useState('');
+  const [appId, setAppId] = useState('');
   const screen = useSnapshot(api, deviceId);
   const [selectedRef, setSelectedRef] = useState<string>();
 
@@ -89,7 +89,7 @@ export function Workspace({ api }: { api: StudioApi }) {
                           <Tab label="세션" value="session" />
                         </TabList>
                         <StackItem size="fill" style={styles.editorArea}>
-                          <SessionPanel api={api} deviceId={deviceId} />
+                          <SessionPanel api={api} deviceId={deviceId} appId={appId} />
                         </StackItem>
                         <ResizeHandle direction="vertical" hasDivider isReversed isAlwaysVisible={false} resizable={bottomPanel.props} label="로그 드로어 크기 조절" />
                         {!bottomPanel.isCollapsed && (

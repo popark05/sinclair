@@ -10,7 +10,12 @@ export const STUDIO_CHANNELS = {
   request: 'studio:request',
   /** 작업 프로세스가 밀어 보내는 이벤트(세션 턴·끝) */
   event: 'studio:event',
+  /** 내보낸 테스트를 파일로(메인의 저장 대화상자 — 작업 프로세스를 거치지 않는다) */
+  saveTestFile: 'studio:save-test-file',
 } as const;
+
+/** 내보낸 코드 상한(파일 저장 요청 검사) */
+export const MAX_EXPORT_BYTES = 1024 * 1024;
 
 /** 렌더러가 작업 프로세스에 묻는 것(메인이 parseStudioRequest 로 거른 뒤 그대로 넘긴다). 닫힌 집합 */
 export type StudioRequest =
@@ -26,14 +31,20 @@ export type StudioRequest =
   | { kind: 'agent-status' }
   | { kind: 'session-start'; deviceId: string; goal: string }
   | { kind: 'session-stop'; sessionId: string }
-  | { kind: 'session-assert'; deviceId: string; statement: string };
+  | { kind: 'session-assert'; deviceId: string; statement: string }
+  // 녹화를 control-plane 녹화 캐시에(studio 06)
+  | { kind: 'save-recording'; controlPlane: string; testId: string; goal: string; app: string; recording: { actions: CacheAction[]; end: { anchors: CacheTarget[] } } };
 
 /** 에이전트를 쓸 수 있는가(자격 증명·API 연결 — 과금 없는 점검). 못 쓰면 사유 */
 export interface AgentStatus { ready: boolean; model?: string; reason?: string }
 /** 세션 턴 하나(타임라인 한 줄). 모델이 쓴 입력 글자는 싣지 않는다 */
-export interface TurnView { tool?: string; target?: string; result: 'ok' | 'rejected' | 'error'; detail?: string; guard?: 'gone' | 'ambiguous' | 'covered'; retargeted?: string }
+export interface TurnView { tool?: string; target?: string; result: 'ok' | 'rejected' | 'error'; detail?: string; guard?: 'gone' | 'ambiguous' | 'covered'; retargeted?: string;
+  /** 그 턴에 모델이 본 화면에서 대상이 정확히 하나로 정해지는 locator 코드(결정적 내보내기) */
+  locator?: string }
 /** 세션이 끝났을 때 */
-export interface SessionResult { ok: boolean; summary?: string; reason?: string; turns: number; modelCalls: number; inputTokens?: number; outputTokens?: number; recording?: { actions: CacheAction[]; end: { anchors: CacheTarget[] } } }
+export interface SessionResult { ok: boolean; summary?: string; reason?: string; turns: number; modelCalls: number; inputTokens?: number; outputTokens?: number; recording?: { actions: CacheAction[]; end: { anchors: CacheTarget[] } };
+  /** act 시작 화면의 앱(녹화 캐시 키·전제) */
+  startApp?: string }
 export type SessionEvent = { type: 'turn'; index: number; turn: TurnView } | { type: 'done'; result: SessionResult };
 /** 작업 프로세스 → 메인 → 렌더러 푸시 */
 export type StudioEvent = { kind: 'session'; sessionId: string; payload: SessionEvent };
@@ -54,7 +65,7 @@ export interface StudioDevice { id: string; model: string; osVersion: string; st
 
 /** 요청별 응답 타입 */
 export interface StudioResponses { connection: ConnectionInfo; devices: StudioDevice[]; 'foreground-app': string | null; snapshot: StudioSnapshot; tap: null; swipe: null; text: null; key: null; button: null;
-  'agent-status': AgentStatus; 'session-start': { sessionId: string }; 'session-stop': null; 'session-assert': JudgeView }
+  'agent-status': AgentStatus; 'session-start': { sessionId: string }; 'session-stop': null; 'session-assert': JudgeView; 'save-recording': { key: string } }
 
 /** 작업 프로세스 상태: 띄우는 중 → 준비됨 → (죽으면) 종료됨 */
 export interface WorkerStatus {
@@ -101,6 +112,11 @@ export function parseStudioRequest(v: unknown): StudioRequest | undefined {
   if (v.kind === 'connection') return { kind: 'connection' };
   if (v.kind === 'devices') return { kind: 'devices' };
   if (v.kind === 'agent-status') return { kind: 'agent-status' };
+  if (v.kind === 'save-recording') {
+    // 녹화 항목은 작업 프로세스가 parseCacheEntry 로 다시 검사한다(여기선 모양만)
+    if (typeof v.controlPlane !== 'string' || typeof v.testId !== 'string' || !v.testId || typeof v.goal !== 'string' || !v.goal || typeof v.app !== 'string' || !isRecord(v.recording) || !Array.isArray(v.recording.actions) || !isRecord(v.recording.end)) return undefined;
+    return { kind: 'save-recording', controlPlane: v.controlPlane, testId: v.testId, goal: v.goal, app: v.app, recording: v.recording as never };
+  }
   if (v.kind === 'session-stop') return typeof v.sessionId === 'string' && v.sessionId ? { kind: 'session-stop', sessionId: v.sessionId } : undefined;
   if (typeof v.deviceId !== 'string' || !v.deviceId) return undefined;
   const deviceId = v.deviceId;
@@ -143,4 +159,8 @@ export interface StudioApi {
   assertNow(deviceId: string, statement: string): Promise<JudgeView>;
   /** 작업 프로세스 이벤트 구독. 돌려준 함수로 해제 */
   onEvent(cb: (e: StudioEvent) => void): () => void;
+  /** 세션 녹화를 control-plane 녹화 캐시에 */
+  saveRecording(input: { controlPlane: string; testId: string; goal: string; app: string; recording: NonNullable<SessionResult['recording']> }): Promise<{ key: string }>;
+  /** 내보낸 테스트 코드를 파일로(저장 대화상자). 저장한 경로, 취소면 null */
+  saveTestFile(suggestedName: string, content: string): Promise<string | null>;
 }

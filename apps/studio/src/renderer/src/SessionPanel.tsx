@@ -9,6 +9,7 @@ import { Button } from '@astryxdesign/core/Button';
 import { List, ListItem } from '@astryxdesign/core/List';
 import { Text } from '@astryxdesign/core/Text';
 import type { AgentStatus, JudgeView, SessionResult, StudioApi, TurnView } from '../../shared/studio-ipc.ts';
+import { ExportPanel } from './ExportPanel.tsx';
 
 export interface SessionRecord { goal: string; turns: TurnView[]; result?: SessionResult; judgments: Array<JudgeView & { statement: string }> }
 
@@ -29,7 +30,7 @@ export function resultText(r: SessionResult): string {
   return r.ok ? `성공 — ${r.summary ?? ''} · ${r.turns}턴 · 모델 ${r.modelCalls}회${usage}` : `실패 — ${r.reason ?? ''} · ${r.turns}턴 · 모델 ${r.modelCalls}회${usage}`;
 }
 
-export function SessionPanel({ api, deviceId, onRecord }: { api: StudioApi; deviceId: string; onRecord?: (r: SessionRecord) => void }) {
+export function SessionPanel({ api, deviceId, appId, onRecord }: { api: StudioApi; deviceId: string; appId?: string; onRecord?: (r: SessionRecord) => void }) {
   const [status, setStatus] = useState<AgentStatus>();
   const [goal, setGoal] = useState('');
   const [sessionId, setSessionId] = useState<string>();
@@ -96,6 +97,7 @@ export function SessionPanel({ api, deviceId, onRecord }: { api: StudioApi; devi
       <List aria-label="판정">
         {(record?.judgments ?? []).map((j, i) => <ListItem key={i} label={`${j.pass ? '참' : '거짓'} · ${j.statement}`} description={j.reason} />)}
       </List>
+      {record?.result?.ok && !running ? <ExportPanel api={api} record={record} {...(appId ? { appId } : {})} /> : null}
     </Stack>
   );
 }

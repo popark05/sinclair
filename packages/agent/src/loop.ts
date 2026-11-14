@@ -68,7 +68,7 @@ export interface ActOptions {
   /** 바깥 중지 신호: abort 되면 진행 중인 모델 호출·엔진 액션을 끊고 ok false, 사유 '중지됨' */
   signal?: AbortSignal;
   /** 턴이 기록될 때마다(거부·오류 턴 포함, 번호는 0 부터). 던져도 루프는 계속 */
-  onTurn?: (turn: AgentTurn, index: number) => void;
+  onTurn?: (turn: AgentTurn, index: number, observed?: SemanticNode) => void;
 }
 export interface ActResult {
   ok: boolean;
@@ -112,13 +112,15 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
   const onStop = (): void => aborter.abort(new Error('중지됨'));
   if (opts.signal?.aborted) onStop(); else opts.signal?.addEventListener('abort', onStop, { once: true });
   const history: AgentTurn[] = [];
-  // onTurn: 턴이 기록되는 순간 알린다(Studio 세션 타임라인). 기록 지점이 여럿이라 push 하나에 건다
+  // onTurn: 턴이 기록되는 순간 알린다(Studio 세션 타임라인). 기록 지점이 여럿이라 push 하나에 건다.
+  // 그 턴에 모델이 본 화면도 함께(가리기 전 원본) — 대상 ref 를 그 화면에서 풀어 locator 를 만들 수 있게
+  let turnScreen: SemanticNode | undefined;
   if (opts.onTurn) {
     const push = history.push.bind(history);
     history.push = (...turns: AgentTurn[]): number => {
       const start = history.length;
       const n = push(...turns);
-      turns.forEach((t, i) => { try { opts.onTurn!(t, start + i); } catch { /* 보는 쪽의 오류가 루프를 멈추지 않게 */ } });
+      turns.forEach((t, i) => { try { opts.onTurn!(t, start + i, turnScreen); } catch { /* 보는 쪽의 오류가 루프를 멈추지 않게 */ } });
       return n;
     };
   }
@@ -220,6 +222,7 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
         }
       }
       if (!startRoot) startRoot = observed.root;
+      turnScreen = observed.root;
       // 트리의 문자열 잎을 가린 뒤 그린다(그린 글에 가리면 JSON 이스케이프된 값을 놓친다)
       const shown = hideTree(observed.root);
       // Ledger: 앞 턴이 실행한 뒤 화면이 바뀐 부분을 그 턴의 기록에 붙인다(이전 관찰을 통째로 싣는 대신)

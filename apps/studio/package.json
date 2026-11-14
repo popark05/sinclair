@@ -27,6 +27,7 @@
   },
   "devDependencies": {
     "@astryxdesign/cli": "0.7.15",
+    "@sinclair/control-plane": "workspace:*",
     "@testing-library/react": "16.3.0",
     "@types/react": "19.1.12",
     "@types/react-dom": "19.1.9",
