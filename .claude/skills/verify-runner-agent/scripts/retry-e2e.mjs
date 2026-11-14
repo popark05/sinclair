@@ -3,6 +3,7 @@
 //   limit — retryLimit 0 으로 같은 시나리오 → 대체 없이 blocked
 //   lease — A 의 heartbeat 만 프록시로 끊음 → 대체 Run 을 B 가 가져간 뒤 차단 해제 → A 는 409 replaced 를 받고 cancelled(코드 5) → Verdict 는 B 의 run
 //   cancel — retryLimit 0 에서 데몬 A 에 SIGTERM → run cancelled → 유예 없이 취소 대체 Run(retryLimit 을 쓰지 않음) → 데몬 B 가 끝냄 → verified
+//   remaining — A 가 케이스 몇 개를 끝낸 뒤 SIGKILL → 대체 Run 은 끝난 케이스(settled)를 건너뛰고 남은 것만 돈다 → Verdict 는 A 의 결과를 이어받아 verified(replacement-remaining 03)
 // 사용: node retry-e2e.mjs <RUN_DIR> <lease-ttl-ms>   (서버는 같은 TTL 로 기동돼 있어야 한다)  증거: <RUN_DIR>/evidence/retry-e2e.json
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -24,7 +25,7 @@ const SLOW_COUNT = Math.ceil((5 * TTL) / SLOW_MS) + 2;
 const env = { ...process.env, SINCLAIR_E2E_SLOW_MS: String(SLOW_MS), SINCLAIR_E2E_SLOW_COUNT: String(SLOW_COUNT) };
 const mask = (line) => line.split(REPO).join('<repo>').split(os.homedir()).join('<home>');
 /** 경로별 판정 수(kill 4, limit 2, lease 4, cancel 3). 판정을 더하면 여기와 문서의 "13/13" 을 함께 바꾼다 */
-const EXPECTED_CHECKS = 13;
+const EXPECTED_CHECKS = 17;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function api(method, p, body) {
@@ -96,6 +97,32 @@ try {
     check('kill', '대체 Run 을 데몬 B 가 끝냄', rep?.replaces === k.runId && rep?.state === 'finished' && rep?.agent === 'kill-b');
     check('kill', 'Cycle verified, retriesUsed 1', s.verdict === 'verified' && s.retriesUsed[k.target] === 1);
     check('kill', '재시도 테스트가 passed-flaky', s.matrix['재시도 > 첫 시도만 실패한다']?.[k.target] === 'passed-flaky');
+  }
+
+  // ---- remaining: 끝난 케이스는 대체 Run 이 다시 돌지 않는다
+  {
+    const k = await newCycle('remaining', 1);
+    const a = daemon('remaining-a', k.target, URL0); daemons.push(a);
+    // 재시도 테스트(재시도 포함)와 긴 테스트 1 이 끝날 때까지 — 둘 다 결과가 확정된 케이스
+    const doneBefore = await until(`${k.runId} 가 케이스 2개를 끝냄`, async () => {
+      const r = await api('GET', `/runs/${encodeURIComponent(k.runId)}`);
+      const passed = [...new Set((r.body.attempts ?? []).filter((x) => x.result === 'passed').map((x) => x.testId))];
+      return passed.length >= 2 ? passed : undefined;
+    }, 60_000);
+    a.child.kill('SIGKILL');
+    const aEnd = await a.exited;
+    const b = daemon('remaining-b', k.target, URL0); daemons.push(b);
+    const v = await finished(k.cycleId);
+    const bEnd = await stop(b);
+    const s = summarize(v);
+    const rep = s.runs.find((r) => r.replaces === k.runId);
+    const repRun = rep ? (await api('GET', `/runs/${encodeURIComponent(rep.runId)}`)).body : { attempts: [] };
+    const ranAgain = [...new Set(repRun.attempts.map((x) => x.testId))];
+    evidence.paths.remaining = { cycle: s, settledBeforeKill: doneBefore, replacementRan: ranAgain, daemonA: { signal: aEnd.signal, log: a.log() }, daemonB: { exit: bEnd.code, log: bEnd.log } };
+    check('remaining', `대체 Run 은 A 가 끝낸 케이스(${doneBefore.length}개)를 다시 돌지 않음`, rep && ranAgain.length > 0 && doneBefore.every((t) => !ranAgain.includes(t)));
+    check('remaining', 'B 로그에 확정 케이스 건너뜀', bEnd.log.some((l) => /앞 Run 에서 확정 케이스 \d+개 건너뜀/.test(l)));
+    check('remaining', '매트릭스는 모든 케이스를 채움(A 결과 이어받음)', Object.keys(s.matrix).length === SLOW_COUNT + 1 && Object.values(s.matrix).every((row) => ['passed', 'passed-flaky'].includes(row[k.target])));
+    check('remaining', 'Cycle verified, 재시도 테스트는 A 의 passed-flaky 그대로', s.verdict === 'verified' && s.matrix['재시도 > 첫 시도만 실패한다']?.[k.target] === 'passed-flaky');
   }
 
   // ---- limit: retryLimit 0 → 대체 없이 blocked

@@ -1,0 +1,473 @@
+{
+  "at": "2026-11-14T03:31:00.026Z",
+  "store": "sqlite",
+  "leaseTtlMs": 2000,
+  "graceMs": 2000,
+  "suite": "apps/runner-agent/test/fixtures/retry-e2e",
+  "slow": {
+    "ms": 2000,
+    "count": 7
+  },
+  "paths": {
+    "kill": {
+      "cycle": {
+        "cycleId": "retry-e2e-kill-1794627060026-32689",
+        "state": "finished",
+        "verdict": "verified",
+        "retryLimit": 1,
+        "retriesUsed": {
+          "e2e-kill": 1
+        },
+        "runs": [
+          {
+            "runId": "kill-r1-1794627060026-32689",
+            "state": "infra-failed",
+            "agent": "kill-a",
+            "replacedBy": "retry:kill-r1-1794627060026-32689",
+            "abandonedAt": "2026-11-14T03:31:05.982Z"
+          },
+          {
+            "runId": "retry:kill-r1-1794627060026-32689",
+            "state": "finished",
+            "agent": "kill-b",
+            "replaces": "kill-r1-1794627060026-32689"
+          }
+        ],
+        "matrix": {
+          "재시도 > 첫 시도만 실패한다": {
+            "e2e-kill": "passed-flaky"
+          },
+          "재시도 > 긴 테스트 1": {
+            "e2e-kill": "passed"
+          },
+          "재시도 > 긴 테스트 2": {
+            "e2e-kill": "passed"
+          },
+          "재시도 > 긴 테스트 3": {
+            "e2e-kill": "passed"
+          },
+          "재시도 > 긴 테스트 4": {
+            "e2e-kill": "passed"
+          },
+          "재시도 > 긴 테스트 5": {
+            "e2e-kill": "passed"
+          },
+          "재시도 > 긴 테스트 6": {
+            "e2e-kill": "passed"
+          },
+          "재시도 > 긴 테스트 7": {
+            "e2e-kill": "passed"
+          }
+        }
+      },
+      "killedAfterMs": 18848,
+      "daemonA": {
+        "signal": "SIGKILL",
+        "log": [
+          "데몬 시작: agent kill-a, 이름 타깃 e2e-kill, control-plane http://127.0.0.1:53227",
+          "fleet 보고: 기기 1대",
+          "run kill-r1-1794627060026-32689 클레임 (cycle retry-e2e-kill-1794627060026-32689, target e2e-kill, 기기 …ll-a, tests <repo>/apps/runner-agent/test/fixtures/retry-e2e, retries 1)"
+        ]
+      },
+      "daemonB": {
+        "exit": 0,
+        "log": [
+          "데몬 시작: agent kill-b, 이름 타깃 e2e-kill, control-plane http://127.0.0.1:53227",
+          "fleet 보고: 기기 1대",
+          "run retry:kill-r1-1794627060026-32689 클레임 (cycle retry-e2e-kill-1794627060026-32689, target e2e-kill, 기기 …ll-b, tests <repo>/apps/runner-agent/test/fixtures/retry-e2e, retries 1, 앞 Run 에서 확정 케이스 1개 건너뜀)",
+          "[run …26-32689] 결과: passed 7, failed 0, blocked 0, skipped 0 / 전송 23건(accepted 23, duplicate 0, rejected 0, retries 0)",
+          "SIGTERM 수신, 멈춤(진행 중 run 이 있으면 현재 테스트까지 마치고 나머지는 skipped, run 은 cancelled)",
+          "데몬 종료",
+          "데몬 요약: run 1개 (e2e-kill:0), resume 0"
+        ]
+      }
+    },
+    "remaining": {
+      "cycle": {
+        "cycleId": "retry-e2e-remaining-1794627060026-32689",
+        "state": "finished",
+        "verdict": "verified",
+        "retryLimit": 1,
+        "retriesUsed": {
+          "e2e-remaining": 1
+        },
+        "runs": [
+          {
+            "runId": "remaining-r1-1794627060026-32689",
+            "state": "infra-failed",
+            "agent": "remaining-a",
+            "replacedBy": "retry:remaining-r1-1794627060026-32689",
+            "abandonedAt": "2026-11-14T03:31:28.799Z"
+          },
+          {
+            "runId": "retry:remaining-r1-1794627060026-32689",
+            "state": "finished",
+            "agent": "remaining-b",
+            "replaces": "remaining-r1-1794627060026-32689"
+          }
+        ],
+        "matrix": {
+          "재시도 > 첫 시도만 실패한다": {
+            "e2e-remaining": "passed-flaky"
+          },
+          "재시도 > 긴 테스트 1": {
+            "e2e-remaining": "passed"
+          },
+          "재시도 > 긴 테스트 2": {
+            "e2e-remaining": "passed"
+          },
+          "재시도 > 긴 테스트 3": {
+            "e2e-remaining": "passed"
+          },
+          "재시도 > 긴 테스트 4": {
+            "e2e-remaining": "passed"
+          },
+          "재시도 > 긴 테스트 5": {
+            "e2e-remaining": "passed"
+          },
+          "재시도 > 긴 테스트 6": {
+            "e2e-remaining": "passed"
+          },
+          "재시도 > 긴 테스트 7": {
+            "e2e-remaining": "passed"
+          }
+        }
+      },
+      "settledBeforeKill": [
+        "재시도 > 첫 시도만 실패한다",
+        "재시도 > 긴 테스트 1"
+      ],
+      "replacementRan": [
+        "재시도 > 긴 테스트 2",
+        "재시도 > 긴 테스트 3",
+        "재시도 > 긴 테스트 4",
+        "재시도 > 긴 테스트 5",
+        "재시도 > 긴 테스트 6",
+        "재시도 > 긴 테스트 7"
+      ],
+      "daemonA": {
+        "signal": "SIGKILL",
+        "log": [
+          "데몬 시작: agent remaining-a, 이름 타깃 e2e-remaining, control-plane http://127.0.0.1:53227",
+          "fleet 보고: 기기 1대",
+          "run remaining-r1-1794627060026-32689 클레임 (cycle retry-e2e-remaining-1794627060026-32689, target e2e-remaining, 기기 …ng-a, tests <repo>/apps/runner-agent/test/fixtures/retry-e2e, retries 1)"
+        ]
+      },
+      "daemonB": {
+        "exit": 0,
+        "log": [
+          "데몬 시작: agent remaining-b, 이름 타깃 e2e-remaining, control-plane http://127.0.0.1:53227",
+          "fleet 보고: 기기 1대",
+          "run retry:remaining-r1-1794627060026-32689 클레임 (cycle retry-e2e-remaining-1794627060026-32689, target e2e-remaining, 기기 …ng-b, tests <repo>/apps/runner-agent/test/fixtures/retry-e2e, retries 1, 앞 Run 에서 확정 케이스 2개 건너뜀)",
+          "[run …26-32689] 결과: passed 6, failed 0, blocked 0, skipped 0 / 전송 20건(accepted 20, duplicate 0, rejected 0, retries 0)",
+          "SIGTERM 수신, 멈춤(진행 중 run 이 있으면 현재 테스트까지 마치고 나머지는 skipped, run 은 cancelled)",
+          "데몬 종료",
+          "데몬 요약: run 1개 (e2e-remaining:0), resume 0"
+        ]
+      }
+    },
+    "limit": {
+      "cycle": {
+        "cycleId": "retry-e2e-limit-1794627060026-32689",
+        "state": "finished",
+        "verdict": "blocked",
+        "retryLimit": 0,
+        "retriesUsed": {
+          "e2e-limit": 0
+        },
+        "runs": [
+          {
+            "runId": "limit-r1-1794627060026-32689",
+            "state": "infra-failed",
+            "agent": "limit-a"
+          }
+        ],
+        "matrix": {
+          "재시도 > 첫 시도만 실패한다": {
+            "e2e-limit": "passed-flaky"
+          },
+          "재시도 > 긴 테스트 1": {
+            "e2e-limit": "blocked"
+          }
+        }
+      },
+      "daemonA": {
+        "signal": "SIGKILL",
+        "log": [
+          "데몬 시작: agent limit-a, 이름 타깃 e2e-limit, control-plane http://127.0.0.1:53227",
+          "fleet 보고: 기기 1대",
+          "run limit-r1-1794627060026-32689 클레임 (cycle retry-e2e-limit-1794627060026-32689, target e2e-limit, 기기 …it-a, tests <repo>/apps/runner-agent/test/fixtures/retry-e2e, retries 1)"
+        ]
+      }
+    },
+    "lease": {
+      "cycle": {
+        "cycleId": "retry-e2e-lease-1794627060026-32689",
+        "state": "finished",
+        "verdict": "verified",
+        "retryLimit": 1,
+        "retriesUsed": {
+          "e2e-lease": 1
+        },
+        "runs": [
+          {
+            "runId": "lease-r1-1794627060026-32689",
+            "state": "infra-failed",
+            "agent": "lease-a",
+            "replacedBy": "retry:lease-r1-1794627060026-32689",
+            "abandonedAt": "2026-11-14T03:31:53.567Z"
+          },
+          {
+            "runId": "retry:lease-r1-1794627060026-32689",
+            "state": "finished",
+            "agent": "lease-b",
+            "replaces": "lease-r1-1794627060026-32689"
+          }
+        ],
+        "matrix": {
+          "재시도 > 첫 시도만 실패한다": {
+            "e2e-lease": "passed-flaky"
+          },
+          "재시도 > 긴 테스트 1": {
+            "e2e-lease": "passed"
+          },
+          "재시도 > 긴 테스트 2": {
+            "e2e-lease": "passed"
+          },
+          "재시도 > 긴 테스트 3": {
+            "e2e-lease": "passed"
+          },
+          "재시도 > 긴 테스트 5": {
+            "e2e-lease": "passed"
+          },
+          "재시도 > 긴 테스트 4": {
+            "e2e-lease": "passed"
+          },
+          "재시도 > 긴 테스트 6": {
+            "e2e-lease": "passed"
+          },
+          "재시도 > 긴 테스트 7": {
+            "e2e-lease": "passed"
+          }
+        }
+      },
+      "unblockedAfterMs": 3839,
+      "daemonA": {
+        "exit": 0,
+        "log": [
+          "데몬 시작: agent lease-a, 이름 타깃 e2e-lease, control-plane http://127.0.0.1:53270",
+          "fleet 보고: 기기 1대",
+          "run lease-r1-1794627060026-32689 클레임 (cycle retry-e2e-lease-1794627060026-32689, target e2e-lease, 기기 …se-a, tests <repo>/apps/runner-agent/test/fixtures/retry-e2e, retries 1)",
+          "[run …26-32689] heartbeat lease-r1-1794627060026-32689: error",
+          "[run …26-32689] heartbeat lease-r1-1794627060026-32689: error",
+          "[run …26-32689] heartbeat lease-r1-1794627060026-32689: error",
+          "[run …26-32689] heartbeat lease-r1-1794627060026-32689: error",
+          "[run …26-32689] heartbeat lease-r1-1794627060026-32689: replaced",
+          "[run …26-32689] 결과: passed 4, failed 0, blocked 0, skipped 4 / 전송 25건(accepted 25, duplicate 0, rejected 0, retries 0)",
+          "[run …26-32689]   skipped: 재시도 > 긴 테스트 4",
+          "[run …26-32689]   skipped: 재시도 > 긴 테스트 5",
+          "[run …26-32689]   skipped: 재시도 > 긴 테스트 6",
+          "[run …26-32689]   skipped: 재시도 > 긴 테스트 7",
+          "[run …26-32689] 아티팩트 2개 업로드",
+          "[run …26-32689] run lease-r1-1794627060026-32689 중단(cancelled): lease 를 잃음",
+          "[run …26-32689] run lease-r1-1794627060026-32689: lease 를 잃어 중단 — 진행 중이던 테스트까지만 보고됐고 나머지는 skipped(cancelled)",
+          "SIGTERM 수신, 멈춤(진행 중 run 이 있으면 현재 테스트까지 마치고 나머지는 skipped, run 은 cancelled)",
+          "데몬 종료",
+          "데몬 요약: run 1개 (e2e-lease:5), resume 0"
+        ]
+      },
+      "daemonB": {
+        "exit": 0,
+        "log": [
+          "데몬 시작: agent lease-b, 이름 타깃 e2e-lease, control-plane http://127.0.0.1:53227",
+          "fleet 보고: 기기 1대",
+          "run retry:lease-r1-1794627060026-32689 클레임 (cycle retry-e2e-lease-1794627060026-32689, target e2e-lease, 기기 …se-b, tests <repo>/apps/runner-agent/test/fixtures/retry-e2e, retries 1, 앞 Run 에서 확정 케이스 2개 건너뜀)",
+          "[run …26-32689] 결과: passed 6, failed 0, blocked 0, skipped 0 / 전송 20건(accepted 20, duplicate 0, rejected 0, retries 0)",
+          "SIGTERM 수신, 멈춤(진행 중 run 이 있으면 현재 테스트까지 마치고 나머지는 skipped, run 은 cancelled)",
+          "데몬 종료",
+          "데몬 요약: run 1개 (e2e-lease:0), resume 0"
+        ]
+      },
+      "proxy": [
+        "hb-proxy → http://127.0.0.1:53227 port=53270",
+        "차단 heartbeat /runs/lease-r1-1794627060026-32689/heartbeat (누적 1)",
+        "차단 heartbeat /runs/lease-r1-1794627060026-32689/heartbeat (누적 2)",
+        "차단 heartbeat /runs/lease-r1-1794627060026-32689/heartbeat (누적 3)",
+        "차단 heartbeat /runs/lease-r1-1794627060026-32689/heartbeat (누적 4)"
+      ]
+    },
+    "cancel": {
+      "cycle": {
+        "cycleId": "retry-e2e-cancel-1794627060026-32689",
+        "state": "finished",
+        "verdict": "verified",
+        "retryLimit": 0,
+        "retriesUsed": {
+          "e2e-cancel": 0
+        },
+        "runs": [
+          {
+            "runId": "cancel-r1-1794627060026-32689",
+            "state": "cancelled",
+            "agent": "cancel-a",
+            "replacedBy": "retry:cancel-r1-1794627060026-32689"
+          },
+          {
+            "runId": "retry:cancel-r1-1794627060026-32689",
+            "state": "finished",
+            "agent": "cancel-b",
+            "replaces": "cancel-r1-1794627060026-32689",
+            "replaceReason": "cancelled"
+          }
+        ],
+        "matrix": {
+          "재시도 > 첫 시도만 실패한다": {
+            "e2e-cancel": "passed-flaky"
+          },
+          "재시도 > 긴 테스트 1": {
+            "e2e-cancel": "passed"
+          },
+          "재시도 > 긴 테스트 3": {
+            "e2e-cancel": "passed"
+          },
+          "재시도 > 긴 테스트 2": {
+            "e2e-cancel": "passed"
+          },
+          "재시도 > 긴 테스트 5": {
+            "e2e-cancel": "passed"
+          },
+          "재시도 > 긴 테스트 4": {
+            "e2e-cancel": "passed"
+          },
+          "재시도 > 긴 테스트 6": {
+            "e2e-cancel": "passed"
+          },
+          "재시도 > 긴 테스트 7": {
+            "e2e-cancel": "passed"
+          }
+        }
+      },
+      "replacementSeenAfterMs": 13590,
+      "daemonA": {
+        "exit": 0,
+        "log": [
+          "데몬 시작: agent cancel-a, 이름 타깃 e2e-cancel, control-plane http://127.0.0.1:53227",
+          "fleet 보고: 기기 1대",
+          "run cancel-r1-1794627060026-32689 클레임 (cycle retry-e2e-cancel-1794627060026-32689, target e2e-cancel, 기기 …el-a, tests <repo>/apps/runner-agent/test/fixtures/retry-e2e, retries 1)",
+          "SIGTERM 수신, 멈춤(진행 중 run 이 있으면 현재 테스트까지 마치고 나머지는 skipped, run 은 cancelled)",
+          "[run …26-32689] 결과: passed 2, failed 0, blocked 0, skipped 6 / 전송 23건(accepted 23, duplicate 0, rejected 0, retries 0)",
+          "[run …26-32689]   skipped: 재시도 > 긴 테스트 2",
+          "[run …26-32689]   skipped: 재시도 > 긴 테스트 3",
+          "[run …26-32689]   skipped: 재시도 > 긴 테스트 4",
+          "[run …26-32689]   skipped: 재시도 > 긴 테스트 5",
+          "[run …26-32689]   skipped: 재시도 > 긴 테스트 6",
+          "[run …26-32689]   skipped: 재시도 > 긴 테스트 7",
+          "[run …26-32689] 아티팩트 2개 업로드",
+          "[run …26-32689] run cancel-r1-1794627060026-32689 중단(cancelled): 종료 신호",
+          "데몬 종료",
+          "데몬 요약: run 1개 (e2e-cancel:5), resume 0"
+        ]
+      },
+      "daemonB": {
+        "exit": 0,
+        "log": [
+          "데몬 시작: agent cancel-b, 이름 타깃 e2e-cancel, control-plane http://127.0.0.1:53227",
+          "fleet 보고: 기기 1대",
+          "run retry:cancel-r1-1794627060026-32689 클레임 (cycle retry-e2e-cancel-1794627060026-32689, target e2e-cancel, 기기 …el-b, tests <repo>/apps/runner-agent/test/fixtures/retry-e2e, retries 1, 앞 Run 에서 확정 케이스 2개 건너뜀)",
+          "[run …26-32689] 결과: passed 6, failed 0, blocked 0, skipped 0 / 전송 20건(accepted 20, duplicate 0, rejected 0, retries 0)",
+          "SIGTERM 수신, 멈춤(진행 중 run 이 있으면 현재 테스트까지 마치고 나머지는 skipped, run 은 cancelled)",
+          "데몬 종료",
+          "데몬 요약: run 1개 (e2e-cancel:0), resume 0"
+        ]
+      }
+    }
+  },
+  "checks": [
+    {
+      "path": "kill",
+      "label": "원래 Run 은 infra-failed 이고 대체됨",
+      "ok": true
+    },
+    {
+      "path": "kill",
+      "label": "대체 Run 을 데몬 B 가 끝냄",
+      "ok": true
+    },
+    {
+      "path": "kill",
+      "label": "Cycle verified, retriesUsed 1",
+      "ok": true
+    },
+    {
+      "path": "kill",
+      "label": "재시도 테스트가 passed-flaky",
+      "ok": true
+    },
+    {
+      "path": "remaining",
+      "label": "대체 Run 은 A 가 끝낸 케이스(2개)를 다시 돌지 않음",
+      "ok": true
+    },
+    {
+      "path": "remaining",
+      "label": "B 로그에 확정 케이스 건너뜀",
+      "ok": true
+    },
+    {
+      "path": "remaining",
+      "label": "매트릭스는 모든 케이스를 채움(A 결과 이어받음)",
+      "ok": true
+    },
+    {
+      "path": "remaining",
+      "label": "Cycle verified, 재시도 테스트는 A 의 passed-flaky 그대로",
+      "ok": true
+    },
+    {
+      "path": "limit",
+      "label": "대체 Run 없이 infra-failed 하나",
+      "ok": true
+    },
+    {
+      "path": "limit",
+      "label": "Cycle finished/blocked, retriesUsed 0",
+      "ok": true
+    },
+    {
+      "path": "lease",
+      "label": "A 의 heartbeat 가 replaced(409) 를 받고 run 이 중단(코드 5)",
+      "ok": true
+    },
+    {
+      "path": "lease",
+      "label": "A 프로세스는 중단을 실패로 세지 않음(exit 0)",
+      "ok": true
+    },
+    {
+      "path": "lease",
+      "label": "원래 Run 은 대체됐고 Verdict 는 B 의 run",
+      "ok": true
+    },
+    {
+      "path": "lease",
+      "label": "Cycle verified, passed-flaky",
+      "ok": true
+    },
+    {
+      "path": "cancel",
+      "label": "A 는 SIGTERM 으로 run 을 중단(코드 5)하고 exit 0",
+      "ok": true
+    },
+    {
+      "path": "cancel",
+      "label": "원래 Run 은 cancelled 로 남고 취소 대체(replaceReason cancelled, abandonedAt 없음)",
+      "ok": true
+    },
+    {
+      "path": "cancel",
+      "label": "retryLimit 0 인데도 B 가 끝내 verified, retriesUsed 0",
+      "ok": true
+    }
+  ],
+  "result": "RETRY-E2E OK"
+}

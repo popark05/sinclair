@@ -39,7 +39,7 @@ $S/spool-resume.sh $RUN      # RUN exit=0 spool=[…jsonl …meta.json] → RESU
 $S/daemon.sh $RUN            # DAEMON … state=finished verdict=verified leases=node-a,node-b exits=0,0
 $S/fleet.sh $RUN             # Fleet(자체 control-plane, TTL 2초): fake 데몬 2개 → idle → 느린 Run 중 leased → 끝나면 idle → 하나 SIGKILL → offline
 $S/fleet-e2e.sh $RUN         # Fleet 종단(자체 control-plane, TTL 2초): 데몬 2개·기기 4대·조건 타깃 → FLEET-E2E OK checks=11/11 (약 15~40초)
-$S/retry-e2e.sh $RUN         # 재시도 정책 종단(자체 control-plane, TTL 2초): kill·limit·lease·cancel 네 경로 → RETRY-E2E OK checks=13/13 (약 1분)
+$S/retry-e2e.sh $RUN         # 재시도 정책 종단(자체 control-plane, TTL 2초): kill·remaining·limit·lease·cancel 다섯 경로 → RETRY-E2E OK checks=17/17 (약 1분 반)
 ```
 
 - 기본 테스트 디렉터리는 `apps/runner-agent/test/fixtures/only-login`(통과 1). `apps/runner-agent/test/fixtures`(통과 1 + 실패 1)를 주면 exit=1, verdict=blocked 가 정상이다.
@@ -69,7 +69,7 @@ $I/stop.sh $RUN
 | `scripts/run-fake.sh <RUN> [cycleId] [tests-dir]` | Cycle 생성 → `sinclair-agent run --engine fake` → 증거 |
 | `scripts/spool-resume.sh <RUN>` | 서버 내린 채 run → 스풀 → 같은 포트 재기동 → `resume` → 증거 |
 | `scripts/daemon.sh <RUN>` | Cycle(타깃 2) + 데몬 2개(bin) → finished/verified → SIGTERM 종료 → 증거 |
-| `scripts/retry-e2e.sh <RUN> [ttl]` | 재시도 정책 세 경로(강제 종료·한도 초과·lease 상실) → `04-e2e-latest.json` |
+| `scripts/retry-e2e.sh <RUN> [ttl]` | 재시도 정책 다섯 경로(강제 종료·끝난 케이스 건너뛰기·한도 초과·lease 상실·취소) → `04-e2e-latest.json` |
 | `scripts/fleet.sh <RUN> [ttl]` | Fleet 인벤토리: 노드 2개 보고 → idle, 하나 죽이면 offline |
 | `scripts/fleet-e2e.sh <RUN> [ttl]` | Fleet 종단 두 단계(동시 채우기·잠긴 기기, 노드 사망 → 다른 노드 대체) → `06-e2e-latest.json` |
 | `scripts/hb-proxy.mjs` | heartbeat 만 끊는 프록시(retry-e2e 가 씀) |

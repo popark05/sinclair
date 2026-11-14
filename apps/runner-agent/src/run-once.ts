@@ -102,7 +102,7 @@ export async function executeRun(args: RunArgs, run: RegisteredRun, files: strin
       ...(flushBudgetMs !== undefined ? { reporterFlushTimeoutMs: flushBudgetMs } : {}),
       ...(handle.deviceId ? { deviceId: handle.deviceId } : {}), artifactsDir,
       // 녹화 캐시: control-plane 공유 저장. 기본 read-write
-      ...((args.cache ?? 'read-write') !== 'off' ? { cache: { store: createHttpCacheStore(args.controlPlane), mode: args.cache ?? 'read-write' } } : {}), ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}), ...(args.retries !== undefined ? { retries: args.retries } : {}), ...(deps.signal ? { signal: deps.signal } : {}),
+      ...((args.cache ?? 'read-write') !== 'off' ? { cache: { store: createHttpCacheStore(args.controlPlane), mode: args.cache ?? 'read-write' } } : {}), ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}), ...(args.retries !== undefined ? { retries: args.retries } : {}), ...(args.skipTests?.length ? { skipTests: args.skipTests } : {}), ...(deps.signal ? { signal: deps.signal } : {}),
     });
     const s = report.summary;
     const stats = (reporter as { stats?: { sent: number; accepted: number; duplicate: number; rejected: number; retries: number } }).stats;

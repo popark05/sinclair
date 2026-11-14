@@ -55,6 +55,32 @@ describe('runDaemon', () => {
     expect(v.matrix['첫 시도에만 실패한다']!.android).toMatchObject({ verdict: 'passed-flaky' });
   });
 
+  it('대체 Run 은 앞 Run 에서 결과가 확정된 케이스를 건너뛴다(클레임의 skipTests): 남은 케이스만 돌고 Cycle 은 앞 Run 결과를 이어받아 verified', async () => {
+    await post('/cycles', { cycleId: 'cr', build: 'b', targets: ['android'], suite: { tests: path.join(fixtures, 'three') } });
+    await post('/cycles/cr/runs', { targetId: 'android', runId: 'r0' });
+    // 다른 노드가 클레임해 첫째를 끝낸 뒤 취소됨(종료 신호): 대체 Run 이 생긴다
+    const claimed = await (await post('/runs/claim', { targetId: 'android', agentId: 'gone', devices: ['fake'] })).json() as { run: { runId: string } };
+    const runId = claimed.run.runId;
+    const at = new Date().toISOString();
+    const ev = (eventId: string, e: object) => ({ schema: 1, eventId, runId, at, ...e });
+    await post('/ingest', [
+      ev('s', { type: 'run.started', cycleId: 'cr', targetId: 'android', deviceId: 'fake', agentId: 'gone' }),
+      ev('a1', { type: 'attempt.started', attemptId: 'x1', testId: '첫째', attemptNo: 1 }),
+      ev('f1', { type: 'attempt.finished', attemptId: 'x1', result: 'passed', artifacts: [] }),
+      ev('a2', { type: 'attempt.started', attemptId: 'x2', testId: '둘째', attemptNo: 1 }),
+      ev('f2', { type: 'attempt.finished', attemptId: 'x2', result: 'skipped', errorCode: 'cancelled', artifacts: [] }),
+      ev('e', { type: 'run.finished', state: 'cancelled' }),
+    ]);
+    const r = await runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'node-r', pollMs: 10 }, deps({ maxRuns: 1 }));
+    expect(r.runs).toEqual([{ runId: `retry:${runId}`, targetId: 'android', exitCode: EXIT.ok }]);
+    expect(logs.join('\n')).toMatch(/확정 케이스 1개 건너뜀/);
+    const v = await view('cr');
+    expect(v).toMatchObject({ state: 'finished', verdict: 'verified' });
+    expect(Object.fromEntries(Object.entries(v.matrix).map(([t, row]) => [t, row.android?.verdict]))).toEqual({ 첫째: 'passed', 둘째: 'passed', 셋째: 'passed' });
+    const rep = (await (await fetch(`${url}/runs/${encodeURIComponent(`retry:${runId}`)}`)).json()) as { attempts: Array<{ testId: string }> };
+    expect(rep.attempts.map((a) => a.testId)).toEqual(['둘째', '셋째']); // 첫째는 다시 돌지 않았다
+  });
+
   it('실패한 run 뒤에도 다음 Run 을 계속 가져가고, 대기 중인 Run 이 없으면 폴링하다가 신호에 멈춘다', async () => {
     await post('/cycles', { cycleId: 'c2', build: 'b', targets: ['android'], suite: { tests: fixtures } }); // 통과 1 + 실패 1
     await post('/cycles/c2/runs', { targetId: 'android', runId: 'r-first' });

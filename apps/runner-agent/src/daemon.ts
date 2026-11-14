@@ -24,7 +24,7 @@ export interface DaemonArgs extends Omit<RunArgs, 'cycle' | 'target' | 'run'> {
   fakeDevices?: string;
 }
 
-export interface ClaimedRun { run: RegisteredRun & { lease: { agentId: string; expiresAt: string; deviceId?: string } }; leaseTtlMs: number; suite?: { tests: string; tags?: string[]; retries?: number }; warning?: string }
+export interface ClaimedRun { run: RegisteredRun & { lease: { agentId: string; expiresAt: string; deviceId?: string } }; leaseTtlMs: number; suite?: { tests: string; tags?: string[]; retries?: number }; /** 대체 Run: 앞 Run 에서 결과가 확정돼 건너뛸 testId */ skipTests?: string[]; warning?: string }
 
 export interface DaemonDeps extends RunOnceDeps {
   /** 중단 신호. abort 되면 진행 중 run 에 취소를 전파해 진행 중 테스트 하나만 마치고(나머지 skipped, run cancelled) 루프를 나온다 */
@@ -242,7 +242,8 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
       const testsDir = path.resolve(claimed.suite?.tests ?? args.tests);
       // Cycle 이 정한 재시도 횟수가 노드 설정보다 우선한다(QA 담당자가 Cycle 단위로 정책을 고른다)
       const retries = claimed.suite?.retries ?? args.retries;
-      log(`run ${run.runId} 클레임 (cycle ${run.cycleId}, target ${targetId}${leasedDevice ? `, 기기 …${leasedDevice.slice(-4)}` : ''}, tests ${testsDir}${retries !== undefined ? `, retries ${retries}` : ''})`);
+      const skipTests = Array.isArray(claimed.skipTests) ? claimed.skipTests.filter((t): t is string => typeof t === 'string') : [];
+      log(`run ${run.runId} 클레임 (cycle ${run.cycleId}, target ${targetId}${leasedDevice ? `, 기기 …${leasedDevice.slice(-4)}` : ''}, tests ${testsDir}${retries !== undefined ? `, retries ${retries}` : ''}${skipTests.length ? `, 앞 Run 에서 확정 케이스 ${skipTests.length}개 건너뜀` : ''})`);
       // 동시에 여러 run 이 돌면 로그가 섞이므로 워커 모드에서는 run 을 앞에 붙인다
       const runLog = workerMode ? (l: string): void => log(`[run …${run.runId.slice(-8)}] ${l}`) : log;
 
@@ -266,7 +267,7 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
       try {
         const files = await collectTestFiles(testsDir);
         const { targets: _targets, pollMs: _poll, concurrency: _c, fakeDevices: _f, ...runArgs } = args; // RunArgs 에 데몬 전용 필드가 섞이지 않게
-        const fullArgs: RunArgs = { ...runArgs, cycle: run.cycleId, target: targetId, run: run.runId, tests: testsDir, ...(retries !== undefined ? { retries } : {}), ...(leasedDevice ? { device: leasedDevice } : {}) };
+        const fullArgs: RunArgs = { ...runArgs, cycle: run.cycleId, target: targetId, run: run.runId, tests: testsDir, ...(retries !== undefined ? { retries } : {}), ...(skipTests.length ? { skipTests } : {}), ...(leasedDevice ? { device: leasedDevice } : {}) };
         if (!workerMode) code = await executeRun(fullArgs, run, files, { ...runDeps, signal: canceller.signal, log: runLog });
         else {
           // mobile: 데몬이 기기를 준비하고(USB 는 데몬만) 워커에는 디바이스 RPC 주소만 준다. 준비가 실패하면 같은 프로세스에서 blocked 로 보고한다(테스트는 돌지 않는다)

@@ -25,6 +25,8 @@ export interface RunArgs {
   timeoutMs?: number;
   /** failed 테스트 재시도 횟수(0~5). 데몬은 Cycle 의 suite.retries 가 있으면 그것을 우선한다 */
   retries?: number;
+  /** 데몬 전용(CLI 옵션 아님): 대체 Run 이 건너뛸, 앞 Run 에서 결과가 확정된 testId(클레임의 skipTests) */
+  skipTests?: string[];
   /** 이 노드의 식별자(run.started.agentId). 기본 호스트명 */
   agent?: string;
   /** 스풀 디렉터리(이벤트를 먼저 쓰는 곳). 기본 OS 데이터 디렉터리/sinclair/spool */
