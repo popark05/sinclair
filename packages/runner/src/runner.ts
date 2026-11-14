@@ -116,6 +116,9 @@ export class CacheReplayError extends Error {
 }
 
 export class AgentActError extends Error {}
+/** 에이전트가 blocked 로 멈춤: 사람만 할 단계(본인인증 등) — 테스트 판정이 아니라 돌지 못한 것(blocked) */
+export class AgentBlockedError extends Error { override name = 'AgentBlockedError'; }
+export const AGENT_BLOCKED_CODE = 'agent-blocked';
 /** 취소로 시작하지 못한 테스트의 skipped attempt 에 붙는 errorCode. control-plane Verdict 가 이것만 blocked 로 본다(같은 문자열을 따로 둔다) */
 export const CANCELLED_CODE = 'cancelled';
 /** Reporter 가 원격 전송일 때 마지막 이벤트들의 왕복을 기다릴 여유. 로컬 Reporter 는 즉시 끝난다 */
@@ -249,7 +252,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
     emit({ ...base(), type: 'attempt.started', attemptId, testId: tc.name, attemptNo });
 
     const finish = (result: AttemptResult, error?: Error, cache?: TestResult['cache']): TestResult => {
-      const errorCode = cancelledSkip ? CANCELLED_CODE : error instanceof EngineError ? error.code : error instanceof AssertionError ? 'assertion' : error instanceof CacheReplayError ? error.code : error instanceof AgentActError ? 'agent' : error instanceof ModelConfigError ? AGENT_CONFIG_CODE : error instanceof SecretMissingError ? SECRET_MISSING_CODE : error ? 'error' : undefined;
+      const errorCode = cancelledSkip ? CANCELLED_CODE : error instanceof EngineError ? error.code : error instanceof AssertionError ? 'assertion' : error instanceof CacheReplayError ? error.code : error instanceof AgentBlockedError ? AGENT_BLOCKED_CODE : error instanceof AgentActError ? 'agent' : error instanceof ModelConfigError ? AGENT_CONFIG_CODE : error instanceof SecretMissingError ? SECRET_MISSING_CODE : error ? 'error' : undefined;
       emit({ ...base(), type: 'attempt.finished', attemptId, result, ...(errorCode ? { errorCode } : {}), artifacts });
       return {
         name: tc.name, file, result, attempts: attemptNo, durationMs: Date.now() - started, steps, artifacts,
@@ -287,7 +290,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
         if (s.stepIndex >= lastVerified) continue;
         try { await options.cache!.store.write(s.key, s.entry); saved++; savedKeys.add(s.key); } catch (err) { attemptWarnings.push(`녹화 캐시 저장 실패: ${errorMessage(err)}`); }
       }
-      const infra = error instanceof ModelConfigError || error instanceof SecretMissingError || (error instanceof EngineError && (error.code === 'device-unavailable' || error.code === 'engine-closed'));
+      const infra = error instanceof ModelConfigError || error instanceof SecretMissingError || error instanceof AgentBlockedError || (error instanceof EngineError && (error.code === 'device-unavailable' || error.code === 'engine-closed'));
       if (error && !infra) {
         for (const c of consumed) {
           if (c.stepIndex < lastVerified || savedKeys.has(c.key)) continue;
@@ -418,6 +421,11 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
               staged.push({ stepIndex: steps.length - 1, key, entry });
             }
           }
+          if (!r.ok && r.blocked) {
+            // 목표에 없는 비밀값이 필요하다: 값을 넣는 방법을 알려 준다(지어낸 값으로 진행하지 않았다)
+            if (r.blocked.secret) throw new SecretMissingError(`agent.act ${JSON.stringify(goal)}: 비밀값 ${r.blocked.secret} 이 필요함(${r.blocked.reason}) — 목표에 \${secret('${r.blocked.secret}')} 로 주고 ${SECRET_ENV_PREFIX}${r.blocked.secret} 에 값을 넣는다`);
+            throw new AgentBlockedError(`agent.act ${JSON.stringify(goal)} ${r.reason}`);
+          }
           if (!r.ok) throw new AgentActError(`agent.act ${JSON.stringify(goal)} 실패: ${r.reason}`);
         },
         assert: (statement) => judgeStep('assert', 'agent.assert', statement, (executor) => judgeAssert(engine, statement, { executor, secrets: secretBox, pii: pii ?? false })).then(() => undefined),
@@ -444,7 +452,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
       const error = e instanceof Error ? e : new Error(String(e));
       // 기기가 없거나 모델 실행기 설정이 틀렸으면 테스트 판정이 아니다(재시도해도 같다)
       const deviceGone = error instanceof EngineError && error.code === 'device-unavailable';
-      const blocked = deviceGone || error instanceof ModelConfigError || error instanceof SecretMissingError;
+      const blocked = deviceGone || error instanceof ModelConfigError || error instanceof SecretMissingError || error instanceof AgentBlockedError;
       await capture(attemptId).catch((err: unknown) => attemptWarnings.push(`아티팩트 저장 실패: ${errorMessage(err)}`));
       // 실패한 시도가 남긴 앱 상태를 바로 버린다(재시도·다음 테스트·마지막 테스트 모두). 기기가 없으면 restart 도 안 되므로 건너뛴다
       if (!deviceGone) await session('restart').catch((err: unknown) => attemptWarnings.push(`restart 실패: ${errorMessage(err)}`));

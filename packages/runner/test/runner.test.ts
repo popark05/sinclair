@@ -481,6 +481,25 @@ describe('비밀값 secret()', () => {
   });
 });
 
+describe('앱 중간 비밀값(agent-secrets 02)', () => {
+  const keypad = (entered: number): SemanticNode => ({ ref: '@r', role: 'root', children: [
+    { ref: '@t', role: 'text', text: `간편비밀번호 ${'●'.repeat(entered)}` },
+    ...'1234567890'.split('').map((d, i) => ({ ref: `@k${i}`, role: 'button', name: d })),
+  ] });
+  it('act 의 blocked: 비밀값 이름이 있으면 secret-missing, 없으면 agent-blocked(둘 다 blocked); tapKeys 는 값을 누르고 기록에는 자리표시만', async () => {
+    let typed = '';
+    const engine = new FakeEngine({ root: keypad(0), onTap: (n) => { typed += n.name ?? ''; return typed.length === 4 ? { ref: '@r', role: 'root', children: [{ ref: '@d', role: 'text', text: '문 열림 전송 완료' }] } : keypad(typed.length); } });
+    const exec = scriptedExecutor([{ name: 'blocked', input: { reason: '간편비밀번호 입력 화면', secret: 'SIMPLE_PIN' } }, { name: 'blocked', input: { reason: '휴대폰 본인인증', secret: '' } }]);
+    const report = await runTests([fixture('agent-pin.sinclair.ts')], { engine, timeoutMs: 500, agent: { executor: exec }, secrets: { get: (n) => (n === 'SIMPLE_PIN' ? '2580' : undefined) } });
+    vexpect(report.tests.map((t) => [t.result, t.errorCode])).toEqual([['blocked', 'secret-missing'], ['blocked', 'agent-blocked'], ['passed', undefined]]);
+    vexpect(report.tests[0]!.error).toMatch(/SIMPLE_PIN.*secret\('SIMPLE_PIN'\)/);
+    vexpect(report.tests[1]!.error).toMatch(/막힘: 휴대폰 본인인증/);
+    vexpect(typed).toBe('2580');
+    vexpect(JSON.stringify(report)).not.toContain('2580');
+    vexpect(report.tests[2]!.steps[0]!.instruction).toMatch(/tapKeys.*secret:SIMPLE_PIN/);
+  });
+});
+
 describe('비밀값 · 리뷰 반영(직렬화·범위)', () => {
   function plainPasswordApp(): FakeEngine {
     const root: SemanticNode = structuredClone(LOGIN_SCREEN);

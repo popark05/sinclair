@@ -2,6 +2,7 @@
 // lazy 질의, 호출마다 재조회, strict(정확히 하나), 기한 내 자동 대기, secure 읽기 거부. 엔진 내부는 보지 않는다.
 import { EngineError, type Engine, type LocatorQuery, type NodeAction, type SemanticNode, type StepUsage, type CacheDecision } from '@sinclair/protocol';
 import { summarize } from './summary.ts';
+import { tapKeys as tapKeysOn } from '@sinclair/agent';
 
 export interface ScreenOptions {
   /** 액션·읽기가 요소를 기다리는 상한(ms). 기본 10초: 모바일 화면 전환은 보통 1~3초, 콜드 스타트·네트워크 로딩은 그 이상 */
@@ -61,6 +62,8 @@ export interface Screen {
   getByPlaceholder(placeholder: string): Locator;
   /** 접근성 이름(name)으로 */
   getByLabel(label: string | RegExp, options?: TextOptions): Locator;
+  /** 키패드에 글자를 누른다: 글자마다 화면을 다시 보고 그 글자가 이름·글자인 키를 탭(섞이는 보안 키패드도). 보통 secret('PIN') 을 준다 — 기록에는 자리표시만 */
+  tapKeys(text: string): Promise<void>;
 }
 
 function describeQuery(q: LocatorQuery): string {
@@ -198,5 +201,16 @@ export function createScreen(engine: Engine, options: ScreenOptions = {}): Scree
     getByTestId: (testId) => make({ query: { testId } }),
     getByPlaceholder: (placeholder) => make({ query: { placeholder } }),
     getByLabel: (label, o) => make({ query: withExact({ name: label }, o) }),
+    async tapKeys(text) {
+      const started = Date.now();
+      const instruction = `tapKeys(${JSON.stringify(text)})`; // secret() 이면 자리표시라 값이 남지 않는다
+      try {
+        await tapKeysOn(engine, options.reveal ? options.reveal(text) : text);
+        options.onStep?.({ kind: 'locator', instruction, durationMs: Date.now() - started });
+      } catch (e) {
+        options.onStep?.({ kind: 'locator', instruction, durationMs: Date.now() - started, error: e instanceof Error ? e.message : String(e) });
+        throw e;
+      }
+    },
   };
 }
