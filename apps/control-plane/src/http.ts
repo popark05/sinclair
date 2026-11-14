@@ -22,6 +22,7 @@
 //   GET|PUT|DELETE /cache/:key → 녹화 캐시 항목(recording-cache 05): GET 200 | 404, PUT 204 | 400(키·항목 검증), DELETE 204. 노드들이 공유한다
 //   DELETE /fleet/nodes/:agentId → 204 | 404 | 409 node-online — offline 노드 기록 삭제(다시 보고하면 새로 나타난다)
 //   GET  /health             200
+import { createOpenRequestStore, parseOpenRequest } from './studio-open.ts';
 import http from 'node:http';
 import * as fs from 'node:fs/promises';
 import * as nodePath from 'node:path';
@@ -134,6 +135,7 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
     res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
   };
   /** 본문을 JSON 으로 읽는다. 상한을 넘으면 413 을 보내고 undefined, 파싱 실패면 400 을 보내고 undefined */
+  const openRequests = createOpenRequestStore(opts.now ?? Date.now);
   const readJson = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<{ body: unknown } | undefined> => {
     const limit = opts.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
     const chunks: Buffer[] = [];
@@ -407,6 +409,24 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         const result = await fleet.deleteNode(parts[2]!, notReportedFor(nodeTtlMs()));
         if (result === 'no-node') return json(res, 404, { error: '모르는 노드', code: 'node-not-found' });
         if (result === 'recent') return json(res, 409, { error: '보고 중인(online) 노드는 지울 수 없음 — 데몬을 멈춘 뒤 지운다', code: 'node-online' });
+        res.writeHead(204).end();
+        return;
+      }
+      // Console → Studio 열기 요청(studio-console 05)
+      if (req.method === 'POST' && url.pathname === '/studio/open-requests') {
+        const read = await readJson(req, res);
+        if (!read) return;
+        const parsed = parseOpenRequest(read.body);
+        if (!parsed.ok) return json(res, 400, { error: '열기 요청이 올바르지 않음', errors: parsed.errors });
+        return json(res, 201, { id: openRequests.add(parsed.value).id });
+      }
+      if (req.method === 'GET' && url.pathname === '/studio/open-requests') {
+        const devices = (url.searchParams.get('devices') ?? '').split(',').map((d) => d.trim()).filter(Boolean);
+        if (!devices.length) return json(res, 400, { error: 'devices(쉼표로 구분한 기기 id)가 필요함' });
+        return json(res, 200, { requests: openRequests.list(devices) });
+      }
+      if (req.method === 'POST' && parts[0] === 'studio' && parts[1] === 'open-requests' && parts.length === 4 && parts[3] === 'ack') {
+        if (!openRequests.ack(parts[2]!)) return json(res, 404, { error: '모르는 열기 요청', code: 'open-request-not-found' });
         res.writeHead(204).end();
         return;
       }

@@ -1,12 +1,19 @@
 // 케이스 상세(공유 링크 /console/cycles/:id/cases/:test/:target): 그 타깃의 Run 들(대체된 Run 포함)에서 그 테스트의 시도를 시간 순으로,
 // 시도마다 결과·errorCode·소요 시간·스텝(종류·instruction·시간·모델 호출·토큰, 실패·안전망·Incident 표지)·아티팩트 키, 실패면 그 Issue 링크.
+import { useState } from 'react';
 import { ApiError, type Api, type RunView } from '../api.ts';
 import { Badge, Failure, Link, useLoad } from '../components.tsx';
 import { ISSUE_CYCLES } from './IssuesPage.tsx';
 import { CELL_LABEL, type CellKind, type Tone } from '../labels.ts';
 import { cycleHref, href } from '../route.ts';
 
-type Attempt = RunView['attempts'][number] & { runId: string; replaced: boolean };
+type Attempt = RunView['attempts'][number] & { runId: string; replaced: boolean; deviceId?: string };
+
+/** act 스텝 instruction(`act "목표" → …`)의 목표 */
+export function actGoal(instruction: string): string | undefined {
+  const m = /^act ("(?:[^"\\]|\\.)*")/.exec(instruction);
+  try { return m ? (JSON.parse(m[1]!) as string) : undefined; } catch { return undefined; }
+}
 type Step = Attempt['steps'][number];
 
 const RESULT: Record<string, [string, Tone]> = { passed: ['통과', 'good'], failed: ['실패', 'bad'], blocked: ['막힘', 'warn'], skipped: ['건너뜀', 'neutral'] };
@@ -29,7 +36,7 @@ export function CaseView({ api, cycleId, testId, targetId }: { api: Api; cycleId
       if (err instanceof ApiError && err.status === 404) return undefined;
       throw err;
     })))).filter((x) => x !== undefined);
-    const attempts: Attempt[] = views.flatMap(({ v, replaced }) => v.attempts.filter((a) => a.testId === testId).map((a) => ({ ...a, runId: v.runId, replaced })));
+    const attempts: Attempt[] = views.flatMap(({ v, replaced }) => v.attempts.filter((a) => a.testId === testId).map((a) => ({ ...a, runId: v.runId, replaced, ...(v.deviceId ? { deviceId: v.deviceId } : {}) })));
     attempts.sort((a, b) => (a.startedAt ?? '').localeCompare(b.startedAt ?? '') || (a.attemptNo ?? 0) - (b.attemptNo ?? 0));
     const cell = cycle.matrix[testId]?.[targetId];
     return { cycle, attempts, kind: (cell?.verdict ?? 'pending') as CellKind };
@@ -50,6 +57,7 @@ export function CaseView({ api, cycleId, testId, targetId }: { api: Api; cycleId
         <p className="muted"><Link to={cycleHref(cycleId)}>{cycle.build}</Link> · {cycleId}</p>
         <h1>{testId}</h1> <span className="muted">{targetId}</span> <span className={`cell cell-${kind} chip`}>{CELL_LABEL[kind]}</span>
         {' '}<Link to={`${href('/tests')}?testId=${encodeURIComponent(testId)}`}>이 테스트의 이력</Link>
+        <OpenInStudio api={api} attempts={attempts} cycleId={cycleId} testId={testId} targetId={targetId} />
       </header>
       {attempts.length === 0 ? <p className="muted">이 케이스의 시도가 아직 없음</p> : attempts.map((a) => <AttemptPanel key={`${a.runId}/${a.attemptId}`} a={a} api={api} issueId={issueOf(a)} />)}
     </>
@@ -106,4 +114,19 @@ function StepRow({ s }: { s: Step }) {
       <td className="mono">{s.usage ? `${n(s.usage.inputTokens)} / ${n(s.usage.outputTokens)} / ${n(s.usage.cacheReadTokens)}` : ''}</td>
     </tr>
   );
+}
+
+/** Studio 에서 열기(studio-console 05): 마지막 시도의 기기와 act 목표로 control-plane 에 열기 요청 — 그 기기가 연결된 Studio 가 기기를 고르고 목표를 채운다(실행은 사람이) */
+function OpenInStudio({ api, attempts, cycleId, testId, targetId }: { api: Api; attempts: Attempt[]; cycleId: string; testId: string; targetId: string }) {
+  const [note, setNote] = useState('');
+  const last = [...attempts].reverse().find((a) => a.deviceId);
+  if (!last?.deviceId) return null;
+  const goal = [...attempts].reverse().flatMap((a) => a.steps.filter((s) => s.kind === 'act').map((s) => actGoal(s.instruction ?? ''))).find((g) => g);
+  const send = async (): Promise<void> => {
+    try {
+      await api.openInStudio({ deviceId: last.deviceId!, ...(goal ? { goal } : {}), from: { cycleId, testId, targetId } });
+      setNote(`Studio 에 보냄 — 기기 …${last.deviceId!.slice(-4)} 가 연결된 Studio 에서 열린다(10분 안)`);
+    } catch (err) { setNote(`보내지 못함: ${err instanceof Error ? err.message : String(err)}`); }
+  };
+  return <> <button type="button" className="button" onClick={() => void send()}>Studio 에서 열기</button>{note ? <span className="muted"> {note}</span> : null}</>;
 }

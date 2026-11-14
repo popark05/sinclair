@@ -10,6 +10,8 @@ export class ApiError extends Error {
   constructor(message: string, readonly status?: number) { super(message); }
 }
 
+export interface StudioOpenRequest { deviceId: string; goal?: string; app?: string; from?: { cycleId?: string; testId?: string; targetId?: string } }
+
 export interface Api {
   cycleSummaries(limit?: number): Promise<CycleSummary[]>;
   cycle(cycleId: string): Promise<CycleViewWithWarnings>;
@@ -21,6 +23,8 @@ export interface Api {
   history(opts: { limit: number; testId?: string }): Promise<HistoryView>;
   issues(limit: number): Promise<IssueView[]>;
   triage(id: string, patch: TriagePatch): Promise<object>;
+  /** Console → Studio 열기 요청(studio-console 05): 그 기기가 연결된 Studio 가 기기를 고르고 목표를 채운다 */
+  openInStudio(req: StudioOpenRequest): Promise<{ id: string }>;
   /** 아티팩트(스크린샷·화면 트리) 주소 — 그림·링크로 바로 쓴다 */
   artifactUrl(runId: string, key: string): string;
 }
@@ -50,6 +54,7 @@ export function createApi(baseUrl = '', fetchImpl: typeof fetch = (...a) => fetc
     deleteNode: (agentId) => get(`/fleet/nodes/${id(agentId)}`, { method: 'DELETE' }),
     usage: (cycleId) => get(`/cycles/${id(cycleId)}/usage`),
     issues: (limit) => get(`/issues?limit=${limit}`),
+    openInStudio: (r) => get('/studio/open-requests', { method: 'POST', body: JSON.stringify(r) }),
     triage: (issueId, patch) => get(`/issues/${id(issueId)}`, { method: 'PUT', body: JSON.stringify(patch) }),
     artifactUrl: (runId, key) => `${baseUrl}/artifacts/${id(runId)}/${id(key)}`,
     history: ({ limit, testId }) => get(`/tests/history?limit=${limit}${testId ? `&testId=${id(testId)}` : ''}`),

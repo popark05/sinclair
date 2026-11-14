@@ -69,6 +69,17 @@ describe('CaseView · Issue 링크', () => {
   });
 });
 
+describe('CaseView · Studio 에서 열기(studio-console 05)', () => {
+  it('마지막 시도의 기기·act 목표로 control-plane 에 열기 요청을 남기고 알린다', async () => {
+    const sent: unknown[] = [];
+    render(<CaseView api={{ ...api, openInStudio: async (r) => { sent.push(r); return { id: 'req-1' }; } }} cycleId="c1" testId={T} targetId="android" />);
+    const btn = await screen.findByRole('button', { name: 'Studio 에서 열기' });
+    btn.click();
+    expect(await screen.findByText(/Studio 에 보냄/)).toBeTruthy();
+    expect(sent).toEqual([{ deviceId: 'R3CN30ABCDXLZW', goal: '로그인', from: { cycleId: 'c1', testId: T, targetId: 'android' } }]);
+  });
+});
+
 describe('CaseView · 리뷰 반영', () => {
   it('이벤트가 아직 없는 대기 Run(대체 Run 이 막 등록됨)이 있어도 다른 Run 의 시도를 보인다', async () => {
     const withQueued = { ...cycle, runs: [...cycle.runs, { runId: 'retry:r1', targetId: 'android', state: 'queued' as const, replaces: 'r1' }] };

@@ -6,5 +6,6 @@ export const STUBS = {
   issues: async () => [],
   triage: async (id: string, patch: object) => ({ id, ...patch }),
   deleteNode: async () => undefined,
+  openInStudio: async () => ({ id: 'req-1' }),
   artifactUrl: (runId: string, key: string) => `/artifacts/${encodeURIComponent(runId)}/${encodeURIComponent(key)}`,
 };
