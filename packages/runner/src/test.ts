@@ -6,7 +6,7 @@ import type { Locator } from './screen.ts';
 
 /** 테스트 fn 이 받는 fixture. app 은 엔진의 session capability, expect 는 스텝이 기록되는 판정 */
 export interface Fixtures {
-  app: { open(target?: string): Promise<void>; back(): Promise<void>; restart(): Promise<void> };
+  app: { open(target?: string): Promise<void>; back(): Promise<void>; /** 앱(없으면 엔진의 기본 앱)을 종료하고 다시 띄워 처음 화면에서 시작 */ restart(target?: string): Promise<void> };
   screen: Screen;
   expect: (locator: Locator, options?: ExpectOptions) => LocatorAssertions;
   /** 비밀값 자리표시({{secret:이름}})를 돌려준다. 값은 agent.act 목표나 screen 의 type 에 넣으면 러너가 입력 순간에만 바꾼다.

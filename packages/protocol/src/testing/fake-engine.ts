@@ -123,7 +123,7 @@ export class FakeEngine implements Engine {
   readonly session = {
     open: async (target?: string): Promise<void> => { this.assertOpen(); this.sessionCalls.push('open'); this.sessionTarget = target; this.root = this.screenFor(target); },
     back: async (): Promise<void> => { this.assertOpen(); this.sessionCalls.push('back'); this.root = this.screenFor(this.sessionTarget); },
-    restart: async (): Promise<void> => { this.assertOpen(); this.sessionCalls.push('restart'); this.root = this.screenFor(this.sessionTarget); },
+    restart: async (target?: string): Promise<void> => { this.assertOpen(); this.sessionCalls.push('restart'); if (target !== undefined) this.sessionTarget = target; this.root = this.screenFor(this.sessionTarget); },
     reset: async (): Promise<void> => { this.assertOpen(); this.sessionCalls.push('reset'); this.root = this.screenFor(this.sessionTarget); },
   };
 

@@ -330,7 +330,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
       app: {
         open: (target) => session('open', target),
         back: () => session('back'),
-        restart: () => session('restart'),
+        restart: (target?: string) => session('restart', target),
       },
       screen,
       expect: (locator, o) => makeExpect(locator, { timeoutMs: timeoutMs / 2, ...o, onStep }),
@@ -449,9 +449,9 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
       if (!engine.session) throw new EngineError('unsupported-action', `엔진 ${engine.name} 은 session capability 가 없다`);
       if (kind === 'open') await engine.session.open(target);
       else if (kind === 'back') await engine.session.back();
-      else await engine.session.restart().catch((err: unknown) => {
+      else await engine.session.restart(target).catch((err: unknown) => {
         // appId 없는 엔진은 restart 가 unsupported-action: 처음 화면을 다시 여는 것으로 대신한다
-        if (err instanceof EngineError && err.code === 'unsupported-action') return engine.session!.open();
+        if (err instanceof EngineError && err.code === 'unsupported-action') return engine.session!.open(target);
         throw err;
       });
     }

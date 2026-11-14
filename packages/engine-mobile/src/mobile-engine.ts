@@ -319,12 +319,13 @@ export function createMobileEngine(rpc: DeviceRpc, options: MobileEngineOptions)
         else { await button('home'); await settleAfter(before); }
       },
       back: async () => { assertOpen(); const before = await dump(); await button('back'); await settleAfter(before); },
-      restart: async () => {
+      restart: async (target) => {
         assertOpen();
-        if (!options.appId) throw new EngineError('unsupported-action', 'restart 에는 appId 가 필요하다');
-        await call('device.apps.terminate', { deviceId, appId: options.appId });
+        const appId = target ?? options.appId;
+        if (!appId) throw new EngineError('unsupported-action', 'restart 에는 appId 가 필요하다');
+        await call('device.apps.terminate', { deviceId, appId });
         const before = await dump(); // 종료 뒤 화면(런처 등)을 기준으로: 다시 띄운 앱이 종료 전 화면과 같아도 변화를 놓치지 않는다
-        await call('device.apps.launch', { deviceId, appId: options.appId });
+        await call('device.apps.launch', { deviceId, appId });
         await settleLaunch(before);
       },
       reset: async () => {

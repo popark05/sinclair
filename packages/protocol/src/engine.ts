@@ -60,7 +60,7 @@ export interface Engine {
     /** 화면 키보드가 떠 있는가(선택). 모르는 엔진은 구현하지 않는다 — 에이전트는 그러면 키보드를 내리는 복구를 하지 않는다(모바일의 dismiss 는 뒤로 버튼이라 키보드가 없으면 화면을 떠난다) */
     shown?(): Promise<boolean>;
   };
-  session?: { open(target?: string): Promise<void>; back(): Promise<void>; restart(): Promise<void>; reset(): Promise<void> };
+  session?: { open(target?: string): Promise<void>; back(): Promise<void>; /** target(앱 id) 을 종료하고 다시 띄운다. 없으면 엔진의 기본 앱 */ restart(target?: string): Promise<void>; reset(): Promise<void> };
   dispose?(): Promise<void>;
 }
 
