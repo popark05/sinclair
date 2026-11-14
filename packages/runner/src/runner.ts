@@ -37,6 +37,8 @@ export interface RunOptions {
   pii?: PiiFilter | false;
   /** 이벤트 수신자. 없으면 리포트의 events[] 에만 쌓인다 */
   reporter?: Reporter;
+  /** 돌지도 보고하지도 않을 테스트 이름(testId). 대체 Run 이 원래 Run 에서 이미 결과가 확정된 케이스를 건너뛸 때 — skipped 로 보고하면 확정된 결과를 덮는다 */
+  skipTests?: readonly string[];
   /** reporter.flush 와 보류 중인 onEvent 를 기다리는 기한(ms, 기본 10초). 넘기면 경고를 남기고 리포트를 돌려준다 */
   reporterFlushTimeoutMs?: number;
   /** 실패 시 스냅샷(PNG + 트리 JSON)을 쓰는 디렉터리. 없으면 아티팩트를 남기지 않는다 */
@@ -90,6 +92,8 @@ export interface RunReport {
   warnings?: string[];
   /** signal 로 중단됐을 때. reason 은 signal.reason 을 문자열로 */
   cancelled?: { reason: string };
+  /** skipTests 로 건너뛴 테스트(발견 순서) */
+  skippedSettled?: string[];
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -176,6 +180,8 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
   });
 
   const tests: TestResult[] = [];
+  const settled = new Set(options.skipTests ?? []);
+  const skippedSettled: string[] = [];
 
   for (const file of files) {
     drainRegistry();
@@ -183,6 +189,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
     // runId 는 키가 될 수 없다: 같은 runId 로 다시 돌리면(재보고·테스트) 캐시된 모듈이 돌아와 테스트가 하나도 등록되지 않는다
     await import(`${pathToFileURL(path.resolve(file)).href}?sinclair-load=${randomUUID()}`);
     for (const tc of drainRegistry()) {
+      if (settled.has(tc.name)) { skippedSettled.push(tc.name); continue; }
       tests.push(await runOne(tc, file));
     }
   }
@@ -195,7 +202,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
   emit({ ...base(), type: 'run.finished', state: cancelled ? 'cancelled' : summary.blocked > 0 ? 'infra-failed' : 'finished' });
   await flushReporter();
   // flush 기한을 넘긴 Reporter 가 나중에 경고를 더해도 리포트는 바뀌지 않도록 복사한다
-  return { runId, tests, summary, events, ...(warnings.length ? { warnings: warnings.map(hide) } : {}), ...(cancelled ? { cancelled } : {}) };
+  return { runId, tests, summary, events, ...(warnings.length ? { warnings: warnings.map(hide) } : {}), ...(cancelled ? { cancelled } : {}), ...(skippedSettled.length ? { skippedSettled } : {}) };
 
   async function flushReporter(): Promise<void> {
     if (!options.reporter) return;

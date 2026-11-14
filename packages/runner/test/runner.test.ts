@@ -121,6 +121,16 @@ describe('runTests', () => {
     vexpect([first.tests.length, again.tests.length]).toEqual([3, 3]);
   });
 
+  it('skipTests(대체 Run 의 이미 끝난 케이스)는 돌지도 보고하지도 않는다 — attempt 없음, skipped 도 아님', async () => {
+    const engine = engineWithApps();
+    const report = await runTests([fixture('three.sinclair.ts')], { engine, timeoutMs: 200, skipTests: ['첫째', '셋째', '없는 이름'] });
+    vexpect(report.tests.map((t) => [t.name, t.result])).toEqual([['둘째', 'passed']]);
+    vexpect(report.events.filter((e) => e.type === 'attempt.started').map((e) => (e as { testId: string }).testId)).toEqual(['둘째']);
+    vexpect(report.skippedSettled).toEqual(['첫째', '셋째']);
+    vexpect(report.events.at(-1)).toMatchObject({ type: 'run.finished', state: 'finished' });
+    vexpect(engine.sessionCalls).toEqual(['open']);
+  });
+
   it('run.started 는 모르는 cycleId/deviceId 를 빈 문자열로 채우지 않는다', async () => {
     const report = await runTests([fixture('sample.sinclair.ts')], { engine: engineWithApps(), timeoutMs: 200 });
     const started = report.events[0] as Extract<RunEvent, { type: 'run.started' }>;
