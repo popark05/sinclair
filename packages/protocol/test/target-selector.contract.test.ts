@@ -57,4 +57,15 @@ describe('matchesTarget', () => {
     expect(matchesTarget(dev({ osVersion: 'Baklava' }), { id: 't', platform: 'android', osVersion: { min: '13' } })).toBe(false);
     expect(matchesTarget(dev({ osVersion: 'Baklava' }), { id: 't', platform: 'android' })).toBe(true);
   });
+  it('deviceId(studio-console 02): 그 시리얼의 기기만 — Studio 에서 고른 기기에서 돈다', () => {
+    expect(matchesTarget(dev({ id: 'R3CN30ABCDXLZW' }), { id: 't', platform: 'android', deviceId: 'R3CN30ABCDXLZW' })).toBe(true);
+    expect(matchesTarget(dev({ id: 'OTHER0001' }), { id: 't', platform: 'android', deviceId: 'R3CN30ABCDXLZW' })).toBe(false);
+  });
+});
+
+describe('parseCycleTargets · deviceId', () => {
+  it('deviceId 는 비어 있지 않은 문자열', () => {
+    expect(parseCycleTargets([{ id: 'studio', platform: 'android', deviceId: 'R3CN30ABCDXLZW' }])).toMatchObject({ ok: true, selectors: { studio: { deviceId: 'R3CN30ABCDXLZW' } } });
+    expect(parseCycleTargets([{ id: 'studio', platform: 'android', deviceId: '' }])).toMatchObject({ ok: false, errors: [expect.stringMatching(/targets\[0\]\.deviceId/)] });
+  });
 });

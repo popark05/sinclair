@@ -73,6 +73,14 @@ describe('조건 타깃 (HTTP)', () => {
     expect(v.matrix['로그인']!.any).toMatchObject({ verdict: 'passed', deviceId: 'D1' });
   });
 
+  it('deviceId 조건(studio-console 02): 같은 모델의 다른 기기가 비어 있어도 그 기기만 받는다', async () => {
+    await put('n', [dev('PHONE-A', '13'), dev('PHONE-B', '13')]);
+    await post('/cycles', { cycleId: 'cd', build: 'b', targets: [{ id: 'studio', platform: 'android', deviceId: 'PHONE-B' }] });
+    await post('/cycles/cd/runs', { targetId: 'studio', runId: 'rd' });
+    expect(await claim({ agentId: 'n', devices: ['PHONE-A'] })).toBeUndefined();
+    expect(await claim({ agentId: 'n', devices: ['PHONE-A', 'PHONE-B'] })).toMatchObject({ run: { runId: 'rd', lease: { deviceId: 'PHONE-B' } } });
+  });
+
   it('targetId 를 주는 기존 클레임도 조건 타깃이면 기기가 맞아야 한다', async () => {
     await post('/cycles', { cycleId: 'c', build: 'b', targets: [{ id: 'a14', platform: 'android', osVersion: { min: '14' } }] });
     await post('/cycles/c/runs', { targetId: 'a14', runId: 'r1' });
