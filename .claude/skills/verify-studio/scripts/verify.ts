@@ -346,8 +346,7 @@ async function main(): Promise<void> {
   const fix = (code: string) => DEVICE ? code : code.replace("from '@sinclair/runner'", `from ${JSON.stringify(path.join(repo, 'packages/runner/src/index.ts'))}`);
   fs.writeFileSync(path.join(suite, '01-natural.sinclair.ts'), fix(naturalCode));
   fs.writeFileSync(path.join(suite, '02-deterministic.sinclair.ts'), fix(detCode));
-  // 리포 체크아웃의 데몬은 번들 resolve 훅이 없어 테스트 디렉터리에서 `@sinclair/runner` 를 찾는다(설치본은 훅이 번들 runner 로 넘긴다)
-  if (DEVICE) { fs.mkdirSync(path.join(suite, 'node_modules/@sinclair'), { recursive: true }); fs.symlinkSync(path.join(repo, 'packages/runner'), path.join(suite, 'node_modules/@sinclair/runner'), 'dir'); }
+  // 데몬이 테스트 파일의 `@sinclair/runner` 를 자기 runner 로 넘긴다(리포 체크아웃·설치본 모두 resolve 훅, studio-console 01) — 링크 불필요
 
   if (!DEVICE) {
     const events: RunEvent[] = [];

@@ -2,7 +2,7 @@
 // 얇은 셸: 소스가 .ts 라 --experimental-transform-types 가 필요하다. 플래그 없이 실행되면 같은 인자로 자신을 다시 띄운다.
 // 리포 체크아웃 안에서만 동작한다(설치형 번들은 패키징 티켓). Windows 는 SIGTERM 전달이 없다.
 import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as path from 'node:path';
 
 import { existsSync } from 'node:fs';
@@ -24,6 +24,9 @@ if (!hasSource && existsSync(bundle)) {
   // 부모 셸이 사라짐(SIGTERM 과 같은 코드). run 워커(__worker)는 이 처리를 하지 않는다: 워커는 데몬의 IPC 가 끊기면 스스로 곧바로 끝난다(worker.ts, exit 143)
   if (!process.env.SINCLAIR_AGENT_WORKER) process.on('disconnect', () => process.exit(143));
   process.channel?.unref(); // 채널이 이벤트 루프를 붙잡아 main 이 끝난 뒤에도 프로세스가 남지 않도록
+  // 테스트 파일의 '@sinclair/runner' 를 이 에이전트가 쓰는 runner 로(리포 밖 테스트 폴더 — Studio ~/Sinclair/tests — 에서도 풀리고 test() 레지스트리가 하나다). 번들은 cli.ts 가 같은 훅을 등록한다
+  const { register } = await import('node:module');
+  register(pathToFileURL(path.join(here, '..', 'src', 'hooks.mjs')).href, { data: { runner: import.meta.resolve('@sinclair/runner') } });
   const { main } = await import(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'main.ts'));
   process.exitCode = await main();
 }

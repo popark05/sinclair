@@ -22,7 +22,7 @@ node --experimental-transform-types --no-warnings .claude/skills/verify-studio/s
 ```
 
 - **fake**: 스크립트가 가짜 기기 서버(로그인 → 환영 화면, 실제 PNG, 탭 좌표 hit-test)를 띄워 임시 발견 파일(`SINCLAIR_DEVICE_RPC_FILE`)로 Studio 에 붙이고, 가짜 Claude API(`ANTHROPIC_BASE_URL`: count_tokens, 화면을 보고 type→tap→done, 판정은 "환영합니다" 가 보이면 참)와 메모리 control-plane 을 띄운다. 내보낸 테스트는 `runTests` + engine-mobile(같은 가짜 기기) + HTTP 녹화 저장소로 돈다.
-- **--device**: 데몬의 디바이스 RPC·실제 모델. 내보낸 테스트를 `.e2e/verify-studio-suite/` 에 쓰고 Cycle 로 등록해 **그 데몬이** 돌린다. 리포 체크아웃의 데몬은 번들 resolve 훅이 없으므로 suite 에 `node_modules/@sinclair/runner` 심볼릭 링크를 만든다(설치본은 훅이 처리).
+- **--device**: 데몬의 디바이스 RPC·실제 모델. 내보낸 테스트를 `.e2e/verify-studio-suite/` 에 쓰고 Cycle 로 등록해 **그 데몬이** 돌린다. 데몬이 테스트 파일의 `@sinclair/runner` 를 자기 runner 로 넘긴다(리포 체크아웃도 resolve 훅 — studio-console 01).
 
 ## Drive (검사 순서)
 
