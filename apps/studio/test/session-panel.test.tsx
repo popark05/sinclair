@@ -13,7 +13,7 @@ function setup(over: Partial<StudioApi> = {}, deviceId = 'SER1', appId?: string,
   const calls: string[] = [];
   const api = {
     agentStatus: async () => ({ ready: true, model: 'claude-sonnet-5-5' }),
-    startSession: async (d: string, goal: string, opts?: { restartApp?: string }) => { calls.push(`start ${d} ${goal}${opts?.restartApp ? ` restart=${opts.restartApp}` : ''}`); return { sessionId: 's1' }; },
+    startSession: async (d: string, goal: string, opts?: { restartApp?: string; secrets?: Record<string, string> }) => { calls.push(`start ${d} ${goal}${opts?.restartApp ? ` restart=${opts.restartApp}` : ''}${opts?.secrets ? ` secrets=${Object.keys(opts.secrets).join(',')}` : ''}`); return { sessionId: 's1' }; },
     stopSession: async (id: string) => { calls.push(`stop ${id}`); },
     assertNow: async (d: string, st: string) => { calls.push(`assert ${d} ${st}`); return { pass: false, reason: '설정 화면이 보인다' }; },
     onEvent: (cb: typeof listener) => { listener = cb; return () => { listener = undefined; }; },
@@ -94,6 +94,31 @@ describe('SessionPanel', () => {
     const items = within(screen.getByRole('list', { name: '판정' })).getAllByRole('listitem').map((li) => li.textContent);
     expect(items[0]).toMatch(/통과 · expect\(screen.getByText\('창신동', \{ exact: true \}\)\).toBeVisible\(\)/);
     expect(recs.at(-1)).toMatchObject({ judgments: [{ kind: 'expect', query: target.query, matcher: 'visible', pass: true }] });
+  });
+
+  it('비밀값(agent-secrets 03): 넣으면 목표에 자리표시를 덧붙이고 목록에는 이름만, 실행에 값을 넘긴다; blocked 면 사유와 이름을 채워 둔다', async () => {
+    const { calls, push } = setup();
+    fireEvent.change(await screen.findByRole('textbox', { name: '목표' }), { target: { value: '차량 문을 연다' } });
+    fireEvent.change(screen.getByRole('textbox', { name: '비밀값 이름' }), { target: { value: 'SIMPLE_PIN' } });
+    fireEvent.change(screen.getByLabelText('비밀값 값'), { target: { value: '2580' } });
+    await act(async () => { screen.getByRole('button', { name: '비밀값 추가' }).click(); });
+    expect((screen.getByRole('textbox', { name: '목표' }) as HTMLTextAreaElement).value).toBe('차량 문을 연다\n비밀값 SIMPLE_PIN: {{secret:SIMPLE_PIN}}');
+    const list = screen.getByRole('list', { name: '비밀값' });
+    expect(list.textContent).toContain('SIMPLE_PIN');
+    expect(document.body.textContent).not.toContain('2580');
+    await act(async () => { screen.getByRole('button', { name: '실행' }).click(); });
+    expect(calls).toEqual(['start SER1 차량 문을 연다\n비밀값 SIMPLE_PIN: {{secret:SIMPLE_PIN}} secrets=SIMPLE_PIN']);
+    await push({ type: 'done', result: { ok: false, turns: 1, modelCalls: 1, reason: '막힘: 본인인증 화면', blocked: { reason: '본인인증 화면', secret: 'AUTH_CODE' } } });
+    expect(screen.getByRole('status', { name: '세션 결과' }).textContent).toMatch(/막힘.*본인인증 화면.*AUTH_CODE/);
+    expect((screen.getByRole('textbox', { name: '비밀값 이름' }) as HTMLInputElement).value).toBe('AUTH_CODE');
+  });
+
+  it('목표의 자리표시에 값이 없으면 실행하지 않고 알린다', async () => {
+    const { calls } = setup();
+    fireEvent.change(await screen.findByRole('textbox', { name: '목표' }), { target: { value: 'PIN {{secret:SIMPLE_PIN}} 로 연다' } });
+    await act(async () => { screen.getByRole('button', { name: '실행' }).click(); });
+    expect(calls).toEqual([]);
+    expect(screen.getByText(/비밀값 SIMPLE_PIN 의 값을 넣어/)).toBeTruthy();
   });
 
   it('실행 중에는 중지 버튼', async () => {

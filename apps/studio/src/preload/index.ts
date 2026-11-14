@@ -20,7 +20,7 @@ const api: StudioApi = {
   key: async (deviceId, key) => { await ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'key', deviceId, key }); },
   button: async (deviceId, button) => { await ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'button', deviceId, button }); },
   agentStatus: () => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'agent-status' }) as Promise<AgentStatus>,
-  startSession: (deviceId, goal, opts) => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'session-start', deviceId, goal, ...(opts?.restartApp ? { restartApp: opts.restartApp } : {}) }) as Promise<{ sessionId: string }>,
+  startSession: (deviceId, goal, opts) => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'session-start', deviceId, goal, ...(opts?.restartApp ? { restartApp: opts.restartApp } : {}), ...(opts?.secrets && Object.keys(opts.secrets).length ? { secrets: opts.secrets } : {}) }) as Promise<{ sessionId: string }>,
   stopSession: async (sessionId) => { await ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'session-stop', sessionId }); },
   assertNow: (deviceId, statement) => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'session-assert', deviceId, statement }) as Promise<JudgeView>,
   expectCheck: (deviceId, query, matcher, expected) => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'expect-check', deviceId, query, matcher, ...(expected !== undefined ? { expected } : {}) }) as Promise<JudgeView>,

@@ -41,6 +41,9 @@ describe('studio IPC 계약', () => {
     // 앱 id 는 패키지 이름 형식만(셸로 가는 값이다)
     for (const restartApp of ['com app', 'com.app;reboot', '', 'x', 'a'.repeat(256), 3]) expect(parseStudioRequest({ kind: 'session-start', deviceId: 'S', goal: '로그인', restartApp }), String(restartApp)).toBeUndefined();
     for (const bad of [{ kind: 'session-start', deviceId: 'S', goal: '' }, { kind: 'session-start', deviceId: 'S', goal: 'x'.repeat(2001) }, { kind: 'session-stop' }, { kind: 'session-assert', deviceId: 'S' }]) expect(parseStudioRequest(bad), JSON.stringify(bad)).toBeUndefined();
+    // 비밀값(agent-secrets 03): 이름 규칙·값 길이(4~200)·10개까지. 값은 작업 프로세스로만 간다
+    expect(parseStudioRequest({ kind: 'session-start', deviceId: 'S', goal: '문 열기 {{secret:SIMPLE_PIN}}', secrets: { SIMPLE_PIN: '2580' } })).toEqual({ kind: 'session-start', deviceId: 'S', goal: '문 열기 {{secret:SIMPLE_PIN}}', secrets: { SIMPLE_PIN: '2580' } });
+    for (const secrets of [{ pin: '2580' }, { SIMPLE_PIN: '12' }, { SIMPLE_PIN: 'x'.repeat(201) }, { SIMPLE_PIN: 2580 }, Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`S${i}`, '1234'])), ['2580']]) expect(parseStudioRequest({ kind: 'session-start', deviceId: 'S', goal: 'g', secrets }), JSON.stringify(secrets)).toBeUndefined();
     // 요소 판정(studio 09): 닫힌 질의·검사 종류, 값은 값이 있는 검사에만
     expect(parseStudioRequest({ kind: 'expect-check', deviceId: 'S', query: { text: '창신동', exact: true }, matcher: 'visible' })).toEqual({ kind: 'expect-check', deviceId: 'S', query: { text: '창신동', exact: true }, matcher: 'visible' });
     expect(parseStudioRequest({ kind: 'expect-check', deviceId: 'S', query: { testId: 'a:id/q' }, matcher: 'value', expected: '사과' })).toEqual({ kind: 'expect-check', deviceId: 'S', query: { testId: 'a:id/q' }, matcher: 'value', expected: '사과' });

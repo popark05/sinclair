@@ -78,4 +78,14 @@ test('YouTube 검색', async ({ screen, agent }) => {
     expect(det).not.toContain('agent');
     expect(exportTest(r, { style: 'natural', testName: 'x' })).toContain("async ({ screen, agent, expect }) =>");
   });
+
+  it('enter_secret(agent-secrets 03): 결정적은 키패드면 screen.tapKeys(secret()), 입력칸이면 type(secret())', () => {
+    const r: SessionExportInput = { goal: '문 열기\n비밀값 SIMPLE_PIN: {{secret:SIMPLE_PIN}}', judgments: [],
+      turns: [{ tool: 'enter_secret', target: '@pad', result: 'ok' }, { tool: 'enter_secret', target: '@pw', result: 'ok', locator: "screen.getByTestId('a:id/pw')" }, { tool: 'done', result: 'ok' }],
+      result: { ok: true, turns: 3, modelCalls: 3, recording: { actions: [{ tool: 'enter_secret', target: { role: 'group' }, text: '{{secret:SIMPLE_PIN}}', summary: 'enter_secret group' }, { tool: 'enter_secret', target: { role: 'textbox', testId: 'a:id/pw' }, text: '{{secret:SIMPLE_PIN}}', summary: 'enter_secret textbox' }], end: { anchors: [] } } } };
+    const det = exportTest(r, { style: 'deterministic', testName: 'x' });
+    expect(det).toContain("  await screen.tapKeys(secret('SIMPLE_PIN'));\n  await screen.getByTestId('a:id/pw').type(secret('SIMPLE_PIN'));");
+    expect(det).toContain('async ({ screen, secret }) =>');
+    expect(exportTest(r, { style: 'natural', testName: 'x' })).toContain("await agent.act(`문 열기\\n비밀값 SIMPLE_PIN: ${secret('SIMPLE_PIN')}`);");
+  });
 });

@@ -4,4 +4,11 @@
 
 **Blocked by:** 01, 02
 
-**Status:** ready-for-agent
+**Status:** in-progress
+
+## 결과 (2026-11-14)
+
+- IPC `session-start.secrets`(이름 규칙·값 4~200자·10개), 작업 프로세스가 SecretBox 로 runAct 에(메모리에만), 결과 `blocked`.
+- 세션 패널: 비밀값 칸(이름 대문자·값 password, 목록에는 이름과 ••••·지우기). 추가하면 목표에 `비밀값 NAME: {{secret:NAME}}` 을 덧붙인다. 목표의 자리표시에 값이 없으면 실행 전에 알림. 막힘이면 사유·필요한 이름을 결과에 보이고 이름 칸을 채운다.
+- 내보내기: 결정적 enter_secret → 입력칸 `type(secret())`, 키패드 `screen.tapKeys(secret())`; 자연어는 목표의 자리표시 그대로 `secret()`(템플릿의 줄바꿈은 \n).
+- 실기: 간편비밀번호 화면의 키패드가 글자를 가진 키인지 확인 필요 — 남음.

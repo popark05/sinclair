@@ -30,7 +30,7 @@ export type StudioRequest =
   | { kind: 'button'; deviceId: string; button: 'back' | 'home' }
   // 에이전트 세션(studio 05)
   | { kind: 'agent-status' }
-  | { kind: 'session-start'; deviceId: string; goal: string; /** 이 앱을 처음 상태로 다시 띄운 뒤 시작(studio 08) */ restartApp?: string }
+  | { kind: 'session-start'; deviceId: string; goal: string; /** 이 앱을 처음 상태로 다시 띄운 뒤 시작(studio 08) */ restartApp?: string; /** 비밀값 이름 → 값(agent-secrets 03). 작업 프로세스 메모리에만 */ secrets?: Record<string, string> }
   | { kind: 'session-stop'; sessionId: string }
   | { kind: 'session-assert'; deviceId: string; statement: string }
   /** 요소 판정(studio 09): 고른 노드의 질의로 러너 expect 를 지금 화면에서(모델 없음) */
@@ -49,13 +49,19 @@ export interface SessionResult { ok: boolean; summary?: string; reason?: string;
   /** act 시작 화면의 앱(녹화 캐시 키·전제) */
   startApp?: string;
   /** 앱을 처음 상태로 다시 띄운 뒤 시작했다(내보낸 테스트의 app.restart 와 같은 시작 화면) */
-  freshStart?: boolean }
+  freshStart?: boolean;
+  /** 에이전트가 blocked 로 멈춤(agent-secrets): 사유와 필요한 비밀값 이름 */
+  blocked?: { reason: string; secret?: string } }
 export type SessionEvent = { type: 'turn'; index: number; turn: TurnView } | { type: 'done'; result: SessionResult };
 /** 작업 프로세스 → 메인 → 렌더러 푸시 */
 export type StudioEvent = { kind: 'session'; sessionId: string; payload: SessionEvent };
 export interface JudgeView { pass: boolean; reason: string }
 /** 세션의 판정 하나: 문장(agent.assert, 모델) 또는 요소(expect, 결정적) */
 export type Judgment = (JudgeView & { kind?: 'assert'; statement: string }) | (JudgeView & { kind: 'expect'; query: JudgeQuery; matcher: ExpectMatcher; expected?: string });
+
+/** 비밀값 이름(에이전트 SECRET_NAME 과 같은 규칙)·한 세션의 개수 상한 */
+export const SECRET_NAME_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
+const MAX_SECRETS = 10;
 
 /** 앱 id(Android 패키지 이름 형식) — 기기 셸로 가는 값이라 형식만 받는다 */
 export const APP_ID = /^(?=.{3,255}$)[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$/;
@@ -143,8 +149,15 @@ export function parseStudioRequest(v: unknown): StudioRequest | undefined {
   if (v.kind === 'button') return v.button === 'back' || v.button === 'home' ? { kind: 'button', deviceId, button: v.button } : undefined;
   if (v.kind === 'session-start') {
     if (typeof v.goal !== 'string' || !v.goal.trim() || v.goal.length > MAX_GOAL) return undefined;
-    if (v.restartApp === undefined) return { kind: 'session-start', deviceId, goal: v.goal };
-    return typeof v.restartApp === 'string' && APP_ID.test(v.restartApp) ? { kind: 'session-start', deviceId, goal: v.goal, restartApp: v.restartApp } : undefined;
+    if (v.restartApp !== undefined && !(typeof v.restartApp === 'string' && APP_ID.test(v.restartApp))) return undefined;
+    let secrets: Record<string, string> | undefined;
+    if (v.secrets !== undefined) {
+      if (typeof v.secrets !== 'object' || v.secrets === null || Array.isArray(v.secrets)) return undefined;
+      const entries = Object.entries(v.secrets as Record<string, unknown>);
+      if (entries.length > MAX_SECRETS || entries.some(([k, val]) => !SECRET_NAME_RE.test(k) || typeof val !== 'string' || val.length < 4 || val.length > 200)) return undefined;
+      secrets = Object.fromEntries(entries) as Record<string, string>;
+    }
+    return { kind: 'session-start', deviceId, goal: v.goal, ...(v.restartApp !== undefined ? { restartApp: v.restartApp as string } : {}), ...(secrets ? { secrets } : {}) };
   }
   if (v.kind === 'expect-check') {
     const query = parseLocatorQuery(v.query);
@@ -175,7 +188,7 @@ export interface StudioApi {
   key(deviceId: string, key: StudioKey): Promise<void>;
   button(deviceId: string, button: 'back' | 'home'): Promise<void>;
   agentStatus(): Promise<AgentStatus>;
-  startSession(deviceId: string, goal: string, opts?: { restartApp?: string }): Promise<{ sessionId: string }>;
+  startSession(deviceId: string, goal: string, opts?: { restartApp?: string; secrets?: Record<string, string> }): Promise<{ sessionId: string }>;
   stopSession(sessionId: string): Promise<void>;
   /** 지금 화면에 대한 판정(agent.assert) */
   assertNow(deviceId: string, statement: string): Promise<JudgeView>;

@@ -67,6 +67,25 @@ describe('createSessionManager', () => {
     expect(await m.expectCheck('SER1', { text: '없는 글자', exact: true }, 'hidden')).toEqual({ pass: true, reason: '통과' });
   });
 
+  it('비밀값(agent-secrets 03): 목표의 자리표시 이름으로 enter_secret — 키패드에 값을 누르고 turn·결과에 값이 없다; blocked 는 결과로', async () => {
+    let typed = '';
+    const pad = (n: number) => ({ ref: '@r', role: 'root', children: [{ ref: '@t', role: 'text', text: `PIN ${'●'.repeat(n)}` }, { ref: '@pad', role: 'group', children: '1234567890'.split('').map((d, i) => ({ ref: `@k${i}`, role: 'button', name: d })) }] });
+    const engine = new FakeEngine({ root: pad(0), onTap: (n) => { typed += n.name ?? ''; return typed.length === 4 ? { ref: '@r', role: 'root', children: [{ ref: '@d', role: 'text', text: '완료' }] } : pad(typed.length); } });
+    const events: Array<{ sessionId: string; event: SessionEvent }> = [];
+    const exec = scriptedExecutor([{ name: 'enter_secret', input: { ref: '@pad', name: 'SIMPLE_PIN' } }, { name: 'done', input: { summary: '완료' } }]);
+    const m = createSessionManager({ engineFor: async () => engine, agent: async () => ({ executor: exec }), emit: (sessionId, event) => events.push({ sessionId, event }) });
+    await m.start('SER1', '문 열기\n비밀값 SIMPLE_PIN: {{secret:SIMPLE_PIN}}', { secrets: { SIMPLE_PIN: '2580' } });
+    for (let i = 0; i < 200 && !events.some((e) => e.event.type === 'done'); i++) await new Promise((r) => setTimeout(r, 5));
+    expect(typed).toBe('2580');
+    expect(JSON.stringify(events)).not.toContain('2580');
+    expect(events.at(-1)!.event).toMatchObject({ type: 'done', result: { ok: true, recording: { actions: [expect.objectContaining({ tool: 'enter_secret', text: '{{secret:SIMPLE_PIN}}' })] } } });
+    const blockedExec = scriptedExecutor([{ name: 'blocked', input: { reason: 'PIN 화면', secret: 'SIMPLE_PIN' } }]);
+    const m2 = createSessionManager({ engineFor: async () => new FakeEngine({ root: pad(0) }), agent: async () => ({ executor: blockedExec }), emit: (sessionId, event) => events.push({ sessionId, event }) });
+    const s2 = await m2.start('SER1', '문 열기');
+    for (let i = 0; i < 200 && !events.some((e) => e.sessionId === s2.sessionId && e.event.type === 'done'); i++) await new Promise((r) => setTimeout(r, 5));
+    expect(events.find((e) => e.sessionId === s2.sessionId && e.event.type === 'done')!.event).toMatchObject({ result: { ok: false, blocked: { reason: 'PIN 화면', secret: 'SIMPLE_PIN' } } });
+  });
+
   it('중지하면 done(ok false, 중지됨)', async () => {
     const slow: StepExecutor = { next: (_r, sig) => new Promise((_, rej) => sig.addEventListener('abort', () => rej(new Error('aborted')), { once: true })) };
     const { m, done } = setup(slow);

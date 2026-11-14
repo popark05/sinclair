@@ -16,7 +16,7 @@ function textExpr(text: string): { code: string; usesSecret: boolean } {
   SECRET.lastIndex = 0;
   const parts = text.split(SECRET); // [글자, 이름, 글자, 이름, …]
   if (parts.length === 3 && parts[0] === '' && parts[2] === '') return { code: `secret('${parts[1]}')`, usesSecret: true };
-  const esc = (s: string) => s.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
+  const esc = (s: string) => s.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${').replace(/\n/g, '\\n');
   return { code: `\`${parts.map((p, i) => (i % 2 ? `\${secret('${p}')}` : esc(p))).join('')}\``, usesSecret: true };
 }
 
@@ -41,6 +41,15 @@ export function exportTest(rec: SessionExportInput, opts: ExportOptions): string
     okTurns.forEach((t, i) => {
       const a = actions[i];
       if (t.tool === 'back') { fixtures.add('app'); lines.push('  await app.back();'); return; }
+      // enter_secret(agent-secrets): 입력칸이면 type(secret()), 키패드면 screen.tapKeys(secret()) — 값은 실행 때 비밀값 저장소에서
+      if (t.tool === 'enter_secret') {
+        const name = /\{\{secret:([A-Z][A-Z0-9_]*)\}\}/.exec(a?.text ?? '')?.[1];
+        if (!name) { lines.push('  // TODO enter_secret: 비밀값 이름을 알 수 없음'); return; }
+        fixtures.add('secret'); fixtures.add('screen');
+        if (a?.target?.role === 'textbox' && t.locator) lines.push(`  await ${t.locator}.type(secret('${name}'));`);
+        else lines.push(`  await screen.tapKeys(secret('${name}'));`);
+        return;
+      }
       if (t.tool === 'scroll') { lines.push(`  // scroll${a?.direction ? ` ${a.direction}` : ''}: 결정적 코드로 옮기지 않음 — 다음 대상이 화면 밖이면 scrollIntoView() 를 쓴다`); return; }
       const text = t.tool === 'type' && a?.text !== undefined ? textExpr(a.text) : undefined;
       if (text?.usesSecret) fixtures.add('secret');

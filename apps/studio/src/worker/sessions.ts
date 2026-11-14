@@ -1,7 +1,7 @@
 // 에이전트 세션(studio 05): 고른 기기의 엔진에서 runAct(실제 모델)를 돌리고 턴·끝을 이벤트로 밀어 보낸다. 중지는 AbortSignal, 판정은 judgeAssert.
 // 녹화(recording)는 결과에 실어 내보내기(06)가 쓴다 — 저장소에 쓰는 것은 내보낼 때.
 import { randomUUID } from 'node:crypto';
-import { runAct, judgeAssert, type AgentTurn, type StepExecutor } from '@sinclair/agent';
+import { runAct, judgeAssert, SecretBox, type AgentTurn, type StepExecutor } from '@sinclair/agent';
 import type { Engine, SemanticNode } from '@sinclair/protocol';
 import { uniqueLocator } from '../shared/locators.ts';
 import { createScreen, expect as expectOn, type Locator, type Screen } from '@sinclair/runner';
@@ -50,7 +50,9 @@ export function createSessionManager(deps: SessionDeps) {
   const running = new Map<string, AbortController>();
   return {
     /** restartApp: 그 앱을 처음 상태로 다시 띄운 뒤 시작한다 — 내보낸 테스트(app.restart)와 같은 시작 화면이라야 녹화·locator 가 맞는다 */
-    async start(deviceId: string, goal: string, opts: { restartApp?: string } = {}): Promise<{ sessionId: string }> {
+    async start(deviceId: string, goal: string, opts: { restartApp?: string; secrets?: Record<string, string> } = {}): Promise<{ sessionId: string }> {
+      // 비밀값: 이 세션 동안 메모리에만. 목표에 자리표시로 주어진 이름만 에이전트가 쓴다(러너와 같은 규칙)
+      const secrets = opts.secrets && Object.keys(opts.secrets).length ? new SecretBox(Object.entries(opts.secrets)) : undefined;
       const agent = await deps.agent(); // 설정 문제는 시작 전에 드러낸다
       const engine = await deps.engineFor(deviceId);
       const sessionId = randomUUID();
@@ -63,8 +65,8 @@ export function createSessionManager(deps: SessionDeps) {
             if (!engine.session) throw new Error('처음부터 시작하지 못함: 이 엔진은 앱을 다시 띄울 수 없음');
             await engine.session.restart(opts.restartApp).catch((err: unknown) => { throw new Error(`처음부터 시작하지 못함(${opts.restartApp}): ${err instanceof Error ? err.message : String(err)}`); });
           }
-          const r = await runAct(engine, goal, { executor: agent.executor, signal: ac.signal, onTurn: (t, index, observed) => deps.emit(sessionId, { type: 'turn', index, turn: toTurnView(t, observed) }), ...(agent.maxTurns !== undefined ? { maxTurns: agent.maxTurns } : {}), ...(agent.timeoutMs !== undefined ? { timeoutMs: agent.timeoutMs } : {}) });
-          result = { ok: r.ok, turns: r.turns, modelCalls: r.modelCalls, ...(r.summary ? { summary: r.summary } : {}), ...(r.reason ? { reason: r.reason } : {}), ...(r.usage ? { inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens } : {}), ...(r.recording ? { recording: r.recording } : {}), ...(r.startApp ? { startApp: r.startApp } : {}), ...(opts.restartApp ? { freshStart: true } : {}) };
+          const r = await runAct(engine, goal, { executor: agent.executor, signal: ac.signal, ...(secrets ? { secrets } : {}), onTurn: (t, index, observed) => deps.emit(sessionId, { type: 'turn', index, turn: toTurnView(t, observed) }), ...(agent.maxTurns !== undefined ? { maxTurns: agent.maxTurns } : {}), ...(agent.timeoutMs !== undefined ? { timeoutMs: agent.timeoutMs } : {}) });
+          result = { ok: r.ok, turns: r.turns, modelCalls: r.modelCalls, ...(r.summary ? { summary: r.summary } : {}), ...(r.reason ? { reason: r.reason } : {}), ...(r.usage ? { inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens } : {}), ...(r.recording ? { recording: r.recording } : {}), ...(r.startApp ? { startApp: r.startApp } : {}), ...(opts.restartApp ? { freshStart: true } : {}), ...(r.blocked ? { blocked: r.blocked } : {}) };
         } catch (err) {
           result = { ok: false, reason: err instanceof Error ? err.message : String(err), turns: 0, modelCalls: 0 };
         } finally {
