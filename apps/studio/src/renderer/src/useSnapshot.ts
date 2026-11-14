@@ -6,7 +6,12 @@ import type { StudioApi, StudioSnapshot } from '../../shared/studio-ipc.ts';
 /** 초당 2장 남짓: 헬퍼의 원자 스냅샷 한 번이 수백 ms 라 그보다 자주 물어도 쌓이기만 한다 */
 export const SNAPSHOT_INTERVAL_MS = 500;
 
-export function useSnapshot(api: StudioApi, deviceId: string): { snapshot?: StudioSnapshot; error?: string; refresh: () => void } {
+/**
+ * paused: 주기 폴링을 멈춘다(refresh 는 된다). 에이전트 세션 중에는 기기를 세션에 양보한다 — 디바이스 RPC 는 기기마다 한 줄이라
+ * 스냅샷(실기기 수 초)이 끼면 엔진의 dump 가 줄을 서 느려지고, 실기기에서 세션의 모든 탭이 "노드가 계속 움직인다" 로 거부됐다
+ */
+export function useSnapshot(api: StudioApi, deviceId: string, opts: { paused?: boolean } = {}): { snapshot?: StudioSnapshot; error?: string; refresh: () => void } {
+  const paused = !!opts.paused;
   const [snapshot, setSnapshot] = useState<StudioSnapshot>();
   const [error, setError] = useState<string>();
   const inFlight = useRef(false);
@@ -28,15 +33,19 @@ export function useSnapshot(api: StudioApi, deviceId: string): { snapshot?: Stud
     }
   }, [api, deviceId]);
 
+  // 기기가 바뀌면 화면을 비운다
   useEffect(() => {
     alive.current = true;
     setSnapshot(undefined);
     setError(undefined);
-    if (!deviceId) return;
+    return () => { alive.current = false; };
+  }, [deviceId]);
+  useEffect(() => {
+    if (!deviceId || paused) return;
     void fetchOnce();
     const timer = setInterval(() => void fetchOnce(), SNAPSHOT_INTERVAL_MS);
-    return () => { alive.current = false; clearInterval(timer); };
-  }, [deviceId, fetchOnce]);
+    return () => clearInterval(timer);
+  }, [deviceId, fetchOnce, paused]);
 
   return { ...(snapshot ? { snapshot } : {}), ...(error ? { error } : {}), refresh: () => void fetchOnce() };
 }

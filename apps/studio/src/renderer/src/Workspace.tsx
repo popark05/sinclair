@@ -1,6 +1,6 @@
 // Studio 작업 화면(studio 01): astryx `ide` 템플릿의 틀(크기 조절·접기 패널, 하단 드로어, 반대편 패널)을 그대로 두고
 // 내용만 Studio 4영역으로 — 왼쪽 기기(고정), 가운데 탭(세션), 오른쪽 Inspector, 아래 로그 드로어. 각 영역의 기능은 다음 티켓(02~06).
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { Layout, LayoutContent, LayoutPanel, Stack, StackItem } from '@astryxdesign/core/Layout';
 import { ResizeHandle, useResizable } from '@astryxdesign/core/Resizable';
 import { Text } from '@astryxdesign/core/Text';
@@ -49,7 +49,11 @@ export function Workspace({ api }: { api: StudioApi }) {
   const [deviceId, setDeviceId] = useState('');
   const [deviceLabel, setDeviceLabel] = useState('');
   const [appId, setAppId] = useState('');
-  const screen = useSnapshot(api, deviceId);
+  // 세션 중에는 화면 폴링을 멈추고 턴마다 한 번만 받는다(기기를 에이전트에게 양보)
+  const [sessionBusy, setSessionBusy] = useState(false);
+  const screen = useSnapshot(api, deviceId, { paused: sessionBusy });
+  const refreshScreen = screen.refresh;
+  const onTurn = useCallback(() => refreshScreen(), [refreshScreen]);
   const [selectedRef, setSelectedRef] = useState<string>();
 
   // 기기 화면은 세로로 길어 기본 폭을 넉넉히(폰 비율), Inspector 는 트리·속성이 읽힐 만큼
@@ -72,7 +76,7 @@ export function Workspace({ api }: { api: StudioApi }) {
               <>
                 {!startPanel.isCollapsed && (
                   <LayoutPanel width={startPanel.size} hasDivider={false} padding={0}>
-                    <DevicePanel api={api} deviceId={deviceId} deviceLabel={deviceLabel} {...(screen.snapshot ? { snapshot: screen.snapshot } : {})} {...(screen.error ? { error: screen.error } : {})} onInput={screen.refresh} {...(selectedRef ? { selectedRef } : {})} onSelectNode={setSelectedRef} />
+                    <DevicePanel api={api} deviceId={deviceId} deviceLabel={deviceLabel} {...(screen.snapshot ? { snapshot: screen.snapshot } : {})} {...(screen.error ? { error: screen.error } : {})} onInput={screen.refresh} {...(selectedRef ? { selectedRef } : {})} onSelectNode={setSelectedRef} paused={sessionBusy} />
                   </LayoutPanel>
                 )}
                 <ResizeHandle direction="horizontal" hasDivider isAlwaysVisible={false} resizable={startPanel.props} label="기기 패널 크기 조절" />
@@ -89,7 +93,7 @@ export function Workspace({ api }: { api: StudioApi }) {
                           <Tab label="세션" value="session" />
                         </TabList>
                         <StackItem size="fill" style={styles.editorArea}>
-                          <SessionPanel api={api} deviceId={deviceId} appId={appId} />
+                          <SessionPanel api={api} deviceId={deviceId} appId={appId} onBusyChange={setSessionBusy} onTurn={onTurn} />
                         </StackItem>
                         <ResizeHandle direction="vertical" hasDivider isReversed isAlwaysVisible={false} resizable={bottomPanel.props} label="로그 드로어 크기 조절" />
                         {!bottomPanel.isCollapsed && (

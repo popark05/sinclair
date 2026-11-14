@@ -37,9 +37,11 @@ export interface DevicePanelProps {
   selectedRef?: string;
   /** 화면을 클릭하면 그 자리의 가장 안쪽 노드를 고른다(탭과 함께) */
   onSelectNode?: (ref: string) => void;
+  /** 세션 중: 화면을 턴마다만 갱신한다는 표시 */
+  paused?: boolean;
 }
 
-export function DevicePanel({ api, deviceId, deviceLabel, snapshot, onInput, error, selectedRef, onSelectNode }: DevicePanelProps) {
+export function DevicePanel({ api, deviceId, deviceLabel, snapshot, onInput, error, selectedRef, onSelectNode, paused }: DevicePanelProps) {
   const img = useRef<HTMLImageElement>(null);
   const down = useRef<{ p: Point; at: number }>(undefined);
   const buffer = useRef('');
@@ -123,6 +125,7 @@ export function DevicePanel({ api, deviceId, deviceLabel, snapshot, onInput, err
       <Stack direction="vertical" gap={1}>
         <Heading level={2} maxLines={1}>기기</Heading>
         {deviceLabel ? <Text type="supporting" color="secondary" maxLines={1}>{deviceLabel}</Text> : null}
+        {paused ? <Text type="supporting" color="secondary" maxLines={2}>세션 중 — 화면은 에이전트 턴마다 갱신(기기를 에이전트에게 양보)</Text> : null}
       </Stack>
       {snapshot ? (
         <Stack direction="vertical" style={styles.frame}>

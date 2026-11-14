@@ -31,7 +31,15 @@ export function resultText(r: SessionResult): string {
   return r.ok ? `성공 — ${r.summary ?? ''} · ${r.turns}턴 · 모델 ${r.modelCalls}회${usage}` : `실패 — ${r.reason ?? ''} · ${r.turns}턴 · 모델 ${r.modelCalls}회${usage}`;
 }
 
-export function SessionPanel({ api, deviceId, appId, onRecord }: { api: StudioApi; deviceId: string; appId?: string; onRecord?: (r: SessionRecord) => void }) {
+export interface SessionPanelProps {
+  api: StudioApi; deviceId: string; appId?: string; onRecord?: (r: SessionRecord) => void;
+  /** 세션이 기기를 쓰는 중인지(Workspace 가 화면 폴링을 멈춘다) */
+  onBusyChange?: (busy: boolean) => void;
+  /** 턴 하나가 끝날 때마다(Workspace 가 화면을 한 번 받는다) */
+  onTurn?: () => void;
+}
+
+export function SessionPanel({ api, deviceId, appId, onRecord, onBusyChange, onTurn }: SessionPanelProps) {
   const [status, setStatus] = useState<AgentStatus>();
   const [goal, setGoal] = useState('');
   const [sessionId, setSessionId] = useState<string>();
@@ -52,10 +60,12 @@ export function SessionPanel({ api, deviceId, appId, onRecord }: { api: StudioAp
       if (p.type === 'done') onRecord?.(next);
       return next;
     });
+    if (p.type === 'turn') onTurn?.();
     if (p.type === 'done') { current.current = undefined; setSessionId(undefined); }
-  }), [api, onRecord]);
+  }), [api, onRecord, onTurn]);
 
   const running = sessionId !== undefined;
+  useEffect(() => { onBusyChange?.(running); }, [running, onBusyChange]);
   const canRestart = !!appId && APP_ID.test(appId);
   const restartApp = canRestart && fresh ? appId : undefined;
   const canRun = !!deviceId && !!status?.ready && !!goal.trim() && !running;

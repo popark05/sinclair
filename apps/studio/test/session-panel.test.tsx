@@ -8,7 +8,7 @@ import type { SessionEvent, StudioApi } from '../src/shared/studio-ipc.ts';
 afterEach(cleanup);
 // CodeBlock(문법 강조) 첫 렌더가 jsdom·병렬 실행에서 수 초 걸린다
 vi.setConfig({ testTimeout: 20_000 });
-function setup(over: Partial<StudioApi> = {}, deviceId = 'SER1', appId?: string) {
+function setup(over: Partial<StudioApi> = {}, deviceId = 'SER1', appId?: string, extra: { onBusyChange?: (b: boolean) => void; onTurn?: () => void } = {}) {
   let listener: ((e: { kind: 'session'; sessionId: string; payload: SessionEvent }) => void) | undefined;
   const calls: string[] = [];
   const api = {
@@ -19,7 +19,7 @@ function setup(over: Partial<StudioApi> = {}, deviceId = 'SER1', appId?: string)
     onEvent: (cb: typeof listener) => { listener = cb; return () => { listener = undefined; }; },
     ...over,
   } as unknown as StudioApi;
-  render(<SessionPanel api={api} deviceId={deviceId} {...(appId ? { appId } : {})} />);
+  render(<SessionPanel api={api} deviceId={deviceId} {...(appId ? { appId } : {})} {...extra} />);
   const push = async (payload: SessionEvent) => { await act(async () => { listener?.({ kind: 'session', sessionId: 's1', payload }); }); };
   return { calls, push };
 }
@@ -52,6 +52,18 @@ describe('SessionPanel', () => {
     const box = await screen.findByRole('checkbox', { name: '앱 처음부터 시작' });
     expect((box as HTMLInputElement).checked).toBe(false);
     expect(box.getAttribute('aria-disabled')).toBe('true'); // astryx 는 비활성도 초점을 받게 aria-disabled 를 쓴다
+  });
+
+  it('실행 중임과 턴마다를 알린다(Workspace 가 화면 폴링을 멈추고 턴마다 한 번 받는다)', async () => {
+    const busy: boolean[] = []; let turns = 0;
+    const { push } = setup({}, 'SER1', undefined, { onBusyChange: (b: boolean) => busy.push(b), onTurn: () => { turns++; } });
+    fireEvent.change(await screen.findByRole('textbox', { name: '목표' }), { target: { value: '로그인' } });
+    await act(async () => { screen.getByRole('button', { name: '실행' }).click(); });
+    await push({ type: 'turn', index: 0, turn: { tool: 'tap', target: '@e4', result: 'ok' } });
+    await push({ type: 'turn', index: 1, turn: { tool: 'done', result: 'ok' } });
+    await push({ type: 'done', result: { ok: true, turns: 2, modelCalls: 2 } });
+    expect(busy).toEqual([false, true, false]); // 처음 상태도 알린다
+    expect(turns).toBe(2);
   });
 
   it('실행 중에는 중지 버튼', async () => {

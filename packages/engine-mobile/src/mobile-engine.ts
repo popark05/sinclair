@@ -197,7 +197,8 @@ export function createMobileEngine(rpc: DeviceRpc, options: MobileEngineOptions)
       if (!node) throw new EngineError('not-found', `현재 화면에 없는 노드: ${ref}`, { ref, descriptor: desc });
       if (!needsStableRect) return node;
       if (previous && sameRect(previous.rect, node.rect)) return node;
-      if (Date.now() >= deadline) throw new EngineError('not-actionable', `노드가 계속 움직인다(${stabilityTimeoutMs}ms): ${ref}`, { ref, rect: node.rect });
+      // 움직인다는 판정은 표본 둘 이상을 비교한 뒤에만: dump 하나가 기한보다 느린 기기(복잡한 화면·다른 호출자와 줄 서기)에서 멈춘 노드를 거부하지 않게
+      if (previous && Date.now() >= deadline) throw new EngineError('not-actionable', `노드가 계속 움직인다(${stabilityTimeoutMs}ms): ${ref}`, { ref, rect: node.rect });
       previous = node;
       await new Promise((r) => setTimeout(r, stabilityPollMs));
     }
