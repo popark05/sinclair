@@ -43,6 +43,18 @@ describe('기기 조작(studio 03)', () => {
   });
 });
 
+describe('현재 앱', () => {
+  const open = (backend: DeviceBackend) => connectDevices({ discoveryFile: path.join(dir, 'none.json'), openOwn: async () => ({ rpc: rpcOverDispatcher(createDeviceServer([backend])), close: async () => {} }) });
+  it('기기가 알려 주는 앞 화면 앱을 쓴다(화면 트리에 resource-id 가 없는 지도 앱도)', async () => {
+    const c = await open({ ...fakeBackend('OWN0000002', 'Pixel 7'), foregroundApp: async () => 'com.google.android.apps.maps', dumpUi: async () => ({ ref: '@e0', role: 'root' }) } as unknown as DeviceBackend);
+    expect(await c.foregroundApp('OWN0000002')).toBe('com.google.android.apps.maps');
+  });
+  it('기기가 모르면(구버전 데몬 포함) 화면 트리의 resource-id 패키지로', async () => {
+    const c = await open({ ...fakeBackend('OWN0000002', 'Pixel 7'), dumpUi: async () => ({ ref: '@e0', role: 'root', children: [{ ref: '@e1', role: 'button', testId: 'com.google.android.youtube:id/search' }] }) } as unknown as DeviceBackend);
+    expect(await c.foregroundApp('OWN0000002')).toBe('com.google.android.youtube');
+  });
+});
+
 describe('connectDevices', () => {
   it('발견 파일의 데몬이 살아 있고 응답하면 데몬 RPC 에 붙는다(직접 열지 않음)', async () => {
     const server = await serveHttp(createDeviceServer([fakeBackend('DAEMON0001', 'SM-N981N')]));

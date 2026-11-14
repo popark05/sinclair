@@ -3,7 +3,7 @@ import { describe, it, expect, afterEach, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { createAndroidBackend, parseScreenState, type AndroidBackendOptions } from '../src/android/android-backend.ts';
+import { createAndroidBackend, parseScreenState, parseForegroundApp, type AndroidBackendOptions } from '../src/android/android-backend.ts';
 import { createDeviceServer, RPC_ERRORS, type InputRouteEvent } from '../src/index.ts';
 import { FakeAndroid } from './adb/fake-android.ts';
 import { FakeUsbBackend, FakeUsbDevice } from './adb/fake-usb.ts';
@@ -601,6 +601,14 @@ describe('AndroidBackend 입력: 두 경로 모두 실패', () => {
     await backend.listDevices();
     await expect(backend.text('PHONE1', '안녕')).rejects.toMatchObject({ code: RPC_ERRORS.invalidParams, message: expect.stringMatching(/포커스.*ASCII|ASCII.*포커스/s) });
     expect(events).toEqual([{ deviceId: 'PHONE1', action: 'text', route: 'shell', fallback: { kind: 'refused', detail: expect.stringContaining('포커스') }, failed: expect.any(String) }]);
+  });
+
+  it('parseForegroundApp 은 dumpsys 의 resumed 액티비티·포커스 창 줄에서 패키지를 읽고, 못 읽으면 undefined', () => {
+    expect(parseForegroundApp('  topResumedActivity=ActivityRecord{6a1f2c u0 com.google.android.apps.maps/com.google.android.maps.MapsActivity t1234}\n')).toBe('com.google.android.apps.maps');
+    expect(parseForegroundApp('    mResumedActivity: ActivityRecord{3e2 u0 com.google.android.youtube/.HomeActivity t88}\n')).toBe('com.google.android.youtube');
+    expect(parseForegroundApp('  mCurrentFocus=Window{9f0 u0 com.sec.android.app.launcher/com.sec.android.app.launcher.activities.LauncherActivity}\n')).toBe('com.sec.android.app.launcher');
+    expect(parseForegroundApp('')).toBeUndefined();
+    expect(parseForegroundApp('  mCurrentFocus=null\n')).toBeUndefined();
   });
 
   it('parseScreenState 는 dumpsys 출력에서 깨어 있음·잠금 여부를 읽고, 못 읽으면 필드를 비운다 (SM-N981N Android 13 실기기 출력 기준)', () => {

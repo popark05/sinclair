@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   RUN_EVENT_TYPES, DEVICE_RPC_METHODS, ATTEMPT_RESULTS, CACHE_DECISIONS, NETWORK_MODES,
-  capabilitiesOf, type Engine, type RunEvent,
+  capabilitiesOf, type Engine, type RunEvent, type ForegroundAppResult,
   DEVICE_CONNECTION_STATES, DEVICE_PLATFORMS, DEVICE_BUTTONS, HELPER_STATES, type DeviceInfo, type DeviceRpcParams, type SnapshotResult,
 } from '../src/index.ts';
 
@@ -80,6 +80,16 @@ describe('디바이스 RPC 파라미터 계약', () => {
     const launch: DeviceRpcParams['device.apps.launch'] = { deviceId: 'D', appId: 'com.example' };
     const url: DeviceRpcParams['device.url'] = { deviceId: 'D', url: 'myapp://home' };
     for (const p of [keys, launch, url]) expect(p.deviceId).toBe('D');
+  });
+});
+
+describe('device.apps.foreground 계약', () => {
+  it('파라미터는 deviceId, 결과는 앞 화면 앱의 패키지(모르면 null) — 화면 트리에 resource-id 가 없는 앱(지도 등)도 알 수 있게 기기에 직접 묻는다', () => {
+    expect(DEVICE_RPC_METHODS).toContain('device.apps.foreground');
+    const p: DeviceRpcParams['device.apps.foreground'] = { deviceId: 'D' };
+    const known: ForegroundAppResult = { appId: 'com.google.android.apps.maps' };
+    const unknown: ForegroundAppResult = { appId: null };
+    expect([p.deviceId, known.appId, unknown.appId]).toEqual(['D', 'com.google.android.apps.maps', null]);
   });
 });
 

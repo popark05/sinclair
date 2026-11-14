@@ -34,6 +34,16 @@ describe('Toolbar', () => {
     expect((screen.getByRole('textbox', { name: '앱 id' }) as HTMLInputElement).value).toBe('com.google.android.youtube');
   });
 
+  it('현재 앱을 알 수 없으면 버튼 옆에 사유, 새로 고침은 결과(기기 수)를 버튼 옆에 보인다', async () => {
+    render(<Toolbar api={api({ foregroundApp: async () => null })} onDeviceChange={() => {}} onAppChange={() => {}} />);
+    const fg = await screen.findByRole('button', { name: '현재 앱' });
+    await act(async () => { fg.click(); });
+    const status = screen.getByRole('status', { name: '툴바 상태' });
+    expect(status.textContent).toMatch(/앱을 알 수 없음/);
+    await act(async () => { screen.getByRole('button', { name: '새로 고침' }).click(); });
+    expect(status.textContent).toMatch(/기기 2대/);
+  });
+
   it('연결이 없으면 사유를 보인다', async () => {
     render(<Toolbar api={api({ connection: async () => ({ mode: 'none', detail: 'USB 를 열 수 없음' }), listDevices: async () => [] })} onDeviceChange={() => {}} onAppChange={() => {}} />);
     expect(await screen.findByText('연결 없음')).toBeTruthy(); // 불러온 뒤에 나타난다(툴바 자체는 먼저 그려진다)

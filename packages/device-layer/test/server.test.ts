@@ -79,6 +79,16 @@ describe('device.io.button 파라미터', () => {
   });
 });
 
+describe('device.apps.foreground', () => {
+  it('백엔드가 알면 { appId }, 모르면(구현 없음·undefined) { appId: null }', async () => {
+    const b = new FakeBackend();
+    const d = createDeviceServer([b]);
+    expect((await d.handle(req('device.apps.foreground', { deviceId: 'FAKE1' }))).result).toEqual({ appId: null });
+    (b as unknown as { foregroundApp: () => Promise<string> }).foregroundApp = async () => 'com.google.android.apps.maps';
+    expect((await d.handle(req('device.apps.foreground', { deviceId: 'FAKE1' }))).result).toEqual({ appId: 'com.google.android.apps.maps' });
+  });
+});
+
 describe('device.io.keyboard', () => {
   it('백엔드가 알면 { shown }, 모르면(구현 없음·undefined) { shown: null }', async () => {
     const b = new FakeBackend();
