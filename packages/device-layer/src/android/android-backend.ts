@@ -23,6 +23,10 @@ const HELPER_START_TIMEOUT_MS = 8_000;
 const HELPER_POLL_MS = 250;
 /** 온보딩이 실패한 뒤 같은 기기에 다시 시도하기까지의 간격. 영구 실패(저장소 부족 등)로 호출마다 8초씩 막히는 것을 막는다. */
 const HELPER_RETRY_BACKOFF_MS = 10_000;
+/** 재검사: 이 안에 성공한 헬퍼 요청이 있으면 ping 하지 않는다(데몬 상태 보고 20초 간격보다 짧게 — 놀고 있는 기기는 매 보고마다 확인된다) */
+const HELPER_FRESH_MS = 15_000;
+/** 재검사 ping 이 실패하면 이만큼 뒤 한 번 더 */
+const HELPER_RECHECK_RETRY_MS = 500;
 /** 막 설치한 직후에는 접근성 관리자가 아직 모르는 서비스를 enabled 목록에서 지워 버려 첫 `settings put` 이 무시된다(실기기 SM-N981N 에서 확인).
  *  1초 간격으로 몇 번 다시 쓴다. */
 const ACTIVATE_RETRY_MS = 1_000;
@@ -75,6 +79,8 @@ export interface AndroidBackendOptions {
   helperApkPath?: string;
   /** 온보딩 실패 뒤 재시도 간격(ms). 기본 10초. */
   helperRetryBackoffMs?: number;
+  /** 이 안에 성공한 헬퍼 요청이 있으면 재검사 ping 을 생략(ms). 기본 15초. 0 이면 늘 확인 */
+  helperFreshMs?: number;
   /** 접근성 활성화 재시도(기본 5회, 1초 간격). 테스트에서 줄인다. */
   helperActivate?: { retries?: number; intervalMs?: number };
   /** 온보딩 단계 알림(설치·활성화 시도·준비). 에이전트가 로그·증거로 남긴다. */
@@ -126,6 +132,7 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
   const listCacheMs = options.listCacheMs ?? LIST_CACHE_MS;
   const probeWaitMs = options.probeWaitMs ?? FIRST_PROBE_WAIT_MS;
   const helperRetryBackoffMs = options.helperRetryBackoffMs ?? HELPER_RETRY_BACKOFF_MS;
+  const helperFreshMs = options.helperFreshMs ?? HELPER_FRESH_MS;
   let lastList: { at: number; devices: DeviceInfo[] } | undefined;
   /** 진행 중인 USB 열거(동시 listDevices/dumpUi 가 열거를 겹치지 않게). */
   let refreshing: Promise<DeviceInfo[]> | undefined;
@@ -247,9 +254,15 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
   /** ready 로 기록된 헬퍼가 지금도 응답하는지 가볍게 확인하고, 아니면 온보딩으로 상태를 갱신한다(device.info 가 stale 하지 않도록). */
   async function recheckHelper(entry: TrackedDevice): Promise<void> {
     if (entry.helper?.state !== 'ready' || !entry.session) return;
+    // 방금 응답한 헬퍼는 살아 있다: 다른 요청(Studio 스냅샷 등)으로 바쁜 헬퍼를 ping 으로 더 두드리지 않는다
+    if (Date.now() - entry.session.lastOkAt < helperFreshMs) return;
+    const session = entry.session;
     try {
-      await entry.session.ping();
+      await session.ping();
     } catch {
+      // 한 번의 실패(바쁨·일시 지연)로 죽었다고 보지 않는다: 잠깐 뒤 한 번 더 — 그래도 안 되면 온보딩으로 상태를 갱신
+      await new Promise((r) => setTimeout(r, HELPER_RECHECK_RETRY_MS));
+      try { await session.ping(); return; } catch { /* 아래에서 온보딩 */ }
       entry.helper = { state: 'pending' };
       await ensureHelper(entry);
     }

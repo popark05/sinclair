@@ -50,6 +50,9 @@ export class HelperSession {
     return new HelperSession(dadb, tunnel, randomBytes(16).toString('hex'));
   }
 
+  /** 마지막으로 성공한 요청 시각(ms). 재검사가 방금 응답한 헬퍼를 다시 두드리지 않게 */
+  lastOkAt = 0;
+
   private constructor(
     private readonly dadb: Dadb,
     private readonly tunnel: AdbTunnel,
@@ -100,7 +103,7 @@ export class HelperSession {
           res.on('end', () => {
             const body = Buffer.concat(chunks).toString('utf8');
             if (res.statusCode !== 200) return reject(new HelperHttpError(res.statusCode ?? 0, body));
-            try { resolve(JSON.parse(body)); } catch (e) { reject(new Error(`헬퍼 응답 JSON 파싱 실패: ${(e as Error).message}`)); }
+            try { const v = JSON.parse(body); this.lastOkAt = Date.now(); resolve(v); } catch (e) { reject(new Error(`헬퍼 응답 JSON 파싱 실패: ${(e as Error).message}`)); }
           });
           res.on('error', reject);
         }
