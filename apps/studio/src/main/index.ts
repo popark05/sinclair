@@ -1,10 +1,11 @@
 // Studio 메인 프로세스: 창 하나와 작업 프로세스 하나(ADR 0005). 기기·러너·에이전트는 작업 프로세스가 맡고, 메인은 중계만 한다.
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { MAX_EXPORT_BYTES, parseStudioRequest, STUDIO_CHANNELS } from '../shared/studio-ipc.ts';
 import { createWorkerHost, resolveWorkerNode } from './worker-host.ts';
 import { createSettingsStore } from './settings-store.ts';
+import { isConsoleUrl } from '../shared/console-link.ts';
 import * as os from 'node:os';
 
 let win: BrowserWindow | undefined;
@@ -15,6 +16,8 @@ const worker = createWorkerHost({
   onEvent: (e) => win?.webContents.send(STUDIO_CHANNELS.event, e),
 });
 
+// 검증 훅(verify-studio): SINCLAIR_STUDIO_USER_DATA 면 userData 를 거기로(사용자의 설정 파일을 건드리지 않게)
+if (process.env.SINCLAIR_STUDIO_USER_DATA) app.setPath('userData', process.env.SINCLAIR_STUDIO_USER_DATA);
 // 설정(studio-console 03): userData/settings.json — 렌더러는 검증된 값만 쓸 수 있다
 const settings = createSettingsStore(path.join(app.getPath('userData'), 'settings.json'), os.homedir());
 ipcMain.handle(STUDIO_CHANNELS.getSettings, () => settings.get());
@@ -22,10 +25,20 @@ ipcMain.handle(STUDIO_CHANNELS.setSettings, (_e, raw: unknown) => settings.set(r
 ipcMain.handle(STUDIO_CHANNELS.workerStatus, () => worker.status());
 ipcMain.handle(STUDIO_CHANNELS.ping, () => worker.ping());
 // 렌더러는 믿지 않는다: 닫힌 요청 집합만 작업 프로세스로
-ipcMain.handle(STUDIO_CHANNELS.request, (_e, raw: unknown) => {
+ipcMain.handle(STUDIO_CHANNELS.request, async (_e, raw: unknown) => {
   const req = parseStudioRequest(raw);
   if (!req) throw new Error('알 수 없는 요청');
+  // Cycle 로 실행·상태: control-plane 주소·테스트 폴더는 설정에서(렌더러가 경로·주소를 정하지 못한다)
+  if (req.kind === 'run-cycle' || req.kind === 'cycle-status') {
+    const s = await settings.get();
+    return worker.request({ ...req, controlPlane: s.controlPlane, ...(req.kind === 'run-cycle' ? { testsDir: s.testsDir } : {}) } as never);
+  }
   return worker.request(req as never);
+});
+ipcMain.handle(STUDIO_CHANNELS.openConsole, async (_e, url: unknown) => {
+  const s = await settings.get();
+  if (typeof url !== 'string' || !isConsoleUrl(url, s.controlPlane)) throw new Error('설정의 control-plane Console 주소가 아님');
+  await shell.openExternal(url);
 });
 
 // 내보낸 테스트 저장: 사용자가 저장 대화상자에서 고른 경로에만 쓴다(렌더러가 경로를 정하지 못한다)

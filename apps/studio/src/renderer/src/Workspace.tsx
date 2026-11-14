@@ -110,7 +110,7 @@ export function Workspace({ api }: { api: StudioApi }) {
                           <Tab label="세션" value="session" />
                         </TabList>
                         <StackItem size="fill" style={styles.editorArea}>
-                          <SessionPanel api={api} deviceId={deviceId} appId={appId} onBusyChange={setSessionBusy} onTurn={onTurn} deviceInUse={deviceInUse} {...(target ? { target } : {})} />
+                          <SessionPanel api={api} deviceId={deviceId} appId={appId} onBusyChange={setSessionBusy} onTurn={onTurn} deviceInUse={deviceInUse} {...(deviceLabel ? { deviceLabel } : {})} {...(target ? { target } : {})} />
                         </StackItem>
                         <ResizeHandle direction="vertical" hasDivider isReversed isAlwaysVisible={false} resizable={bottomPanel.props} label="로그 드로어 크기 조절" />
                         {!bottomPanel.isCollapsed && (

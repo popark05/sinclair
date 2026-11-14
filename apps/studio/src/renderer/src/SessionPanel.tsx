@@ -49,9 +49,11 @@ export interface SessionPanelProps {
   target?: JudgeTarget;
   /** 데몬의 Run 이 이 기기를 쓰는 중: 세션·판정을 막는다(같은 기기를 두 쪽이 조작하게 되고 줄 경합으로 둘 다 느려진다) */
   deviceInUse?: boolean;
+  /** 기기 표시 이름(Cycle 타깃 열 이름) */
+  deviceLabel?: string;
 }
 
-export function SessionPanel({ api, deviceId, appId, onRecord, onBusyChange, onTurn, target, deviceInUse }: SessionPanelProps) {
+export function SessionPanel({ api, deviceId, appId, onRecord, onBusyChange, onTurn, target, deviceInUse, deviceLabel }: SessionPanelProps) {
   const [matcher, setMatcher] = useState<ExpectMatcher>('visible');
   const [expected, setExpected] = useState('');
   // 대상이 바뀌면 값 칸을 그 노드의 글자·값으로 채운다(글자·값 검사의 출발점)
@@ -188,7 +190,7 @@ export function SessionPanel({ api, deviceId, appId, onRecord, onBusyChange, onT
       <List aria-label="판정">
         {(record?.judgments ?? []).map((j, i) => <ListItem key={i} label={judgmentText(j)} description={j.reason} />)}
       </List>
-      {record?.result?.ok && !running ? <ExportPanel api={api} record={record} {...(appId ? { appId } : {})} /> : null}
+      {record?.result?.ok && !running ? <ExportPanel api={api} record={record} {...(appId ? { appId } : {})} deviceId={deviceId} {...(deviceLabel ? { deviceLabel } : {})} /> : null}
     </Stack>
   );
 }

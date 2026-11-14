@@ -13,7 +13,7 @@ import type { SessionRecord } from './SessionPanel.tsx';
 
 const defaultName = (goal: string): string => (goal.length > 60 ? `${goal.slice(0, 60)}…` : goal) || 'Studio 세션';
 
-export function ExportPanel({ api, record, appId }: { api: StudioApi; record: SessionRecord; appId?: string }) {
+export function ExportPanel({ api, record, appId, deviceId, deviceLabel }: { api: StudioApi; record: SessionRecord; appId?: string; deviceId?: string; deviceLabel?: string }) {
   const [style, setStyle] = useState<'natural' | 'deterministic'>('natural');
   const [name, setName] = useState(() => defaultName(record.goal));
   // control-plane 주소는 Studio 설정(툴바 '설정')에서
@@ -24,6 +24,26 @@ export function ExportPanel({ api, record, appId }: { api: StudioApi; record: Se
   const app = appId || record.result?.startApp || '';
   const code = useMemo(() => exportTest(record, { style, testName: name.trim() || 'Studio 세션', ...(app ? { appId: app } : {}) }), [record, style, name, app]);
   const recording = record.result?.recording;
+  // Cycle 로 실행(studio-console 04): 등록한 Cycle 과 그 상태(끝날 때까지 3초마다)
+  const [cycle, setCycle] = useState<{ cycleId: string; consoleUrl: string }>();
+  const [cycleState, setCycleState] = useState<{ state: string; verdict: string; runState?: string }>();
+  useEffect(() => {
+    if (!cycle) return;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async (): Promise<void> => {
+      try {
+        const s = await api.cycleStatus(cycle.cycleId);
+        if (!alive) return;
+        setCycleState(s);
+        if (s.state !== 'finished') timer = setTimeout(() => void poll(), 3_000);
+      } catch (err) { if (alive) setStatus(`Cycle 상태를 읽지 못함: ${err instanceof Error ? err.message : String(err)}`); }
+    };
+    void poll();
+    return () => { alive = false; clearTimeout(timer); };
+  }, [api, cycle]);
+  const cycleText = (s: { state: string; verdict: string; runState?: string }): string =>
+    s.state === 'finished' ? `끝 · ${s.verdict}` : s.runState === 'queued' ? '대기 중 — 이 기기의 데몬이 가져가기를 기다림' : '실행 중';
 
   const run = async (label: string, f: () => Promise<string>): Promise<void> => {
     try { setStatus(await f()); } catch (err) { setStatus(`${label} 실패: ${err instanceof Error ? err.message : String(err)}`); }
@@ -56,6 +76,22 @@ export function ExportPanel({ api, record, appId }: { api: StudioApi; record: Se
         ) : null}
       </Stack>
       {!record.result?.freshStart ? <Text type="supporting" color="secondary">앱 처음 화면에서 시작하지 않은 세션 — 내보낸 테스트는 app.restart 로 앱 처음 화면에서 시작하므로 녹화 재생·locator 가 어긋날 수 있음. 세션 패널의 "앱 처음부터 시작" 으로 다시 돌리면 맞는다</Text> : null}
+      <Stack direction="horizontal" gap={2}>
+        <Button label="Cycle 로 실행" size="sm" variant="primary" isDisabled={!deviceId} onClick={() => void run('Cycle 로 실행', async () => {
+          const testName = name.trim() || 'Studio 세션';
+          // 자연어: 녹화를 먼저 저장해 첫 실행부터 모델 없이 재생되게
+          if (style === 'natural' && recording) {
+            const cp = controlPlane || (await api.getSettings()).controlPlane;
+            await api.saveRecording({ controlPlane: cp, testId: testName, goal: record.goal, app, recording });
+          }
+          const r = await api.runAsCycle({ deviceId: deviceId!, deviceLabel: deviceLabel ?? deviceId!, testName, code });
+          setCycleState(undefined);
+          setCycle({ cycleId: r.cycleId, consoleUrl: r.consoleUrl });
+          return `Cycle ${r.cycleId} 등록 — ${r.file}`;
+        })} />
+        {cycle ? <Button label="Console 에서 보기" size="sm" variant="secondary" onClick={() => void run('Console 열기', async () => { await api.openConsole(cycle.consoleUrl); return 'Console 을 열었음'; })} /> : null}
+        {cycle && cycleState ? <Text type="supporting" color="secondary" maxLines={1}>{cycleText(cycleState)}</Text> : null}
+      </Stack>
       {style === 'natural' && !recording ? <Text type="supporting" color="secondary">이 세션은 녹화가 없어(가림·애매한 대상) 녹화 캐시에 저장할 수 없음 — 첫 실행은 모델로 돈다</Text> : null}
       {status ? <Text type="supporting" color="secondary">{status}</Text> : null}
     </Stack>

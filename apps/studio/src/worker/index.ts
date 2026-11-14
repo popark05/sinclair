@@ -9,6 +9,7 @@ import type { AgentStatus, FromWorker, StudioRequest, StudioResponses, ToWorker 
 import { connectDevices, type DeviceConnection } from './device-session.ts';
 import { createSessionManager, type SessionAgent } from './sessions.ts';
 import { saveRecording } from './save-recording.ts';
+import { runAsCycle, cycleStatus } from './run-cycle.ts';
 
 const send = (m: FromWorker): void => { process.send?.(m); };
 
@@ -68,6 +69,14 @@ async function handle(req: StudioRequest): Promise<StudioResponses[StudioRequest
   if (req.kind === 'session-stop') { await sessions.stop(req.sessionId); return null; }
   if (req.kind === 'session-assert') return sessions.assert(req.deviceId, req.statement);
   if (req.kind === 'expect-check') return sessions.expectCheck(req.deviceId, req.query, req.matcher, req.expected);
+  if (req.kind === 'run-cycle') {
+    if (!req.controlPlane || !req.testsDir) throw new Error('설정(control-plane·테스트 폴더)이 없음');
+    return runAsCycle({ controlPlane: req.controlPlane, testsDir: req.testsDir, testName: req.testName, code: req.code, deviceId: req.deviceId, deviceLabel: req.deviceLabel });
+  }
+  if (req.kind === 'cycle-status') {
+    if (!req.controlPlane) throw new Error('설정(control-plane)이 없음');
+    return cycleStatus({ controlPlane: req.controlPlane, cycleId: req.cycleId });
+  }
   if (req.kind === 'save-recording') return saveRecording(req);
   const c = await devices();
   if (req.kind === 'connection') return c.connection;

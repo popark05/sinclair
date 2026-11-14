@@ -1,6 +1,6 @@
 // Studio IPC 계약(studio 01): 메인 ↔ 작업 프로세스 메시지는 단일 정의와 닫힌 검사기를 지난다(구조화 복제 가능한 평범한 데이터).
 import { describe, it, expect } from 'vitest';
-import { parseFromWorker, parseStudioRequest, STUDIO_CHANNELS } from '../src/shared/studio-ipc.ts';
+import { MAX_EXPORT_BYTES, parseFromWorker, parseStudioRequest, STUDIO_CHANNELS } from '../src/shared/studio-ipc.ts';
 
 describe('studio IPC 계약', () => {
   it('작업 프로세스 메시지: ready·pong 만, 필드가 맞을 때만 통과', () => {
@@ -47,7 +47,7 @@ describe('studio IPC 계약', () => {
     // Cycle 로 실행(studio-console 04): 렌더러는 이름·코드·기기만 — control-plane·테스트 폴더는 메인이 설정에서 넣는다(렌더러가 준 것은 버린다)
     expect(parseStudioRequest({ kind: 'run-cycle', deviceId: 'S', deviceLabel: 'M (…S)', testName: 'YouTube 검색', code: 'x', testsDir: '/etc', controlPlane: 'http://evil' })).toEqual({ kind: 'run-cycle', deviceId: 'S', deviceLabel: 'M (…S)', testName: 'YouTube 검색', code: 'x' });
     expect(parseStudioRequest({ kind: 'cycle-status', cycleId: 'studio-20261114-1' })).toEqual({ kind: 'cycle-status', cycleId: 'studio-20261114-1' });
-    for (const bad of [{ kind: 'run-cycle', deviceId: 'S', deviceLabel: 'M', testName: '', code: 'x' }, { kind: 'run-cycle', deviceId: 'S', deviceLabel: 'M', testName: 'n', code: 'x'.repeat(300_000) }, { kind: 'cycle-status', cycleId: '../x' }]) expect(parseStudioRequest(bad), JSON.stringify(bad).slice(0, 80)).toBeUndefined();
+    for (const bad of [{ kind: 'run-cycle', deviceId: 'S', deviceLabel: 'M', testName: '', code: 'x' }, { kind: 'run-cycle', deviceId: 'S', deviceLabel: 'M', testName: 'n', code: 'x'.repeat(MAX_EXPORT_BYTES + 1) }, { kind: 'cycle-status', cycleId: '../x' }]) expect(parseStudioRequest(bad), JSON.stringify(bad).slice(0, 80)).toBeUndefined();
     // 요소 판정(studio 09): 닫힌 질의·검사 종류, 값은 값이 있는 검사에만
     expect(parseStudioRequest({ kind: 'expect-check', deviceId: 'S', query: { text: '창신동', exact: true }, matcher: 'visible' })).toEqual({ kind: 'expect-check', deviceId: 'S', query: { text: '창신동', exact: true }, matcher: 'visible' });
     expect(parseStudioRequest({ kind: 'expect-check', deviceId: 'S', query: { testId: 'a:id/q' }, matcher: 'value', expected: '사과' })).toEqual({ kind: 'expect-check', deviceId: 'S', query: { testId: 'a:id/q' }, matcher: 'value', expected: '사과' });

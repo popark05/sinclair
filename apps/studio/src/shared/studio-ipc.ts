@@ -17,6 +17,8 @@ export const STUDIO_CHANNELS = {
   /** Studio 설정 읽기·쓰기(메인 프로세스, studio-console 03) */
   getSettings: 'studio:get-settings',
   setSettings: 'studio:set-settings',
+  /** 기본 브라우저로 Console 열기(설정의 control-plane 아래 /console/ 만) */
+  openConsole: 'studio:open-console',
 } as const;
 
 /** 내보낸 코드 상한(파일 저장 요청 검사) */
@@ -40,6 +42,9 @@ export type StudioRequest =
   /** 요소 판정(studio 09): 고른 노드의 질의로 러너 expect 를 지금 화면에서(모델 없음) */
   | { kind: 'expect-check'; deviceId: string; query: JudgeQuery; matcher: ExpectMatcher; expected?: string }
   // 녹화를 control-plane 녹화 캐시에(studio 06)
+  /** Cycle 로 실행(studio-console 04): 렌더러는 이름·코드·기기만. controlPlane·testsDir 는 메인이 설정에서 넣는다 */
+  | { kind: 'run-cycle'; deviceId: string; deviceLabel: string; testName: string; code: string; controlPlane?: string; testsDir?: string }
+  | { kind: 'cycle-status'; cycleId: string; controlPlane?: string }
   | { kind: 'save-recording'; controlPlane: string; testId: string; goal: string; app: string; recording: { actions: CacheAction[]; end: { anchors: CacheTarget[] } } };
 
 /** 에이전트를 쓸 수 있는가(자격 증명·API 연결 — 과금 없는 점검). 못 쓰면 사유 */
@@ -85,7 +90,7 @@ export interface StudioDevice { id: string; model: string; osVersion: string; st
 
 /** 요청별 응답 타입 */
 export interface StudioResponses { connection: ConnectionInfo; devices: StudioDevice[]; 'foreground-app': string | null; snapshot: StudioSnapshot; tap: null; swipe: null; text: null; key: null; button: null;
-  'agent-status': AgentStatus; 'session-start': { sessionId: string }; 'session-stop': null; 'session-assert': JudgeView; 'expect-check': JudgeView; 'save-recording': { key: string } }
+  'agent-status': AgentStatus; 'session-start': { sessionId: string }; 'session-stop': null; 'session-assert': JudgeView; 'expect-check': JudgeView; 'save-recording': { key: string }; 'run-cycle': { cycleId: string; consoleUrl: string; file: string }; 'cycle-status': { state: string; verdict: string; runState?: string } }
 
 /** 작업 프로세스 상태: 띄우는 중 → 준비됨 → (죽으면) 종료됨 */
 export interface WorkerStatus {
@@ -132,6 +137,12 @@ export function parseStudioRequest(v: unknown): StudioRequest | undefined {
   if (v.kind === 'connection') return { kind: 'connection' };
   if (v.kind === 'devices') return { kind: 'devices' };
   if (v.kind === 'agent-status') return { kind: 'agent-status' };
+  if (v.kind === 'cycle-status') return typeof v.cycleId === 'string' && /^[A-Za-z0-9._-]{1,120}$/.test(v.cycleId) ? { kind: 'cycle-status', cycleId: v.cycleId } : undefined;
+  if (v.kind === 'run-cycle') {
+    const ok = typeof v.deviceId === 'string' && v.deviceId && typeof v.deviceLabel === 'string' && v.deviceLabel.length <= 120
+      && typeof v.testName === 'string' && v.testName.trim() && v.testName.length <= 120 && typeof v.code === 'string' && v.code.length > 0 && Buffer.byteLength(v.code) <= MAX_EXPORT_BYTES;
+    return ok ? { kind: 'run-cycle', deviceId: v.deviceId as string, deviceLabel: v.deviceLabel as string, testName: v.testName as string, code: v.code as string } : undefined;
+  }
   if (v.kind === 'save-recording') {
     // 녹화 항목은 작업 프로세스가 parseCacheEntry 로 다시 검사한다(여기선 모양만)
     if (typeof v.controlPlane !== 'string' || typeof v.testId !== 'string' || !v.testId || typeof v.goal !== 'string' || !v.goal || typeof v.app !== 'string' || !isRecord(v.recording) || !Array.isArray(v.recording.actions) || !isRecord(v.recording.end)) return undefined;
@@ -178,6 +189,10 @@ export function parseStudioRequest(v: unknown): StudioRequest | undefined {
 /** preload 가 렌더러에 window.sinclair 로 노출하는 API */
 export interface StudioApi {
   /** Studio 설정(control-plane 주소·테스트 폴더) */
+  /** Cycle 로 실행(studio-console 04)·상태·Console 열기(설정의 control-plane 아래 /console/ 만) */
+  runAsCycle(input: { deviceId: string; deviceLabel: string; testName: string; code: string }): Promise<{ cycleId: string; consoleUrl: string; file: string }>;
+  cycleStatus(cycleId: string): Promise<{ state: string; verdict: string; runState?: string }>;
+  openConsole(url: string): Promise<void>;
   getSettings(): Promise<StudioSettings>;
   setSettings(s: StudioSettings): Promise<StudioSettings>;
   getWorkerStatus(): Promise<WorkerStatus>;

@@ -1,7 +1,7 @@
 {
   "skill": "verify-studio",
   "mode": "fake",
-  "at": "2026-11-14T08:43:20.223Z",
+  "at": "2026-11-14T10:36:23.094Z",
   "ok": true,
   "checks": [
     {
@@ -11,12 +11,16 @@
     {
       "name": "기기 화면 스냅샷을 그림",
       "ok": true,
-      "detail": "1080×2400, 기동 1557ms"
+      "detail": "1080×2400, 기동 2155ms"
     },
     {
       "name": "현재 앱 버튼이 앞 화면 앱을 채우고 버튼 옆에 결과",
       "ok": true,
       "detail": "현재 앱: com.verify.app"
+    },
+    {
+      "name": "설정 대화상자로 control-plane·테스트 폴더 저장",
+      "ok": true
     },
     {
       "name": "화면 클릭 → 그 자리 노드 하이라이트",
@@ -86,9 +90,26 @@
       "detail": "await screen.getByTestId('com.verify.app:id/username').type('qa'); | await screen.getByRole('button', { name: '로그인', exact: true }).tap(); | await expect(screen.getByTestId('com.verify.app:id/welcome'"
     },
     {
+      "name": "Cycle 로 실행: 테스트 폴더에 쓰고 Cycle 등록",
+      "ok": true,
+      "detail": "Cycle studio-20261114103616-bd86 등록 — <tmp>/studio-tests/Studio 검증 2026-11-14-10-36-15 · Cycle/Studio 검증 2026-11-14-10-36-15 · Cycle.sinclair.ts"
+    },
+    {
+      "name": "Cycle 타깃은 고른 기기(deviceId)",
+      "ok": true
+    },
+    {
+      "name": "Console 링크(/console/cycles/<id>)가 열린다",
+      "ok": true
+    },
+    {
+      "name": "Cycle 상태 표시(데몬 없음 → 대기 중)",
+      "ok": true
+    },
+    {
       "name": "내보낸 두 테스트가 같은 기기에서 통과",
       "ok": true,
-      "detail": "Studio 검증 2026-11-14-08-43-12=passed, Studio 검증 2026-11-14-08-43-12 · 결정적=passed"
+      "detail": "Studio 검증 2026-11-14-10-36-15=passed, Studio 검증 2026-11-14-10-36-15 · 결정적=passed"
     },
     {
       "name": "자연어 act 는 Studio 가 저장한 녹화로 재생(act 모델 0회)",

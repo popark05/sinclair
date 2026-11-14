@@ -155,7 +155,7 @@ async function fakeClaude(): Promise<FakeApi> {
 }
 
 async function startControlPlane(): Promise<string> {
-  const cp: ChildProcess = spawn(process.execPath, [path.join(repo, 'apps/control-plane/bin/sinclair-control-plane.mjs'), '--port', '0', '--store', 'memory'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const cp: ChildProcess = spawn(process.execPath, [path.join(repo, 'apps/control-plane/bin/sinclair-control-plane.mjs'), '--port', '0', '--store', 'memory', '--console-dir', path.join(repo, 'apps/console/dist')], { stdio: ['ignore', 'pipe', 'pipe'] });
   cleanups.push(() => { cp.kill('SIGTERM'); });
   let out = '';
   const port = await new Promise<number>((resolve, reject) => {
@@ -222,6 +222,10 @@ async function main(): Promise<void> {
 
   // ───────────── Studio 띄우기 ─────────────
   const t0 = Date.now();
+  // 설정·테스트 폴더는 임시로(사용자의 Studio 설정을 건드리지 않게)
+  const userData = path.join(tmp, 'userdata');
+  const studioTests = path.join(tmp, 'studio-tests');
+  env.SINCLAIR_STUDIO_USER_DATA = userData;
   const studio = await electron.launch({ executablePath: electronBin, args: [studioDir], cwd: studioDir, env });
   cleanups.unshift(() => studio.close().catch(() => {}));
   const win = await studio.firstWindow();
@@ -239,6 +243,14 @@ async function main(): Promise<void> {
   const fgText = await toolbarStatus.innerText();
   check('현재 앱 버튼이 앞 화면 앱을 채우고 버튼 옆에 결과', fgText.includes(`현재 앱: ${app}`), fgText);
   await win.getByLabel('Studio 툴바').getByPlaceholder('com.example.app').fill(app);
+
+  // 설정(studio-console 03): control-plane 주소·테스트 폴더를 대화상자에서 바꾸고 저장
+  await win.getByRole('button', { name: '설정', exact: true }).click();
+  await win.getByLabel('control-plane 주소').fill(controlPlane);
+  await win.getByLabel('테스트 폴더').fill(studioTests);
+  await win.getByRole('button', { name: '설정 저장' }).click();
+  await win.getByRole('status', { name: '툴바 상태' }).getByText('설정 저장함').waitFor({ timeout: 10_000 });
+  check('설정 대화상자로 control-plane·테스트 폴더 저장', JSON.parse(fs.readFileSync(path.join(userData, 'settings.json'), 'utf8')).testsDir === studioTests);
 
   // 화면 클릭 = 탭 + 그 자리 노드 선택(Inspector 하이라이트·locator 후보)
   const box = (await screen.boundingBox())!;
@@ -320,7 +332,6 @@ async function main(): Promise<void> {
   };
   const naturalCode = await copy();
   check('자연어 내보내기(app.restart + act + assert), 복사 = 클립보드', naturalCode.includes(`await app.restart('${app}')`) && naturalCode.includes('await agent.act(') && naturalCode.includes(`await agent.assert(`), `${naturalCode.split('\n').length}줄`);
-  await exportPanel.getByPlaceholder('control-plane 주소').or(exportPanel.getByLabel('control-plane 주소')).first().fill(controlPlane);
   await exportPanel.getByRole('button', { name: '녹화 캐시에 저장' }).click();
   const saved = exportPanel.getByText(/녹화 캐시에 저장함|녹화 저장 실패/);
   await saved.waitFor({ timeout: 15_000 });
@@ -335,6 +346,28 @@ async function main(): Promise<void> {
   check('결정적 내보내기에 요소 판정이 expect 코드로', detCode.includes(`  await ${elementText.replace(/^통과 · /, '')};`), elementText.replace(/^통과 · /, ''));
   check('결정적 내보내기(app.restart + locator 코드, 이름 바꿈)', detCode.includes(`await app.restart('${app}')`) && detCode.includes('screen.get') && detCode.includes(`${testName} · 결정적`), detCode.split('\n').filter((l) => l.includes('screen.get')).map((l) => l.trim()).join(' | ').slice(0, 200));
   await shot('04-export-deterministic');
+
+  // Cycle 로 실행(studio-console 04): 자연어로 — 녹화 저장 → 테스트 폴더에 쓰기 → 고른 기기(deviceId) 타깃 Cycle 등록 → (실기) 데몬이 돌려 끝
+  await exportPanel.getByText('자연어', { exact: true }).click();
+  const cycleTestName = `${testName} · Cycle`;
+  await exportPanel.getByPlaceholder('테스트 이름').fill(cycleTestName);
+  await exportPanel.getByRole('button', { name: 'Cycle 로 실행' }).click();
+  const registered = exportPanel.getByText(/Cycle studio-\S+ 등록|Cycle 로 실행 실패/);
+  await registered.waitFor({ timeout: 20_000 });
+  const regText = await registered.innerText();
+  const cycleIdM = /Cycle (studio-\S+) 등록 — (.+)$/.exec(regText);
+  check('Cycle 로 실행: 테스트 폴더에 쓰고 Cycle 등록', !!cycleIdM && fs.existsSync(cycleIdM[2]!.trim()) && cycleIdM[2]!.startsWith(studioTests), regText.replace(tmp, '<tmp>'));
+  const cv = cycleIdM ? await (await fetch(`${controlPlane}/cycles/${cycleIdM[1]}`)).json() as { targetSelectors?: Record<string, { deviceId?: string }> } : {};
+  check('Cycle 타깃은 고른 기기(deviceId)', Object.values(cv.targetSelectors ?? {})[0]?.deviceId === deviceId);
+  check('Console 링크(/console/cycles/<id>)가 열린다', cycleIdM ? (await fetch(`${controlPlane}/console/cycles/${cycleIdM[1]}`)).status === 200 : false);
+  if (DEVICE) {
+    await exportPanel.getByText(/끝 · /).waitFor({ timeout: 300_000 });
+    const endText = await exportPanel.getByText(/끝 · /).innerText();
+    check('데몬이 Studio 의 Cycle 을 돌려 끝(verified)', endText.includes('끝 · verified'), endText);
+  } else {
+    await exportPanel.getByText(/대기 중/).waitFor({ timeout: 15_000 });
+    check('Cycle 상태 표시(데몬 없음 → 대기 중)', true);
+  }
   await studio.close();
   cleanups.shift();
 
