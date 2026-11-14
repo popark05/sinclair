@@ -23,6 +23,8 @@ export interface DeviceBackend {
   button(deviceId: string, name: DeviceButton): Promise<void>;
   /** 화면 키보드가 떠 있는가(선택). 알 수 없으면 undefined */
   keyboardShown?(deviceId: string): Promise<boolean | undefined>;
+  /** 앞 화면(resumed) 앱의 패키지(선택). 알 수 없으면 undefined — 화면 트리에 resource-id 가 없는 앱도 알 수 있게 */
+  foregroundApp?(deviceId: string): Promise<string | undefined>;
   /** 화면 상태(선택). 알 수 없으면 필드가 비어 있다. 잠금화면 위에서는 앱 창이 안 보여 모든 locator 가 실패하므로 러너가 미리 확인한다 */
   screenState?(deviceId: string): Promise<ScreenState>;
   launchApp(deviceId: string, appId: string): Promise<void>;

@@ -123,8 +123,12 @@ export interface DeviceRpcParams {
   'device.io.keyboard': DeviceParams;
   'device.apps.launch': AppParams;
   'device.apps.terminate': AppParams;
+  'device.apps.foreground': DeviceParams;
   'device.url': UrlParams;
 }
+
+/** `device.apps.foreground` 결과: 앞 화면(resumed) 앱의 패키지. null 이면 기기가 알려 주지 않음 */
+export interface ForegroundAppResult { appId: string | null }
 
 /** `device.io.keyboard` 결과: 화면 키보드가 떠 있는가. null 이면 기기가 알려 주지 않음(모름) */
 export interface KeyboardResult { shown: boolean | null }

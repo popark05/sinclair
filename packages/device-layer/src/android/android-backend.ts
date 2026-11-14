@@ -52,6 +52,11 @@ export function parseScreenState(power: string, window: string): ScreenState {
   return { ...(wake ? { awake: wake === 'Awake' } : {}), ...(lock ? { locked: lock === 'true' } : {}) };
 }
 
+/** dumpsys 의 resumed 액티비티(`topResumedActivity=`/`mResumedActivity:`) 또는 포커스 창(`mCurrentFocus=`) 줄에서 패키지를 읽는다. 못 읽으면 undefined */
+export function parseForegroundApp(out: string): string | undefined {
+  return /\bu\d+\s+([A-Za-z][\w.]*)\//.exec(out)?.[1];
+}
+
 /** 셸 인자 하나를 작은따옴표로 감싼다. */
 function shellQuote(arg: string): string {
   return `'${arg.replace(/'/g, `'\\''`)}'`;
@@ -513,6 +518,11 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
       const out = await run(id, 'dumpsys input_method');
       const m = /\bmInputShown=(true|false)\b/.exec(out);
       return m ? m[1] === 'true' : undefined;
+    },
+    // 앞 화면 앱: resumed 액티비티(안드로이드 10+ topResumedActivity, 그 전 mResumedActivity), 없으면 포커스 창. 출력이 커서 grep 으로 줄만
+    foregroundApp: async (id) => {
+      const sh = async (cmd: string) => (await dadbFor(id).shell(cmd)).output;
+      return parseForegroundApp(await sh('dumpsys activity activities | grep -m1 -E "topResumedActivity=|mResumedActivity:"')) ?? parseForegroundApp(await sh('dumpsys window | grep -m1 mCurrentFocus='));
     },
     screenState: async (id) => {
       const sh = async (cmd: string) => (await dadbFor(id).shell(cmd)).output;

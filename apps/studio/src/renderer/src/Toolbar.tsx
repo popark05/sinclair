@@ -20,13 +20,17 @@ export function Toolbar({ api, onDeviceChange, onAppChange }: { api: StudioApi; 
   const [device, setDevice] = useState('');
   const [app, setApp] = useState('');
   const [problem, setProblem] = useState('');
+  /** 버튼 바로 옆 상태(사유·결과). 툴바 끝은 눈에 잘 띄지 않아 누른 버튼 옆에 보인다 */
+  const [note, setNote] = useState('');
 
-  const load = async (): Promise<void> => {
+  /** manual: 새로 고침 버튼(결과를 버튼 옆에). 처음 불러올 때는 조용히 */
+  const load = async (manual = false): Promise<void> => {
     try {
       const [c, list] = await Promise.all([api.connection(), api.listDevices()]);
       setConn(c);
       setDevices(list);
       setProblem('');
+      if (manual) setNote(`기기 ${list.length}대 · ${new Date().toLocaleTimeString('ko-KR', { hour12: false })} 새로 고침`);
       // 고른 기기가 없거나 사라졌으면 첫 쓸 수 있는 기기
       setDevice((cur) => {
         const keep = list.some((d) => d.id === cur) ? cur : list.find((d) => d.state === 'device')?.id ?? '';
@@ -34,7 +38,7 @@ export function Toolbar({ api, onDeviceChange, onAppChange }: { api: StudioApi; 
         if (keep !== cur) onDeviceChange(keep, d ? deviceLabel(d) : undefined);
         return keep;
       });
-    } catch (err) { setProblem(err instanceof Error ? err.message : String(err)); }
+    } catch (err) { const m = err instanceof Error ? err.message : String(err); setProblem(m); setNote(`새로 고침 실패: ${m}`); }
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { void load(); }, [api]);
@@ -43,7 +47,8 @@ export function Toolbar({ api, onDeviceChange, onAppChange }: { api: StudioApi; 
   const changeApp = (v: string): void => { setApp(v); onAppChange(v); };
   const fillForeground = async (): Promise<void> => {
     if (!device) return;
-    try { const a = await api.foregroundApp(device); if (a) changeApp(a); else setProblem('지금 화면의 앱을 알 수 없음'); } catch (err) { setProblem(err instanceof Error ? err.message : String(err)); }
+    setNote('현재 앱 확인 중…');
+    try { const a = await api.foregroundApp(device); if (a) { changeApp(a); setNote(`현재 앱: ${a}`); } else setNote('지금 화면의 앱을 알 수 없음 — 앱 id 를 직접 넣으세요'); } catch (err) { setNote(`현재 앱 실패: ${err instanceof Error ? err.message : String(err)}`); }
   };
 
   return (
@@ -60,7 +65,8 @@ export function Toolbar({ api, onDeviceChange, onAppChange }: { api: StudioApi; 
           />
           <TextInput label="앱 id" isLabelHidden size="sm" placeholder="com.example.app" value={app} onChange={(v) => changeApp(v)} />
           <Button label="현재 앱" size="sm" variant="secondary" isDisabled={!device} onClick={() => void fillForeground()} />
-          <Button label="새로 고침" size="sm" variant="ghost" onClick={() => void load()} />
+          <Button label="새로 고침" size="sm" variant="ghost" onClick={() => void load(true)} />
+          <Stack as="output" aria-label="툴바 상태" role="status"><Text type="supporting" color="secondary" maxLines={1}>{note}</Text></Stack>
         </Stack>
       }
       endContent={

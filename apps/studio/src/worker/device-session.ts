@@ -5,7 +5,7 @@ import { rpcOverHttp, type DeviceRpc } from '@sinclair/engine-mobile';
 import { appPackageOf } from '@sinclair/agent';
 import type { DeviceInfo, SemanticNode } from '@sinclair/protocol';
 import type { ConnectionInfo, StudioDevice, StudioKey, StudioSnapshot } from '../shared/studio-ipc.ts';
-import type { SnapshotResult } from '@sinclair/protocol';
+import type { ForegroundAppResult, SnapshotResult } from '@sinclair/protocol';
 
 export interface OwnDevices { rpc: DeviceRpc; close(): Promise<void> }
 export interface ConnectDeps {
@@ -41,7 +41,11 @@ function over(rpc: DeviceRpc, connection: ConnectionInfo, close: () => Promise<v
   return {
     connection, rpc, close,
     listDevices: async () => ((await rpc.call('devices.list', {})) as DeviceInfo[]).map(toStudioDevice),
-    foregroundApp: async (deviceId) => appPackageOf((await rpc.call('device.dump.ui', { deviceId })) as SemanticNode) ?? null,
+    // 기기에 직접 묻고(화면 트리에 resource-id 가 없는 앱도), 모르거나 구버전 데몬(메서드 없음)이면 화면 트리의 resource-id 패키지로
+    foregroundApp: async (deviceId) => {
+      const asked = await (rpc.call('device.apps.foreground', { deviceId }) as Promise<ForegroundAppResult>).catch(() => undefined);
+      return asked?.appId ?? appPackageOf((await rpc.call('device.dump.ui', { deviceId })) as SemanticNode) ?? null;
+    },
     snapshot: async (deviceId) => {
       const s = (await rpc.call('device.snapshot', { deviceId })) as SnapshotResult;
       return { png: s.screenshot.base64, root: s.root, capturedAt: s.capturedAt };
