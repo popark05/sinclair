@@ -23,6 +23,7 @@ const api: StudioApi = {
   startSession: (deviceId, goal, opts) => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'session-start', deviceId, goal, ...(opts?.restartApp ? { restartApp: opts.restartApp } : {}) }) as Promise<{ sessionId: string }>,
   stopSession: async (sessionId) => { await ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'session-stop', sessionId }); },
   assertNow: (deviceId, statement) => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'session-assert', deviceId, statement }) as Promise<JudgeView>,
+  expectCheck: (deviceId, query, matcher, expected) => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'expect-check', deviceId, query, matcher, ...(expected !== undefined ? { expected } : {}) }) as Promise<JudgeView>,
   saveRecording: (input) => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'save-recording', ...input }) as Promise<{ key: string }>,
   saveTestFile: (suggestedName, content) => ipcRenderer.invoke(STUDIO_CHANNELS.saveTestFile, suggestedName, content) as Promise<string | null>,
   onEvent: (cb) => {

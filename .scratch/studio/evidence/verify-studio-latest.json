@@ -1,7 +1,7 @@
 {
   "skill": "verify-studio",
   "mode": "fake",
-  "at": "2026-11-14T03:11:30.459Z",
+  "at": "2026-11-14T05:09:02.843Z",
   "ok": true,
   "checks": [
     {
@@ -11,7 +11,7 @@
     {
       "name": "기기 화면 스냅샷을 그림",
       "ok": true,
-      "detail": "1080×2400, 기동 1464ms"
+      "detail": "1080×2400, 기동 1505ms"
     },
     {
       "name": "화면 클릭 → 그 자리 노드 하이라이트",
@@ -52,13 +52,18 @@
       "detail": "참 · 환영 화면이 보인다"
     },
     {
+      "name": "요소 판정 = 통과(고른 노드 · 보인다, 모델 없음)",
+      "ok": true,
+      "detail": "통과 · expect(screen.getByTestId('com.verify.app:id/welcome')).toBeVisible()"
+    },
+    {
       "name": "처음부터 시작한 세션이라 내보내기 경고 없음",
       "ok": true
     },
     {
       "name": "자연어 내보내기(app.restart + act + assert), 복사 = 클립보드",
       "ok": true,
-      "detail": "9줄"
+      "detail": "10줄"
     },
     {
       "name": "녹화 캐시에 저장(control-plane PUT /cache)",
@@ -66,14 +71,19 @@
       "detail": "녹화 캐시에 저장함 — 이 테스트의 첫 실행부터 모델 없이 재생된다"
     },
     {
+      "name": "결정적 내보내기에 요소 판정이 expect 코드로",
+      "ok": true,
+      "detail": "expect(screen.getByTestId('com.verify.app:id/welcome')).toBeVisible()"
+    },
+    {
       "name": "결정적 내보내기(app.restart + locator 코드, 이름 바꿈)",
       "ok": true,
-      "detail": "await screen.getByTestId('com.verify.app:id/username').type('qa'); | await screen.getByRole('button', { name: '로그인', exact: true }).tap();"
+      "detail": "await screen.getByTestId('com.verify.app:id/username').type('qa'); | await screen.getByRole('button', { name: '로그인', exact: true }).tap(); | await expect(screen.getByTestId('com.verify.app:id/welcome'"
     },
     {
       "name": "내보낸 두 테스트가 같은 기기에서 통과",
       "ok": true,
-      "detail": "Studio 검증 2026-11-14-03-11-23=passed, Studio 검증 2026-11-14-03-11-23 · 결정적=passed"
+      "detail": "Studio 검증 2026-11-14-05-08-55=passed, Studio 검증 2026-11-14-05-08-55 · 결정적=passed"
     },
     {
       "name": "자연어 act 는 Studio 가 저장한 녹화로 재생(act 모델 0회)",

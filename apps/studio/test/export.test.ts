@@ -64,4 +64,18 @@ test('YouTube 검색', async ({ screen, agent }) => {
     const r = { ...record, goal: '비밀번호 {{secret:QA_PASSWORD}} 로 로그인', judgments: [] };
     expect(exportTest(r, { style: 'natural', testName: 'x' })).toContain("await agent.act(`비밀번호 ${secret('QA_PASSWORD')} 로 로그인`);");
   });
+
+  it('요소 판정(studio 09): 통과한 것은 expect(locator).toX(...), 실패한 것은 주석 — 두 방식 모두, 판정이 요소뿐이면 agent 를 받지 않는다', () => {
+    const r: SessionExportInput = { ...record, judgments: [
+      { kind: 'expect', query: { text: '창신동', exact: true }, matcher: 'visible', pass: true, reason: '통과' },
+      { kind: 'expect', query: { testId: 'com.app:id/q' }, matcher: 'value', expected: '사과', pass: true, reason: '통과' },
+      { kind: 'expect', query: { role: 'button', name: '닫기', exact: true }, matcher: 'hidden', pass: false, reason: 'expect … toBeHidden 실패' },
+    ] };
+    const det = exportTest(r, { style: 'deterministic', testName: 'x' });
+    expect(det).toContain("async ({ screen, expect }) =>");
+    expect(det).toContain("  await expect(screen.getByText('창신동', { exact: true })).toBeVisible();\n  await expect(screen.getByTestId('com.app:id/q')).toHaveValue('사과');");
+    expect(det).toContain("  // 세션에서 실패했던 판정: expect(screen.getByRole('button', { name: '닫기', exact: true })).toBeHidden() — expect … toBeHidden 실패");
+    expect(det).not.toContain('agent');
+    expect(exportTest(r, { style: 'natural', testName: 'x' })).toContain("async ({ screen, agent, expect }) =>");
+  });
 });

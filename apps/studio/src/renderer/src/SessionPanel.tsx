@@ -9,10 +9,17 @@ import { Button } from '@astryxdesign/core/Button';
 import { CheckboxInput } from '@astryxdesign/core/CheckboxInput';
 import { List, ListItem } from '@astryxdesign/core/List';
 import { Text } from '@astryxdesign/core/Text';
-import { APP_ID, type AgentStatus, type JudgeView, type SessionResult, type StudioApi, type TurnView } from '../../shared/studio-ipc.ts';
+import { Selector } from '@astryxdesign/core/Selector';
+import { APP_ID, type AgentStatus, type Judgment, type SessionResult, type StudioApi, type TurnView } from '../../shared/studio-ipc.ts';
+import { EXPECT_MATCHERS, expectCode, locatorCode, type ExpectMatcher, type JudgeQuery } from '../../shared/expect-judge.ts';
 import { ExportPanel } from './ExportPanel.tsx';
 
-export interface SessionRecord { goal: string; turns: TurnView[]; result?: SessionResult; judgments: Array<JudgeView & { statement: string }> }
+export interface SessionRecord { goal: string; turns: TurnView[]; result?: SessionResult; judgments: Judgment[] }
+/** 요소 판정의 대상(Inspector·화면에서 고른 노드의, 그 화면에서 하나로 정해지는 첫 locator 후보) */
+export interface JudgeTarget { query: JudgeQuery; code: string; text?: string; value?: string }
+
+/** 판정 목록 한 줄 */
+export const judgmentText = (j: Judgment): string => (j.kind === 'expect' ? `${j.pass ? '통과' : '실패'} · ${expectCode(locatorCode(j.query), j.matcher, j.expected)}` : `${j.pass ? '참' : '거짓'} · ${j.statement}`);
 
 const GUARD = { gone: '사라짐', ambiguous: '애매함', covered: '덮임' } as const;
 const styles: Record<string, CSSProperties> = {
@@ -37,9 +44,15 @@ export interface SessionPanelProps {
   onBusyChange?: (busy: boolean) => void;
   /** 턴 하나가 끝날 때마다(Workspace 가 화면을 한 번 받는다) */
   onTurn?: () => void;
+  /** 요소 판정 대상(고른 노드). 없으면 요소 판정 줄 대신 안내 */
+  target?: JudgeTarget;
 }
 
-export function SessionPanel({ api, deviceId, appId, onRecord, onBusyChange, onTurn }: SessionPanelProps) {
+export function SessionPanel({ api, deviceId, appId, onRecord, onBusyChange, onTurn, target }: SessionPanelProps) {
+  const [matcher, setMatcher] = useState<ExpectMatcher>('visible');
+  const [expected, setExpected] = useState('');
+  // 대상이 바뀌면 값 칸을 그 노드의 글자·값으로 채운다(글자·값 검사의 출발점)
+  useEffect(() => { setExpected(target?.value ?? target?.text ?? ''); }, [target?.code, target?.text, target?.value]);
   const [status, setStatus] = useState<AgentStatus>();
   const [goal, setGoal] = useState('');
   const [sessionId, setSessionId] = useState<string>();
@@ -83,8 +96,18 @@ export function SessionPanel({ api, deviceId, appId, onRecord, onBusyChange, onT
     if (!st || !deviceId) return;
     try {
       const j = await api.assertNow(deviceId, st);
-      setRecord((r) => { const next = { ...(r ?? { goal: '', turns: [], judgments: [] }), judgments: [...(r?.judgments ?? []), { ...j, statement: st }] }; onRecord?.(next); return next; });
+      addJudgment({ ...j, statement: st });
       setStatement('');
+    } catch (err) { setProblem(err instanceof Error ? err.message : String(err)); }
+  };
+
+  const addJudgment = (j: Judgment): void => setRecord((r) => { const next = { ...(r ?? { goal: '', turns: [], judgments: [] }), judgments: [...(r?.judgments ?? []), j] }; onRecord?.(next); return next; });
+  const needsValue = EXPECT_MATCHERS[matcher].needsValue;
+  const judgeElement = async (): Promise<void> => {
+    if (!target || !deviceId) return;
+    try {
+      const v = await api.expectCheck(deviceId, target.query, matcher, needsValue ? expected : undefined);
+      addJudgment({ kind: 'expect', query: target.query, matcher, ...(needsValue ? { expected } : {}), ...v });
     } catch (err) { setProblem(err instanceof Error ? err.message : String(err)); }
   };
 
@@ -118,8 +141,18 @@ export function SessionPanel({ api, deviceId, appId, onRecord, onBusyChange, onT
         </StackItem>
         <Button label="판정" size="sm" variant="secondary" isDisabled={!deviceId || !status?.ready || running || !statement.trim()} onClick={() => void judge()} />
       </Stack>
+      {target ? (
+        <Stack as="section" aria-label="요소 판정" direction="vertical" gap={1}>
+          <Text type="supporting" color="secondary" maxLines={2}>선택한 노드: {target.code}</Text>
+          <Stack direction="horizontal" gap={2}>
+            <Selector label="검사 종류" isLabelHidden size="sm" variant="secondary" options={Object.entries(EXPECT_MATCHERS).map(([value, m]) => ({ value, label: m.label }))} value={matcher} onChange={(v) => { if (v) setMatcher(v as ExpectMatcher); }} />
+            {needsValue ? <StackItem size="fill"><TextInput label="판정 값" isLabelHidden size="sm" width="100%" placeholder="기대하는 글자·값" value={expected} onChange={(v) => setExpected(v)} /></StackItem> : null}
+            <Button label="요소 판정" size="sm" variant="secondary" isDisabled={!deviceId || running} onClick={() => void judgeElement()} />
+          </Stack>
+        </Stack>
+      ) : <Text type="supporting" color="secondary">Inspector 나 기기 화면에서 노드를 고르면 요소 판정(모델 없이 보인다·글자·값·체크 검사)을 더할 수 있음</Text>}
       <List aria-label="판정">
-        {(record?.judgments ?? []).map((j, i) => <ListItem key={i} label={`${j.pass ? '참' : '거짓'} · ${j.statement}`} description={j.reason} />)}
+        {(record?.judgments ?? []).map((j, i) => <ListItem key={i} label={judgmentText(j)} description={j.reason} />)}
       </List>
       {record?.result?.ok && !running ? <ExportPanel api={api} record={record} {...(appId ? { appId } : {})} /> : null}
     </Stack>

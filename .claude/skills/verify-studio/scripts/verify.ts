@@ -284,11 +284,22 @@ async function main(): Promise<void> {
   await shot('02-session');
 
   await win.getByPlaceholder(/지금 화면에서 참이어야 할 문장/).fill(statement);
-  await win.getByRole('button', { name: '판정' }).click();
+  await win.getByRole('button', { name: '판정', exact: true }).click();
   const judged = win.getByRole('list', { name: '판정' }).getByRole('listitem').first();
   await judged.waitFor({ timeout: DEVICE ? 60_000 : 15_000 });
   const judgedText = await judged.innerText();
   check('지금 화면 판정 = 참', judgedText.startsWith('참'), judgedText.split('\n')[0]);
+
+  // 요소 판정(studio 09): 트리 검색으로 노드를 고르고(화면 탭 없이) "보인다" 를 모델 없이 판정
+  await win.getByText('화면 트리', { exact: true }).first().click();
+  await win.getByPlaceholder('역할·이름·testId').fill(DEVICE ? 'search_query' : '환영');
+  await win.getByText(DEVICE ? /· search_query/ : /text "환영합니다"/).first().click();
+  const fakeJudgeBefore = fakeApi?.judgeCalls ?? 0;
+  await win.getByRole('button', { name: '요소 판정' }).click();
+  const elementItem = win.getByRole('list', { name: '판정' }).getByRole('listitem').nth(1);
+  await elementItem.waitFor({ timeout: 15_000 });
+  const elementText = (await elementItem.innerText()).split('\n')[0]!;
+  check('요소 판정 = 통과(고른 노드 · 보인다, 모델 없음)', /^통과 · expect\(screen\.getBy\w+\(.*\)\)\.toBeVisible\(\)$/.test(elementText) && (fakeApi?.judgeCalls ?? 0) === fakeJudgeBefore, elementText);
 
   // ───────────── 내보내기 ─────────────
   const exportPanel = win.getByRole('region', { name: '코드로 내보내기' }).or(win.locator('section[aria-label="코드로 내보내기"]')).first();
@@ -315,6 +326,7 @@ async function main(): Promise<void> {
   await exportPanel.getByPlaceholder('테스트 이름').fill(`${testName} · 결정적`);
   await sleep(300);
   const detCode = await copy();
+  check('결정적 내보내기에 요소 판정이 expect 코드로', detCode.includes(`  await ${elementText.replace(/^통과 · /, '')};`), elementText.replace(/^통과 · /, ''));
   check('결정적 내보내기(app.restart + locator 코드, 이름 바꿈)', detCode.includes(`await app.restart('${app}')`) && detCode.includes('screen.get') && detCode.includes(`${testName} · 결정적`), detCode.split('\n').filter((l) => l.includes('screen.get')).map((l) => l.trim()).join(' | ').slice(0, 200));
   await shot('04-export-deterministic');
   await studio.close();

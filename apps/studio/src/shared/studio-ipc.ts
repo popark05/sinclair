@@ -1,6 +1,7 @@
 // Studio IPC 계약(studio 01, ADR 0005): 렌더러 ↔ 메인(preload 채널)과 메인 ↔ 작업 프로세스(Node IPC) 메시지의 단일 정의.
 // 모두 구조화 복제 가능한 평범한 데이터만. 작업 프로세스에서 온 메시지는 parseFromWorker 를 지나야 쓴다.
 import type { CacheAction, CacheTarget, SemanticNode } from '@sinclair/protocol';
+import { EXPECT_MATCHERS, isExpectMatcher, parseLocatorQuery, type ExpectMatcher, type JudgeQuery } from './expect-judge.ts';
 
 /** 렌더러 ↔ 메인 채널(ipcMain.handle / webContents.send) */
 export const STUDIO_CHANNELS = {
@@ -32,6 +33,8 @@ export type StudioRequest =
   | { kind: 'session-start'; deviceId: string; goal: string; /** 이 앱을 처음 상태로 다시 띄운 뒤 시작(studio 08) */ restartApp?: string }
   | { kind: 'session-stop'; sessionId: string }
   | { kind: 'session-assert'; deviceId: string; statement: string }
+  /** 요소 판정(studio 09): 고른 노드의 질의로 러너 expect 를 지금 화면에서(모델 없음) */
+  | { kind: 'expect-check'; deviceId: string; query: JudgeQuery; matcher: ExpectMatcher; expected?: string }
   // 녹화를 control-plane 녹화 캐시에(studio 06)
   | { kind: 'save-recording'; controlPlane: string; testId: string; goal: string; app: string; recording: { actions: CacheAction[]; end: { anchors: CacheTarget[] } } };
 
@@ -51,6 +54,8 @@ export type SessionEvent = { type: 'turn'; index: number; turn: TurnView } | { t
 /** 작업 프로세스 → 메인 → 렌더러 푸시 */
 export type StudioEvent = { kind: 'session'; sessionId: string; payload: SessionEvent };
 export interface JudgeView { pass: boolean; reason: string }
+/** 세션의 판정 하나: 문장(agent.assert, 모델) 또는 요소(expect, 결정적) */
+export type Judgment = (JudgeView & { kind?: 'assert'; statement: string }) | (JudgeView & { kind: 'expect'; query: JudgeQuery; matcher: ExpectMatcher; expected?: string });
 
 /** 앱 id(Android 패키지 이름 형식) — 기기 셸로 가는 값이라 형식만 받는다 */
 export const APP_ID = /^(?=.{3,255}$)[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$/;
@@ -70,7 +75,7 @@ export interface StudioDevice { id: string; model: string; osVersion: string; st
 
 /** 요청별 응답 타입 */
 export interface StudioResponses { connection: ConnectionInfo; devices: StudioDevice[]; 'foreground-app': string | null; snapshot: StudioSnapshot; tap: null; swipe: null; text: null; key: null; button: null;
-  'agent-status': AgentStatus; 'session-start': { sessionId: string }; 'session-stop': null; 'session-assert': JudgeView; 'save-recording': { key: string } }
+  'agent-status': AgentStatus; 'session-start': { sessionId: string }; 'session-stop': null; 'session-assert': JudgeView; 'expect-check': JudgeView; 'save-recording': { key: string } }
 
 /** 작업 프로세스 상태: 띄우는 중 → 준비됨 → (죽으면) 종료됨 */
 export interface WorkerStatus {
@@ -141,6 +146,14 @@ export function parseStudioRequest(v: unknown): StudioRequest | undefined {
     if (v.restartApp === undefined) return { kind: 'session-start', deviceId, goal: v.goal };
     return typeof v.restartApp === 'string' && APP_ID.test(v.restartApp) ? { kind: 'session-start', deviceId, goal: v.goal, restartApp: v.restartApp } : undefined;
   }
+  if (v.kind === 'expect-check') {
+    const query = parseLocatorQuery(v.query);
+    if (!query || !isExpectMatcher(v.matcher)) return undefined;
+    const needs = EXPECT_MATCHERS[v.matcher].needsValue;
+    if (needs !== (v.expected !== undefined)) return undefined;
+    if (needs && (typeof v.expected !== 'string' || v.expected.length > MAX_TEXT)) return undefined;
+    return { kind: 'expect-check', deviceId, query, matcher: v.matcher, ...(needs ? { expected: v.expected as string } : {}) };
+  }
   if (v.kind === 'session-assert') return typeof v.statement === 'string' && v.statement.trim() && v.statement.length <= MAX_GOAL ? { kind: 'session-assert', deviceId, statement: v.statement } : undefined;
   return undefined;
 }
@@ -166,6 +179,8 @@ export interface StudioApi {
   stopSession(sessionId: string): Promise<void>;
   /** 지금 화면에 대한 판정(agent.assert) */
   assertNow(deviceId: string, statement: string): Promise<JudgeView>;
+  /** 요소 판정(studio 09) */
+  expectCheck(deviceId: string, query: JudgeQuery, matcher: ExpectMatcher, expected?: string): Promise<JudgeView>;
   /** 작업 프로세스 이벤트 구독. 돌려준 함수로 해제 */
   onEvent(cb: (e: StudioEvent) => void): () => void;
   /** 세션 녹화를 control-plane 녹화 캐시에 */

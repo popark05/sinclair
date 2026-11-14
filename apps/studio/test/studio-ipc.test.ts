@@ -41,6 +41,14 @@ describe('studio IPC 계약', () => {
     // 앱 id 는 패키지 이름 형식만(셸로 가는 값이다)
     for (const restartApp of ['com app', 'com.app;reboot', '', 'x', 'a'.repeat(256), 3]) expect(parseStudioRequest({ kind: 'session-start', deviceId: 'S', goal: '로그인', restartApp }), String(restartApp)).toBeUndefined();
     for (const bad of [{ kind: 'session-start', deviceId: 'S', goal: '' }, { kind: 'session-start', deviceId: 'S', goal: 'x'.repeat(2001) }, { kind: 'session-stop' }, { kind: 'session-assert', deviceId: 'S' }]) expect(parseStudioRequest(bad), JSON.stringify(bad)).toBeUndefined();
+    // 요소 판정(studio 09): 닫힌 질의·검사 종류, 값은 값이 있는 검사에만
+    expect(parseStudioRequest({ kind: 'expect-check', deviceId: 'S', query: { text: '창신동', exact: true }, matcher: 'visible' })).toEqual({ kind: 'expect-check', deviceId: 'S', query: { text: '창신동', exact: true }, matcher: 'visible' });
+    expect(parseStudioRequest({ kind: 'expect-check', deviceId: 'S', query: { testId: 'a:id/q' }, matcher: 'value', expected: '사과' })).toEqual({ kind: 'expect-check', deviceId: 'S', query: { testId: 'a:id/q' }, matcher: 'value', expected: '사과' });
+    for (const bad of [
+      { kind: 'expect-check', deviceId: 'S', query: { text: 'x' }, matcher: 'toBeVisible' }, { kind: 'expect-check', deviceId: 'S', query: {}, matcher: 'visible' },
+      { kind: 'expect-check', deviceId: 'S', query: { text: 'x' }, matcher: 'text' }, { kind: 'expect-check', deviceId: 'S', query: { text: 'x' }, matcher: 'visible', expected: 'y' },
+      { kind: 'expect-check', deviceId: 'S', query: { text: 'x' }, matcher: 'text', expected: 'y'.repeat(501) },
+    ]) expect(parseStudioRequest(bad), JSON.stringify(bad)).toBeUndefined();
     const ev = { type: 'event', event: { kind: 'session', sessionId: 's1', payload: { type: 'turn', index: 0, turn: { tool: 'tap', result: 'ok' } } } };
     expect(parseFromWorker(ev)).toEqual(ev);
     expect(parseFromWorker({ type: 'event', event: { kind: 'other' } })).toBeUndefined();

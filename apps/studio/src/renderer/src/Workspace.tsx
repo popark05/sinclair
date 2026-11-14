@@ -1,6 +1,6 @@
 // Studio 작업 화면(studio 01): astryx `ide` 템플릿의 틀(크기 조절·접기 패널, 하단 드로어, 반대편 패널)을 그대로 두고
 // 내용만 Studio 4영역으로 — 왼쪽 기기(고정), 가운데 탭(세션), 오른쪽 Inspector, 아래 로그 드로어. 각 영역의 기능은 다음 티켓(02~06).
-import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Layout, LayoutContent, LayoutPanel, Stack, StackItem } from '@astryxdesign/core/Layout';
 import { ResizeHandle, useResizable } from '@astryxdesign/core/Resizable';
 import { Text } from '@astryxdesign/core/Text';
@@ -13,7 +13,9 @@ import { Toolbar } from './Toolbar.tsx';
 import { DevicePanel } from './DevicePanel.tsx';
 import { useSnapshot } from './useSnapshot.ts';
 import { Inspector } from './Inspector.tsx';
-import { SessionPanel } from './SessionPanel.tsx';
+import { SessionPanel, type JudgeTarget } from './SessionPanel.tsx';
+import { findNode, locatorCandidates } from '../../shared/locators.ts';
+import { parseLocatorQuery } from '../../shared/expect-judge.ts';
 
 const styles: Record<string, CSSProperties> = {
   contentFill: { height: '100%' },
@@ -55,6 +57,16 @@ export function Workspace({ api }: { api: StudioApi }) {
   const refreshScreen = screen.refresh;
   const onTurn = useCallback(() => refreshScreen(), [refreshScreen]);
   const [selectedRef, setSelectedRef] = useState<string>();
+  // 요소 판정 대상(studio 09): 고른 노드의, 지금 화면에서 하나로 정해지는 첫 locator 후보. 없으면 요소 판정을 할 수 없다
+  const target = useMemo((): JudgeTarget | undefined => {
+    const root = screen.snapshot?.root;
+    const node = root && selectedRef ? findNode(root, selectedRef) : undefined;
+    const c = root && node ? locatorCandidates(root, node).find((x) => x.count === 1) : undefined;
+    const query = c ? parseLocatorQuery(c.query) : undefined; // 후보 질의는 문자열 값만이라 늘 통과한다
+    if (!node || !c || !query) return undefined;
+    const secure = !!node.states?.secure;
+    return { query, code: c.code, ...(node.text && !secure ? { text: node.text } : {}), ...(node.value !== undefined && !secure ? { value: node.value } : {}) };
+  }, [screen.snapshot, selectedRef]);
 
   // 기기 화면은 세로로 길어 기본 폭을 넉넉히(폰 비율), Inspector 는 트리·속성이 읽힐 만큼
   const startPanel = useResizable({ defaultSize: 360, minSize: 240, maxSize: 560, collapsible: true, collapsedSize: 50 });
@@ -93,7 +105,7 @@ export function Workspace({ api }: { api: StudioApi }) {
                           <Tab label="세션" value="session" />
                         </TabList>
                         <StackItem size="fill" style={styles.editorArea}>
-                          <SessionPanel api={api} deviceId={deviceId} appId={appId} onBusyChange={setSessionBusy} onTurn={onTurn} />
+                          <SessionPanel api={api} deviceId={deviceId} appId={appId} onBusyChange={setSessionBusy} onTurn={onTurn} {...(target ? { target } : {})} />
                         </StackItem>
                         <ResizeHandle direction="vertical" hasDivider isReversed isAlwaysVisible={false} resizable={bottomPanel.props} label="로그 드로어 크기 조절" />
                         {!bottomPanel.isCollapsed && (

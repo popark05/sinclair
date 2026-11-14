@@ -56,4 +56,11 @@ describe('내보낸 코드 왕복', () => {
     const report = await runTests([file], { engine: loginEngine(), timeoutMs: 2_000, agent: { executor } });
     expect(report.tests.map((t) => [t.name, t.result])).toEqual([['로그인', 'passed']]);
   });
+
+  it('결정적 + 요소 판정: 모델 없이(실행기 없음) FakeEngine 에서 통과', async () => {
+    const r = { ...session, judgments: [{ kind: 'expect' as const, query: { text: '환영합니다', exact: true }, matcher: 'visible' as const, pass: true, reason: '통과' }] };
+    const file = write(exportTest(r, { style: 'deterministic', testName: '로그인', appId: 'com.example.app' }));
+    const report = await runTests([file], { engine: loginEngine(), timeoutMs: 2_000, secrets: { get: (n) => (n === 'QA_PASSWORD' ? 'pw-1' : undefined) } });
+    expect(report.tests.map((t) => [t.name, t.result])).toEqual([['로그인', 'passed']]);
+  });
 });

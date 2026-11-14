@@ -4,6 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { runAct, judgeAssert, type AgentTurn, type StepExecutor } from '@sinclair/agent';
 import type { Engine, SemanticNode } from '@sinclair/protocol';
 import { uniqueLocator } from '../shared/locators.ts';
+import { createScreen, expect as expectOn, type Locator, type Screen } from '@sinclair/runner';
+import { EXPECT_MATCHERS, type ExpectMatcher, type JudgeQuery } from '../shared/expect-judge.ts';
 import type { JudgeView, SessionEvent, SessionResult, TurnView } from '../shared/studio-ipc.ts';
 
 export interface SessionAgent { executor: StepExecutor; maxTurns?: number; timeoutMs?: number }
@@ -30,6 +32,18 @@ export function toTurnView(t: AgentTurn, observed?: SemanticNode): TurnView {
     ...(t.retargeted && REF.test(t.retargeted) ? { retargeted: t.retargeted } : {}),
     ...(locator ? { locator } : {}),
   };
+}
+
+/** 요소 판정이 기다리는 상한: 지금 화면에 대한 판정이라 짧게(러너 기본 5초보다) */
+const EXPECT_TIMEOUT_MS = 1_500;
+
+/** 질의 → 러너 locator(locatorCode 와 같은 우선순위) */
+function locatorOf(screen: Screen, q: JudgeQuery): Locator {
+  const exact = q.exact ? { exact: true } : {};
+  if (q.testId) return screen.getByTestId(q.testId);
+  if (q.role) return screen.getByRole(q.role, { ...(q.name !== undefined ? { name: q.name } : {}), ...exact });
+  if (q.text) return screen.getByText(q.text, exact);
+  return screen.getByPlaceholder(q.placeholder ?? '');
 }
 
 export function createSessionManager(deps: SessionDeps) {
@@ -62,6 +76,18 @@ export function createSessionManager(deps: SessionDeps) {
     },
     async stop(sessionId: string): Promise<void> {
       running.get(sessionId)?.abort(new Error('중지됨'));
+    },
+    /** 요소 판정(studio 09): 러너의 screen·expect 그대로 — 내보낸 테스트와 같은 규칙으로 지금 화면에서. 모델 없음. 기다림은 짧게(지금 화면에 대한 판정) */
+    async expectCheck(deviceId: string, query: JudgeQuery, matcher: ExpectMatcher, expected?: string): Promise<JudgeView> {
+      const screen = createScreen(await deps.engineFor(deviceId), { timeoutMs: EXPECT_TIMEOUT_MS });
+      const assertions = expectOn(locatorOf(screen, query), { timeoutMs: EXPECT_TIMEOUT_MS }) as unknown as Record<string, (arg?: string) => Promise<void>>;
+      const m = EXPECT_MATCHERS[matcher];
+      try {
+        await assertions[m.method]!(...(m.needsValue ? [expected ?? ''] : []));
+        return { pass: true, reason: '통과' };
+      } catch (err) {
+        return { pass: false, reason: (err instanceof Error ? err.message : String(err)).slice(0, 500) };
+      }
     },
     async assert(deviceId: string, statement: string): Promise<JudgeView> {
       const agent = await deps.agent();

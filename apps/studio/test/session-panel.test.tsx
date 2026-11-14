@@ -24,6 +24,18 @@ function setup(over: Partial<StudioApi> = {}, deviceId = 'SER1', appId?: string,
   return { calls, push };
 }
 
+
+function setupWith(over: Partial<StudioApi>, props: Record<string, unknown> = {}) {
+  const api = {
+    agentStatus: async () => ({ ready: true, model: 'claude-sonnet-5-5' }),
+    startSession: async () => ({ sessionId: 's1' }), stopSession: async () => {}, assertNow: async () => ({ pass: true, reason: '참' }),
+    onEvent: () => () => {},
+    ...over,
+  } as unknown as StudioApi;
+  const view = render(<SessionPanel api={api} deviceId="SER1" {...props} />);
+  return { rerenderWith: (more: Record<string, unknown>) => view.rerender(<SessionPanel api={api} deviceId="SER1" {...props} {...more} />) };
+}
+
 describe('SessionPanel', () => {
   it('목표를 넣고 실행 → 턴이 쌓이고 끝나면 결과', async () => {
     const { calls, push } = setup();
@@ -64,6 +76,24 @@ describe('SessionPanel', () => {
     await push({ type: 'done', result: { ok: true, turns: 2, modelCalls: 2 } });
     expect(busy).toEqual([false, true, false]); // 처음 상태도 알린다
     expect(turns).toBe(2);
+  });
+
+  it('요소 판정(studio 09): 고른 노드가 없으면 안내, 있으면 검사 종류·값으로 판정해 목록에 쌓고 기록에 kind expect', async () => {
+    const recs: unknown[] = [];
+    const calls: unknown[] = [];
+    const expectCheck = async (d: string, query: unknown, matcher: string, expected?: string) => { calls.push([d, query, matcher, expected]); return { pass: true, reason: '통과' }; };
+    const target = { query: { text: '창신동', exact: true }, code: "screen.getByText('창신동', { exact: true })", text: '창신동' };
+    const { rerenderWith } = setupWith({ expectCheck }, { onRecord: (r: unknown) => recs.push(r) });
+    expect(await screen.findByText(/노드를 고르면 요소 판정/)).toBeTruthy();
+    rerenderWith({ target });
+    const kind = await screen.findByRole('combobox', { name: '검사 종류' });
+    expect(kind).toBeTruthy();
+    expect(screen.queryByRole('textbox', { name: '판정 값' })).toBeNull(); // 보인다 는 값이 없다
+    await act(async () => { screen.getByRole('button', { name: '요소 판정' }).click(); });
+    expect(calls).toEqual([['SER1', target.query, 'visible', undefined]]);
+    const items = within(screen.getByRole('list', { name: '판정' })).getAllByRole('listitem').map((li) => li.textContent);
+    expect(items[0]).toMatch(/통과 · expect\(screen.getByText\('창신동', \{ exact: true \}\)\).toBeVisible\(\)/);
+    expect(recs.at(-1)).toMatchObject({ judgments: [{ kind: 'expect', query: target.query, matcher: 'visible', pass: true }] });
   });
 
   it('실행 중에는 중지 버튼', async () => {

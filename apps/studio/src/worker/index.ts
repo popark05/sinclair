@@ -67,6 +67,7 @@ async function handle(req: StudioRequest): Promise<StudioResponses[StudioRequest
   if (req.kind === 'session-start') return sessions.start(req.deviceId, req.goal, req.restartApp ? { restartApp: req.restartApp } : {});
   if (req.kind === 'session-stop') { await sessions.stop(req.sessionId); return null; }
   if (req.kind === 'session-assert') return sessions.assert(req.deviceId, req.statement);
+  if (req.kind === 'expect-check') return sessions.expectCheck(req.deviceId, req.query, req.matcher, req.expected);
   if (req.kind === 'save-recording') return saveRecording(req);
   const c = await devices();
   if (req.kind === 'connection') return c.connection;

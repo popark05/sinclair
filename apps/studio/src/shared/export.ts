@@ -1,11 +1,12 @@
 // 코드로 내보내기(studio 06): 에이전트 세션 → *.sinclair.ts.
 // - 자연어: app.restart(앱을 알면 — 세션이 시작된 그 앱의 처음 화면에서 시작, 앞 테스트가 남긴 상태를 버린다) + agent.act(목표) + 참이었던 판정의 agent.assert. 녹화 캐시에 저장하면 첫 실행부터 모델 없이 재생된다.
 // - 결정적: 녹화 액션(성공한 툴 호출)을 그 턴의 화면에서 하나로 정해진 locator 로 — tap·type·press('Enter'), 스크롤·back 은 주석·app.back.
-//   판정은 문장 그대로 agent.assert(결정적 판정으로 옮길 근거가 없다).
-import type { JudgeView, SessionResult, TurnView } from './studio-ipc.ts';
+//   문장 판정은 그대로 agent.assert, 요소 판정(studio 09)은 expect(locator).toX(...) — 요소 판정만이면 판정까지 모델 없이 돈다.
+import type { Judgment, SessionResult, TurnView } from './studio-ipc.ts';
 import { jsString } from './locators.ts';
+import { expectCode, locatorCode } from './expect-judge.ts';
 
-export interface SessionExportInput { goal: string; turns: TurnView[]; result?: SessionResult; judgments: Array<JudgeView & { statement: string }> }
+export interface SessionExportInput { goal: string; turns: TurnView[]; result?: SessionResult; judgments: Judgment[] }
 export interface ExportOptions { style: 'natural' | 'deterministic'; testName: string; appId?: string }
 
 const SECRET = /\{\{secret:([A-Z][A-Z0-9_]*)\}\}/g;
@@ -56,10 +57,14 @@ export function exportTest(rec: SessionExportInput, opts: ExportOptions): string
       else lines.push(`  // ${t.tool}: 결정적 코드로 옮기지 않음`);
     });
   }
-  for (const j of passed) { fixtures.add('agent'); lines.push(`  await agent.assert(${jsString(j.statement)});`); }
-  for (const j of failed) lines.push(`  // 세션에서 거짓이었던 판정: agent.assert(${jsString(j.statement)}) — ${j.reason.replace(/\n/g, ' ')}`);
+  const call = (j: Judgment): string => (j.kind === 'expect' ? expectCode(locatorCode(j.query), j.matcher, j.expected) : `agent.assert(${jsString(j.statement)})`);
+  for (const j of passed) {
+    if (j.kind === 'expect') { fixtures.add('screen'); fixtures.add('expect'); } else fixtures.add('agent');
+    lines.push(`  await ${call(j)};`);
+  }
+  for (const j of failed) lines.push(`  // 세션에서 ${j.kind === 'expect' ? '실패했던' : '거짓이었던'} 판정: ${call(j)} — ${j.reason.replace(/\n/g, ' ')}`);
 
-  const order = ['app', 'screen', 'agent', 'secret'];
+  const order = ['app', 'screen', 'agent', 'secret', 'expect'];
   const params = order.filter((f) => fixtures.has(f)).join(', ');
   const head = opts.style === 'natural'
     ? `// Sinclair Studio 에서 내보냄: 에이전트 세션 1개(모델 ${rec.result?.modelCalls ?? 0}회)`

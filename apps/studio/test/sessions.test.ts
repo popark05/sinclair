@@ -59,6 +59,14 @@ describe('createSessionManager', () => {
     expect(await done(sessionId)).toMatchObject({ result: { ok: false, reason: expect.stringMatching(/처음부터 시작하지 못함.*앱이 설치되지 않음/), modelCalls: 0 } });
   });
 
+  it('요소 판정(studio 09): 러너 expect 로 지금 화면에서, 모델 없이 통과·실패와 사유', async () => {
+    const neverCalled: StepExecutor = { next: () => Promise.reject(new Error('모델 금지')) };
+    const { m } = setup(neverCalled);
+    expect(await m.expectCheck('SER1', { role: 'button', name: '로그인', exact: true }, 'visible')).toEqual({ pass: true, reason: '통과' });
+    expect(await m.expectCheck('SER1', { testId: 'com.app:id/username' }, 'value', '아무개')).toMatchObject({ pass: false, reason: expect.stringMatching(/toHaveValue/) });
+    expect(await m.expectCheck('SER1', { text: '없는 글자', exact: true }, 'hidden')).toEqual({ pass: true, reason: '통과' });
+  });
+
   it('중지하면 done(ok false, 중지됨)', async () => {
     const slow: StepExecutor = { next: (_r, sig) => new Promise((_, rej) => sig.addEventListener('abort', () => rej(new Error('aborted')), { once: true })) };
     const { m, done } = setup(slow);

@@ -5,8 +5,9 @@ import { locateInTree, type LocatorQuery, type SemanticNode } from '@sinclair/pr
 export interface LocatorCandidate { code: string; query: LocatorQuery; count: number }
 export interface Point { x: number; y: number }
 
-/** 작은따옴표 JS 문자열 리터럴 */
-export const jsString = (s: string): string => `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n')}'`;
+import { jsString } from './js-string.ts';
+
+export { jsString };
 
 export function findNode(root: SemanticNode, ref: string): SemanticNode | undefined {
   if (root.ref === ref) return root;
