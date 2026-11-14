@@ -47,6 +47,8 @@ export class FakeAndroid {
     requests: [] as string[],
     /** 다음 /ping 몇 번을 503 으로(헬퍼가 다른 요청으로 바쁜 상황 — 실기에서 Studio 스냅샷 폴링 중 5초 기한을 넘겼다) */
     failPings: 0,
+    /** 다음 /dump 몇 번을 503 으로(바쁜 헬퍼) */
+    failDumps: 0,
   };
   /** screencap -p 가 돌려줄 PNG. 시그니처 + 멀티바이트 안전성 확인용 0x80 이상 바이트를 포함한다. */
   screenshotPng: Buffer = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from([0xff, 0xfe, 0x00, 0xc3, 0x28, 0x80])]);
@@ -365,6 +367,7 @@ export class FakeAndroid {
       s.close();
     };
     if (!this.helper.token || auth !== `Bearer ${this.helper.token}`) return respond(401, { error: this.helper.token ? '토큰 불일치' : '세션 토큰이 설정되지 않음' });
+    if (path === '/dump' && this.helper.failDumps > 0) { this.helper.failDumps--; return respond(503, { error: '바쁨' }); }
     if (path === '/ping' && this.helper.failPings > 0) { this.helper.failPings--; return respond(503, { error: '바쁨' }); }
     if (method === 'POST' && path === '/action') {
       const a = JSON.parse(body) as Record<string, unknown>;

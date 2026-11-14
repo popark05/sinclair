@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { createAndroidBackend, parseScreenState, parseForegroundApp, type AndroidBackendOptions } from '../src/android/android-backend.ts';
+import { helperRequestTimeoutMs } from '../src/android/helper-client.ts';
 import { createDeviceServer, RPC_ERRORS, type InputRouteEvent } from '../src/index.ts';
 import { FakeAndroid } from './adb/fake-android.ts';
 import { FakeUsbBackend, FakeUsbDevice } from './adb/fake-usb.ts';
@@ -347,6 +348,22 @@ describe('AndroidBackend 헬퍼 온보딩과 device.dump.ui', () => {
     expect((await backend.info('PHONE1')).helper?.state).toBe('ready');
     // 온보딩(설치 확인 pm path·접근성 settings·토큰 broadcast)이 돌지 않았다
     expect(phone.shellCommands.slice(shells).filter((c) => /pm path|settings|am broadcast/.test(c))).toEqual([]);
+  });
+
+  it('헬퍼 요청이 실패해도 헬퍼가 ping 에 답하면 다시 온보딩하지 않고 같은 세션으로 한 번 더 — 실기에서 느린 스냅샷 실패마다 온보딩해 재생 act 가 67~101초', async () => {
+    const { backend, phone } = helperSetup();
+    await backend.listDevices();
+    const shells = phone.shellCommands.length;
+    phone.helper.failDumps = 1;
+    expect(await backend.dumpUi('PHONE1')).toMatchObject({ ref: '@e0' });
+    expect(phone.shellCommands.slice(shells).filter((c) => /pm path|settings|am broadcast/.test(c))).toEqual([]);
+    expect(phone.helper.requests.slice(-3)).toEqual(['GET /dump', 'GET /ping', 'GET /dump']);
+  });
+
+  it('헬퍼 요청 기한: 스냅샷(스크린샷+트리, 실기 약 2초·경합 시 6초 이상)은 15초, 나머지는 5초', () => {
+    expect(helperRequestTimeoutMs('/snapshot')).toBe(15_000);
+    expect(helperRequestTimeoutMs('/dump')).toBe(5_000);
+    expect(helperRequestTimeoutMs('/ping')).toBe(5_000);
   });
 
   it('기기에 다른 토큰이 심겨 있으면(헬퍼 재시작 등) 재전송으로 복구하고, 재전송도 막히면 unreachable 이다', async () => {
