@@ -291,11 +291,12 @@ describe('createClaudeExecutor · 화면 개인정보', () => {
 describe('createClaudeExecutor · 화면 개인정보 · 변화·오류·요약 입력', () => {
   it('화면 변화·엔진 오류 문구·요약 모델 입력에도 원래 값이 없다', async () => {
     let k = 0;
-    const api = await fakeApi([(c) => (c.body.model === 'claude-haiku-5-5' ? { body: { id: 's', type: 'message', role: 'assistant', model: 'claude-haiku-5-5', stop_reason: 'end_turn', stop_sequence: null, usage: usage(10, 5), content: [{ type: 'text', text: '요약' }] } } : toolUse('scroll', { ref: (++k % 2) ? '@r' : '@c', direction: 'down' }))]); // 화면에 있는 두 대상을 번갈아(진척 없음으로 멈추지 않게)
+    const lists = Array.from({ length: 20 }, (_, j) => ({ ref: `@c${j + 1}`, role: 'list', name: `목록 ${j + 1}` }));
+    const api = await fakeApi([(c) => (c.body.model === 'claude-haiku-5-5' ? { body: { id: 's', type: 'message', role: 'assistant', model: 'claude-haiku-5-5', stop_reason: 'end_turn', stop_sequence: null, usage: usage(10, 5), content: [{ type: 'text', text: '요약' }] } } : toolUse('scroll', { ref: `@c${++k}`, direction: 'down' }))]); // 턴마다 다른 대상(진척 없음·반복 고리로 멈추지 않게)
     let i = 0;
-    const engine = new FakeEngine({ root: { ref: '@r', role: 'root', children: [{ ref: '@a', role: 'text', text: '시작' }, { ref: '@c', role: 'list', name: '목록' }] } });
+    const engine = new FakeEngine({ root: { ref: '@r', role: 'root', children: [{ ref: '@a', role: 'text', text: '시작' }, ...lists] } });
     const observe = engine.observe.bind(engine);
-    engine.observe = async (o) => { i++; if (i === 3) engine.setRoot({ ref: '@r', role: 'root', children: [{ ref: '@b', role: 'text', text: '담당자 qa.lead@example.com' }, { ref: '@c', role: 'list', name: '목록' }] }); return observe(o); };
+    engine.observe = async (o) => { i++; if (i === 3) engine.setRoot({ ref: '@r', role: 'root', children: [{ ref: '@b', role: 'text', text: '담당자 qa.lead@example.com' }, ...lists] }); return observe(o); };
     const perform = engine.perform.bind(engine);
     let n = 0;
     engine.perform = async (ref, a, arg) => { if (++n === 4) throw new (await import('@sinclair/protocol')).EngineError('not-actionable', '연락처 010-2222-3333 칸이 비활성'); return perform(ref, a, arg); };

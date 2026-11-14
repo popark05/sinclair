@@ -2,13 +2,13 @@
 // 잘못된 호출(검사 실패)과 엔진 오류는 실행하지 않거나 실패한 채로 다음 턴의 기록에 실어 모델이 고치게 하고, 턴 한도에 센다.
 // done 이면 성공, 턴·시간 한도에 닿거나 실행기가 던지면 실패(사유).
 import { EngineError, type Engine, type EngineErrorCode, type SemanticNode, type StepUsage, type CacheAction, type CacheTarget } from '@sinclair/protocol';
-import { ACTIONS, checkToolCall, toolSchemas, type ActionSpec } from './action-spec.ts';
+import { ACTIONS, checkToolCall, toolSchemas, type ActionContext, type ActionSpec } from './action-spec.ts';
 import { ModelConfigError, ModelCallError, type AgentTurn, type StepExecutor, type StepReply } from './executor.ts';
 import { renderObservation } from './observe.ts';
 import { actionSummary, cacheTargetOf, endAnchors, targetLeaks } from './recording.ts';
 import { exactMatches } from './replay.ts';
 import { addUsage } from './usage.ts';
-import { SecretBox } from './secrets.ts';
+import { SecretBox, SECRET_NAME, secretPlaceholder } from './secrets.ts';
 import { describeTarget, relocate } from './relocate.ts';
 import { regionDiff, COVER_DIFF_THRESHOLD } from './pixels.ts';
 import { screenChange } from './ledger.ts';
@@ -31,6 +31,10 @@ const SAME_CALL_FAILS_NOTE = 2;
  *  실기기 지도 앱에서 13px 카드 손잡이를 17번 스크롤해 턴 한도까지 갔다(2026-11-14) — 끝까지 내린 목록처럼 정당한 반복도 있어 바로 멈추지 않는다 */
 const NO_CHANGE_NOTE = 2;
 const NO_CHANGE_STOP = 4;
+/** 반복 고리: 묶음 길이 상한과 알림·멈춤 횟수 */
+const CYCLE_MAX_LEN = 4;
+const CYCLE_NOTE = 3;
+const CYCLE_STOP = 4;
 /** 모델에 돌려줄 오류 문구 상한 */
 const MAX_DETAIL = 300;
 
@@ -92,6 +96,8 @@ export interface ActResult {
   recording?: { actions: CacheAction[]; end: { anchors: CacheTarget[] } };
   /** act 시작 화면의 foreground 앱(녹화 키·재생 전제) */
   startApp?: string;
+  /** 모델이 blocked 로 멈췄을 때: 사유와 필요한 비밀값 이름(있으면) */
+  blocked?: { reason: string; secret?: string };
 }
 
 /** 에이전트 스텝(act·판정 동사)이 던질 때 그때까지 쓴 모델 호출 수·토큰. 오류 객체를 바꾸지 않고 옆에 둔다(러너가 실패 스텝에 싣는다) */
@@ -148,6 +154,25 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
   // 진척 없음: 성공했지만 화면을 바꾸지 않은 같은 호출의 연속
   let noChangeInRow = 0;
   let lastNoChangeCall: string | undefined;
+  // 반복 고리: 실행한 호출(툴+대상)의 열. 길이 2~4 의 같은 묶음이 끝에서 세 번이면 알리고 네 번이면 멈춘다(실기 PIN 화면에서 tap 세 개를 다섯 번 돌았다)
+  const executed: string[] = [];
+  const cycleNoted = new Set<string>();
+  const cycleCheck = (): ActResult | undefined => {
+    for (let k = 2; k <= CYCLE_MAX_LEN; k++) {
+      const seq = executed.slice(-k);
+      if (seq.length < k || new Set(seq).size === 1) continue; // 한 호출의 반복은 진척 없음·연속 실패가 다룬다
+      let reps = 1;
+      while (executed.length >= k * (reps + 1) && executed.slice(-k * (reps + 1), -k * reps).every((v, i) => v === seq[i])) reps++;
+      const what = hide(seq.join(' → '));
+      if (reps >= CYCLE_STOP) return fail(`Incident: 같은 호출 묶음(${what})이 네 번 반복 — 진척 없음`);
+      if (reps >= CYCLE_NOTE && !cycleNoted.has(what)) {
+        cycleNoted.add(what);
+        addNote(`Incident: 같은 호출 묶음(${what})이 세 번 반복됨 — 같은 화면을 돌고 있다. 다른 방법을 고르고, 목표에 없는 값(PIN 등)이나 사람이 할 단계 때문이면 blocked 를 불러라`);
+        record('action-failed', '반복 고리 알림', false);
+      }
+    }
+    return undefined;
+  };
   // 녹화: 실행에 성공한 툴 호출. 기술자가 가림에 걸리면 이 act 의 녹화는 버린다
   const recorded: CacheAction[] = [];
   let recordable = true;
@@ -159,7 +184,7 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
     const r = recovered.get(key);
     if (r) r.count++; else recovered.set(key, { kind, action, count: 1 });
   };
-  const result = (r: Pick<ActResult, 'ok' | 'summary' | 'reason' | 'recording'>): ActResult => ({ ...r, turns: history.length, modelCalls, ...(usage ? { usage } : {}), history, ...(recovered.size ? { incidents: [...recovered.values()] } : {}), ...(appPackage ? { startApp: appPackage } : {}) });
+  const result = (r: Pick<ActResult, 'ok' | 'summary' | 'reason' | 'recording' | 'blocked'>): ActResult => ({ ...r, turns: history.length, modelCalls, ...(usage ? { usage } : {}), history, ...(recovered.size ? { incidents: [...recovered.values()] } : {}), ...(appPackage ? { startApp: appPackage } : {}) });
   const goalSecrets = new Set(SecretBox.mentioned(goal));
   const rp = opts.replayedPrefix;
   const handOff = rp ? hide(`녹화 재생이 이 목표의 액션 ${rp.done.length}/${rp.total} 을 이미 했다: ${rp.done.map((d, i) => `${i + 1}) ${d}`).join('; ')}. 멈춘 곳·이유: ${rp.reason}. 이 액션들을 다시 하지 말고 지금 화면에서 목표를 이어서 이뤄라 — 앞 액션의 결과가 화면에 반영됐는지 먼저 확인하라.`) : undefined;
@@ -275,10 +300,25 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
       const checked = checkToolCall(call);
       if (!checked.ok) { history.push({ call, result: 'rejected', detail: checked.error }); continue; }
       const spec: ActionSpec = ACTIONS[checked.call.name];
+      // blocked: 진행할 수 없다고 모델이 판단(목표에 없는 비밀값·사람만 할 단계) — 지어내지 않고 곧바로 멈춘다
+      if (spec.blocks) {
+        history.push({ call, result: 'ok' });
+        const reason = hide((checked.call.input.reason ?? '').trim() || '사유 없음').slice(0, MAX_DETAIL);
+        const name = checked.call.input.secret?.trim();
+        return result({ ok: false, reason: `막힘: ${reason}`, blocked: { reason, ...(name && SECRET_NAME.test(name) ? { secret: name } : {}) } });
+      }
       // 자리표시는 type 의 text 에서만 실제 값으로 바뀐다. 다른 툴·필드(ref, summary…)에 쓰면 값이 엉뚱한 곳(탭 대상·기록)으로 새므로 거부
       const input = { ...checked.call.input };
       const misplaced = Object.entries(input).find(([k, v]) => !(checked.call.name === 'type' && k === 'text') && /\{\{secret:/.test(v));
       if (misplaced) { history.push({ call, result: 'rejected', detail: `비밀값 자리표시는 type 의 text 에만 쓸 수 있음(${checked.call.name}.${misplaced[0]})` }); continue; }
+      // enter_secret: 목표에 자리표시가 주어진 이름만 실제 값으로(type 의 자리표시와 같은 규칙). 값은 실행 문맥으로만 건넨다
+      let ctx: ActionContext | undefined;
+      if (checked.call.name === 'enter_secret') {
+        const name = input.name ?? '';
+        const revealed = secrets ? secrets.reveal(secretPlaceholder(name), goalSecrets) : { ok: false as const, error: `쓸 수 없는 비밀값: ${name} — 이 테스트에는 비밀값이 없음` };
+        if (!revealed.ok) { history.push({ call, result: 'error', detail: hide(revealed.error) }); continue; }
+        ctx = { secret: (n) => (n === name ? revealed.text : undefined) };
+      }
       let typed: string | undefined; // 비밀값을 치환했으면 그 글자(대상 재확인용)
       if (checked.call.name === 'type' && input.text !== undefined && /\{\{secret:/.test(input.text)) {
         // 목표에 주어진 이름만(같은 run 의 다른 테스트가 등록한 값, 화면에 심긴 자리표시로 값을 꺼내지 못하게), 입력 칸에만
@@ -328,7 +368,7 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
       const callKey = `${checked.call.name}${input.ref ? ` ${input.ref}` : ''}`;
       try {
         try {
-          await spec.run(engine, input);
+          await spec.run(engine, input, ctx);
         } catch (err) {
           // keyboard Incident: 입력 바로 뒤의 탭·스크롤이 실패하면 키보드가 가렸을 수 있다 — 내리고 같은 호출을 한 번 다시 한다
           // 근거가 있어야 한다: 엔진이 키보드가 떠 있다고 말하고(shown — 모르면 하지 않는다. 모바일의 dismiss 는 뒤로 버튼이라 키보드가 없으면 화면을 떠난다),
@@ -348,7 +388,7 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
             if (again.kind !== 'same' && again.kind !== 'moved') throw err;
             if (again.kind === 'moved') { input.ref = again.ref; retargeted = again.ref; }
           }
-          await spec.run(engine, input);
+          await spec.run(engine, input, ctx);
         }
       } catch (err) {
         // 인프라 오류는 모델이 고칠 수 없다: 그 코드 그대로 던져 러너가 blocked 등으로 다루게 한다
@@ -356,6 +396,8 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
         const raw = err instanceof EngineError ? `${err.code}: ${err.message}` : err instanceof Error ? err.message : String(err);
         history.push({ call, result: 'error', detail: scrubDetail(raw, input, hide), ...(retargeted ? { retargeted } : {}) });
         // action-failed Incident: 같은 호출이 연달아 실패하면 두 번째에 모델에게 알리고, 세 번째면 멈춘다(같은 실패를 되풀이하는 루프)
+        executed.push(callKey);
+        { const c = cycleCheck(); if (c) return c; }
         failedInRow = callKey === lastFailedCall ? failedInRow + 1 : 1;
         lastFailedCall = callKey;
         if (failedInRow > SAME_CALL_FAILS_NOTE) return fail(`Incident: 같은 호출(${hide(callKey)})이 세 번 연달아 실패 — 복구하지 못함`);
@@ -364,6 +406,8 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
       }
       lastFailedCall = undefined; failedInRow = 0;
       history.push({ call, result: 'ok', ...(retargeted ? { retargeted } : {}) });
+      executed.push(callKey);
+      { const c = cycleCheck(); if (c) return c; }
       if (spec.terminal) {
         const recording = recordable ? { actions: recorded, end: { anchors: endAnchors(opts.anchorsFrom ?? startRoot, observed.root, hide) } } : undefined;
         return result({ ok: true, ...(checked.call.input.summary ? { summary: checked.call.input.summary } : {}), ...(recording ? { recording } : {}) });
@@ -376,7 +420,8 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
         if (t && (targetLeaks(t, hide) || exactMatches(t, observed.root).length !== 1)) recordable = false;
         else {
           // 글자는 모델이 쓴 그대로(비밀값은 자리표시) — 값 일치로 다시 가려 혹시 값이 그대로 온 경우도 남기지 않는다
-          const text = name === 'type' ? (secrets ? secrets.redact(checked.call.input.text ?? '') : checked.call.input.text ?? '') : undefined;
+          // enter_secret 은 자리표시만 남긴다(값은 실행 문맥으로만 쓰였다)
+          const text = name === 'type' ? (secrets ? secrets.redact(checked.call.input.text ?? '') : checked.call.input.text ?? '') : name === 'enter_secret' ? secretPlaceholder(checked.call.input.name ?? '') : undefined;
           const direction = name === 'scroll' ? (checked.call.input.direction as 'up' | 'down') : undefined;
           const a = { tool: name, ...(t ? { target: t } : {}), ...(text !== undefined ? { text } : {}), ...(direction ? { direction } : {}) };
           recorded.push({ ...a, summary: actionSummary(a) });

@@ -14,3 +14,4 @@ export { renderLedger, renderTurn, summarizeTurns, screenChange, estimateTokens,
 export { createPiiFilter, piiFromEnv, mapStrings, DEFAULT_PII, PII_PLACEHOLDER, type PiiFilter, type PiiOptions } from './pii.ts';
 export { toCacheTarget, actionSummary, endAnchors, targetLeaks, cacheLabelOf, cacheTargetOf } from './recording.ts';
 export { replayRecording, exactMatches, type ReplayOptions, type ReplayResult } from './replay.ts';
+export { enterSecret, tapKeys, isTextField } from './secret-entry.ts';

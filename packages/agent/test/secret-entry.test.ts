@@ -16,8 +16,8 @@ const keypad = (order: string, entered: number): SemanticNode => ({
 const DONE: SemanticNode = { ref: '@r', role: 'root', children: [{ ref: '@ok', role: 'text', text: '문 열림 전송 완료' }] };
 
 /** 키를 누를 때마다 배치가 바뀌는 키패드. 네 자리를 다 누르면 그 값이 PIN 이면 완료 화면 */
-function pinEngine(pin: string) {
-  const orders = ['1234567890', '9081726354', '5647382910', '0192837465', '1234567890'];
+function pinEngine(pin: string, first = '1234567890') {
+  const orders = [first, '9081726354', '5647382910', '0192837465', '1234567890'];
   let typed = '';
   const engine: FakeEngine = new FakeEngine({ root: keypad(orders[0]!, 0), onTap: (n) => {
     if (n.role !== 'button' || !n.name) return undefined;
@@ -58,7 +58,7 @@ describe('enter_secret', () => {
     expect(r).toMatchObject({ ok: true, turns: 2 });
     expect(JSON.stringify(exec.requests)).not.toContain('2580');
     expect(JSON.stringify(r.history)).not.toContain('2580');
-    expect(r.recording?.actions).toEqual([{ tool: 'enter_secret', target: { role: 'group' }, text: '{{secret:SIMPLE_PIN}}', summary: expect.any(String) }]);
+    expect(r.recording?.actions).toEqual([{ tool: 'enter_secret', target: expect.objectContaining({ role: 'group' }), text: '{{secret:SIMPLE_PIN}}', summary: expect.any(String) }]);
   });
 
   it('입력칸이면 그대로 입력(type)', async () => {
@@ -82,7 +82,7 @@ describe('enter_secret', () => {
   it('녹화를 재생하면 같은 방식으로 다시 넣는다(섞인 키패드에서도, 모델 없이)', async () => {
     const first = pinEngine('2580');
     const rec = (await runAct(first.engine, goal, { executor: scriptedExecutor([{ name: 'enter_secret', input: { ref: '@pad', name: 'SIMPLE_PIN' } }, done]), secrets: secrets() })).recording!;
-    const again = pinEngine('2580');
+    const again = pinEngine('2580', '7418529630'); // 처음 배치부터 녹화 때와 다르다(라벨이 된 첫 키가 바뀜)
     const rp = await replayRecording(again.engine, { schema: 'rc-1', createdAt: 'x', start: {}, ...rec } as never, { goal, secrets: secrets(), endTimeoutMs: 200, quietMs: 0 });
     expect(again.typed()).toBe('2580');
     expect(rp.outcome).toBe('replayed');

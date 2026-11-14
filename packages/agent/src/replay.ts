@@ -2,7 +2,7 @@
 // 모두 같은 노드가 현재 화면에 정확히 하나일 때만 실행한다(가중치 점수 없음 — 비슷한 노드를 잘못 누르지 않게). 없으면 잠시 기다리고, 둘 이상이면 곧바로 멈춘다.
 // 끝에는 녹화한 끝 anchor 가 모두 보이고 재생 전과 화면이 달라졌는지 본다. 어긋나면 이유와 이미 한 액션을 돌려준다 — 이어받기는 호출자(러너) 몫.
 import { EngineError, type CacheEntry, type CacheTarget, type Engine, type SemanticNode } from '@sinclair/protocol';
-import { ACTIONS } from './action-spec.ts';
+import { ACTIONS, type ActionContext } from './action-spec.ts';
 import { appPackageOf } from './incidents.ts';
 import { SecretBox } from './secrets.ts';
 import { cacheLabelOf } from './recording.ts';
@@ -33,10 +33,11 @@ function* walk(n: SemanticNode): Generator<SemanticNode> { yield n; for (const c
 const sameField = (a: string | undefined, b: string | undefined): boolean => (a ?? undefined) === (b ?? undefined);
 
 /** 녹화한 정체 필드가 모두 같은 노드들(녹화에 없는 필드는 현재 노드에도 없어야 한다) */
-export function exactMatches(target: CacheTarget, root: SemanticNode): SemanticNode[] {
+export function exactMatches(target: CacheTarget, root: SemanticNode, opts: { ignoreLabel?: boolean } = {}): SemanticNode[] {
   const out: SemanticNode[] = [];
   for (const n of walk(root)) {
     if (n.role !== target.role) continue;
+    if (opts.ignoreLabel) { if (sameField(n.testId, target.testId)) out.push(n); continue; }
     if (sameField(cacheLabelOf(n)?.slice(0, 300), target.label) && sameField(n.testId, target.testId) && sameField(n.placeholder, target.placeholder)) out.push(n);
   }
   return out;
@@ -81,8 +82,15 @@ export async function replayRecording(engine: Engine, entry: CacheEntry, opts: R
     if (a.target) {
       const deadline = Date.now() + findTimeoutMs;
       for (let k = 0; ; k++) {
-        const m = exactMatches(a.target, (await engine.observe()).root);
+        const root = (await engine.observe()).root;
+        const m = exactMatches(a.target, root);
         if (m.length === 1) { ref = m[0]!.ref; break; }
+        // enter_secret 의 키패드: 라벨이 자식 글자(첫 키)라 섞이는 키패드에서 매번 다르다 — 역할·testId 로 하나면 그것, 아니면 화면 전체에서 키를 찾는다
+        if (a.tool === 'enter_secret' && m.length === 0) {
+          const loose = exactMatches({ role: a.target.role, ...(a.target.testId ? { testId: a.target.testId } : {}) }, root, { ignoreLabel: true });
+          ref = loose.length === 1 ? loose[0]!.ref : '';
+          if (ref || Date.now() >= deadline) break;
+        }
         if (m.length > 1) return stop(`${at}: 대상 ${describe(a.target)} 이 애매함(${m.length}개)`);
         if (Date.now() >= deadline) return stop(`${at}: 대상 ${describe(a.target)} 을 찾지 못함`);
         await sleep(Math.min(BACKOFF_MS[Math.min(k, BACKOFF_MS.length - 1)]!, Math.max(0, deadline - Date.now())));
@@ -98,8 +106,17 @@ export async function replayRecording(engine: Engine, entry: CacheEntry, opts: R
       }
       input.text = text;
     }
+    // enter_secret: 녹화의 자리표시 이름으로 값을 실행 문맥에만(목표에 주어진 이름만 — 라이브와 같은 규칙)
+    let ctx: ActionContext | undefined;
+    if (a.tool === 'enter_secret') {
+      const name = SecretBox.mentioned(a.text ?? '')[0] ?? '';
+      const revealed = opts.secrets ? opts.secrets.reveal(a.text ?? '', goalSecrets) : { ok: false as const, error: '이 테스트에는 비밀값이 없음' };
+      if (!revealed.ok) return stop(`${at}: 비밀값을 채울 수 없음 — ${revealed.error}`);
+      input.name = name;
+      ctx = { secret: (n) => (n === name ? revealed.text : undefined) };
+    }
     try {
-      await ACTIONS[a.tool].run(engine, input);
+      await ACTIONS[a.tool].run(engine, input, ctx);
     } catch (err) {
       // 기기 문제는 재생이 고칠 수 없다: 그대로 던져 러너가 blocked 로 다룬다
       if (err instanceof EngineError && (err.code === 'device-unavailable' || err.code === 'engine-closed')) throw err;

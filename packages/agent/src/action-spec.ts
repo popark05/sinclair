@@ -1,15 +1,21 @@
 // 닫힌 툴 집합의 단일 원천: 툴마다 설명·인자·엔진 실행을 한 곳에 둔다. 모델에 주는 JSON 스키마(toolSchemas)와
 // 실행 전 검사기(checkToolCall)와 실행(run)이 모두 이 표에서 나오므로 셋이 어긋날 수 없다(계약 테스트가 지킨다).
 import { EngineError, type Engine } from '@sinclair/protocol';
+import { enterSecret } from './secret-entry.ts';
 
 /** 인자 하나의 모양. 지금은 문자열뿐(enum 으로 값 제한) — 툴이 늘면 여기에 타입을 더한다 */
 export interface ParamSpec { type: 'string'; description: string; enum?: readonly string[] }
+
+/** 실행에 필요한 것 중 모델이 주지 않는 것: 비밀값의 실제 값(루프·재생이 허용된 이름만 준다) */
+export interface ActionContext { secret?(name: string): string | undefined }
 
 export interface ActionSpec {
   description: string;
   params: Record<string, ParamSpec>;
   /** 엔진에 실행한다. done 처럼 화면을 건드리지 않는 툴은 아무것도 하지 않는다 */
-  run(engine: Engine, input: Record<string, string>): Promise<void>;
+  run(engine: Engine, input: Record<string, string>, ctx?: ActionContext): Promise<void>;
+  /** 루프를 멈추는 툴(진행 불가 — 실패지만 사유가 분명하다) */
+  blocks?: boolean;
   /** 루프를 끝내는 툴(성공) */
   terminal?: boolean;
 }
@@ -45,6 +51,24 @@ export const ACTIONS = {
       if (!engine.session) throw new EngineError('unsupported-action', `엔진 ${engine.name} 은 뒤로(session) 를 지원하지 않는다`);
       await engine.session.back();
     },
+  },
+  enter_secret: {
+    description: '목표에 자리표시({{secret:이름}})로 주어진 비밀값(PIN·비밀번호·인증번호)을 넣는다. ref 가 입력칸이면 그 칸에 입력하고, 아니면 그 영역을 키패드로 보고 값의 글자마다 그 글자의 키를 누른다(누를 때마다 섞이는 보안 키패드도 된다). 값은 보이지 않는다 — 이름만 준다. 키패드의 숫자 키를 tap 으로 직접 누르지 않는다.',
+    params: { ref, name: { type: 'string', description: '비밀값 이름 — 목표의 자리표시 {{secret:이름}} 의 이름(예: SIMPLE_PIN)' } },
+    run: async (engine, { ref: r, name }, ctx) => {
+      const value = ctx?.secret?.(name!);
+      if (value === undefined) throw new EngineError('not-actionable', `쓸 수 없는 비밀값: ${name} — 목표에 주어진 자리표시만 쓸 수 있음`);
+      await enterSecret(engine, r!, value);
+    },
+  },
+  blocked: {
+    description: '목표를 더 진행할 수 없을 때 멈춘다: 목표에 주어지지 않은 비밀값(PIN·비밀번호·인증번호)이 필요하거나, 사람만 할 수 있는 단계(본인인증·캡차·생체인증·실물 확인)를 만났을 때. 값을 지어내지 않는다 — 추측한 숫자를 누르지 말고 이것을 부른다.',
+    params: {
+      reason: { type: 'string', description: '무엇 때문에 막혔는지(지금 화면의 근거)' },
+      secret: { type: 'string', description: '필요한 비밀값에 붙일 이름(대문자·숫자·_, 예: SIMPLE_PIN). 비밀값 때문이 아니면 빈 문자열' },
+    },
+    run: async () => {},
+    blocks: true,
   },
   done: {
     description: '목표를 이루었을 때 부른다. 무엇을 확인했는지 summary 에 짧게 쓴다.',

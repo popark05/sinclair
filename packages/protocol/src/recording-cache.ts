@@ -5,7 +5,9 @@ export const CACHE_SCHEMA = 'rc-1';
 /** 저장소 키: 키 필드의 canonical JSON sha256(64자 소문자 16진수). 파일 이름·URL 경로로 그대로 쓴다 */
 export const CACHE_KEY = /^[0-9a-f]{64}$/;
 export const CACHE_LIMITS = { actions: 50, text: 4096, label: 300, summary: 300, anchors: 8, bytes: 64 * 1024 } as const;
-export const CACHE_TOOLS = ['tap', 'type', 'submit', 'scroll', 'back'] as const;
+export const CACHE_TOOLS = ['tap', 'type', 'submit', 'scroll', 'back', 'enter_secret'] as const;
+/** enter_secret 의 글자: 비밀값 자리표시 하나뿐(실제 값이 녹화에 들어가지 않게) */
+export const SECRET_PLACEHOLDER_ONLY = /^\{\{secret:[A-Z][A-Z0-9_]{0,63}\}\}$/;
 export type CacheTool = (typeof CACHE_TOOLS)[number];
 
 /** 재생이 다시 찾을 대상. 정체 필드만(역할·이름 또는 글자·testId·placeholder) */
@@ -77,7 +79,8 @@ export function parseCacheEntry(input: unknown): CacheEntryParse {
     else if (a.target === undefined) errors.push(`${at}.target: ${a.tool} 에는 필요함`);
     else checkTarget(a.target, `${at}.target`, errors);
     if (a.tool === 'type') { if (!str(a.text, CACHE_LIMITS.text)) errors.push(`${at}.text: ${CACHE_LIMITS.text}자 이하 문자열이어야 함`); }
-    else if (a.text !== undefined) errors.push(`${at}.text: type 에만 있음`);
+    else if (a.tool === 'enter_secret') { if (typeof a.text !== 'string' || !SECRET_PLACEHOLDER_ONLY.test(a.text)) errors.push(`${at}.text: 비밀값 자리표시 하나({{secret:NAME}})여야 함`); }
+    else if (a.text !== undefined) errors.push(`${at}.text: type·enter_secret 에만 있음`);
     if (a.tool === 'scroll') { if (a.direction !== 'up' && a.direction !== 'down') errors.push(`${at}.direction: up|down 이어야 함`); }
     else if (a.direction !== undefined) errors.push(`${at}.direction: scroll 에만 있음`);
     if (!str(a.summary, CACHE_LIMITS.summary)) errors.push(`${at}.summary: ${CACHE_LIMITS.summary}자 이하 문자열이어야 함`);
