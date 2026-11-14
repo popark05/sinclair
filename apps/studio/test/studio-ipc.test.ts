@@ -44,6 +44,10 @@ describe('studio IPC 계약', () => {
     // 비밀값(agent-secrets 03): 이름 규칙·값 길이(4~200)·10개까지. 값은 작업 프로세스로만 간다
     expect(parseStudioRequest({ kind: 'session-start', deviceId: 'S', goal: '문 열기 {{secret:SIMPLE_PIN}}', secrets: { SIMPLE_PIN: '2580' } })).toEqual({ kind: 'session-start', deviceId: 'S', goal: '문 열기 {{secret:SIMPLE_PIN}}', secrets: { SIMPLE_PIN: '2580' } });
     for (const secrets of [{ pin: '2580' }, { SIMPLE_PIN: '12' }, { SIMPLE_PIN: 'x'.repeat(201) }, { SIMPLE_PIN: 2580 }, Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`S${i}`, '1234'])), ['2580']]) expect(parseStudioRequest({ kind: 'session-start', deviceId: 'S', goal: 'g', secrets }), JSON.stringify(secrets)).toBeUndefined();
+    // Cycle 로 실행(studio-console 04): 렌더러는 이름·코드·기기만 — control-plane·테스트 폴더는 메인이 설정에서 넣는다(렌더러가 준 것은 버린다)
+    expect(parseStudioRequest({ kind: 'run-cycle', deviceId: 'S', deviceLabel: 'M (…S)', testName: 'YouTube 검색', code: 'x', testsDir: '/etc', controlPlane: 'http://evil' })).toEqual({ kind: 'run-cycle', deviceId: 'S', deviceLabel: 'M (…S)', testName: 'YouTube 검색', code: 'x' });
+    expect(parseStudioRequest({ kind: 'cycle-status', cycleId: 'studio-20261114-1' })).toEqual({ kind: 'cycle-status', cycleId: 'studio-20261114-1' });
+    for (const bad of [{ kind: 'run-cycle', deviceId: 'S', deviceLabel: 'M', testName: '', code: 'x' }, { kind: 'run-cycle', deviceId: 'S', deviceLabel: 'M', testName: 'n', code: 'x'.repeat(300_000) }, { kind: 'cycle-status', cycleId: '../x' }]) expect(parseStudioRequest(bad), JSON.stringify(bad).slice(0, 80)).toBeUndefined();
     // 요소 판정(studio 09): 닫힌 질의·검사 종류, 값은 값이 있는 검사에만
     expect(parseStudioRequest({ kind: 'expect-check', deviceId: 'S', query: { text: '창신동', exact: true }, matcher: 'visible' })).toEqual({ kind: 'expect-check', deviceId: 'S', query: { text: '창신동', exact: true }, matcher: 'visible' });
     expect(parseStudioRequest({ kind: 'expect-check', deviceId: 'S', query: { testId: 'a:id/q' }, matcher: 'value', expected: '사과' })).toEqual({ kind: 'expect-check', deviceId: 'S', query: { testId: 'a:id/q' }, matcher: 'value', expected: '사과' });

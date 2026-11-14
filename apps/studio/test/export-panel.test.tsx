@@ -21,8 +21,11 @@ function setup(rec: SessionRecord = record) {
     saveTestFile: async (name: string, content: string) => { calls.push(['file', name, content.length > 0]); return '/tmp/x.sinclair.ts'; },
     saveRecording: async (input: unknown) => { calls.push(['rec', input]); return { key: 'k'.repeat(64) }; },
     getSettings: async () => ({ controlPlane: 'http://10.0.0.5:4780', testsDir: '/tmp/tests' }),
+    runAsCycle: async (input: unknown) => { calls.push(['cycle', input]); return { cycleId: 'studio-1', consoleUrl: 'http://10.0.0.5:4780/console/cycles/studio-1' }; },
+    cycleStatus: async (id: string) => { calls.push(['status', id]); return { state: 'finished', verdict: 'verified', runState: 'finished' }; },
+    openConsole: async (u: string) => { calls.push(['open', u]); },
   } as unknown as StudioApi;
-  render(<ExportPanel api={api} record={rec} appId="com.google.android.youtube" />);
+  render(<ExportPanel api={api} record={rec} appId="com.google.android.youtube" deviceId="R3CN30ABCDXLZW" deviceLabel="SM-N981N (…XLZW)" />);
   return { calls };
 }
 
@@ -64,5 +67,16 @@ describe('ExportPanel', () => {
     setup({ ...record, result: { ...record.result!, freshStart: true } });
     await screen.findByRole('button', { name: '복사' });
     expect(screen.queryByText(/앱 처음 화면에서 시작하지 않은 세션/)).toBeNull();
+  });
+
+  it('Cycle 로 실행(studio-console 04): 자연어면 녹화를 먼저 저장하고, 고른 기기로 Cycle 을 등록해 상태를 보이며 Console 링크를 연다', async () => {
+    const { calls } = setup();
+    fireEvent.change(screen.getByRole('textbox', { name: '테스트 이름' }), { target: { value: 'YouTube 검색' } });
+    await act(async () => { screen.getByRole('button', { name: 'Cycle 로 실행' }).click(); });
+    expect(calls.map((c) => (c as unknown[])[0])).toEqual(['rec', 'cycle', 'status']);
+    expect((calls[1] as unknown[])[1]).toMatchObject({ testName: 'YouTube 검색', deviceId: 'R3CN30ABCDXLZW', deviceLabel: 'SM-N981N (…XLZW)', code: expect.stringContaining("agent.act('YouTube 에서 검색한다')") });
+    expect(await screen.findByText(/끝 · verified/)).toBeTruthy();
+    await act(async () => { screen.getByRole('button', { name: 'Console 에서 보기' }).click(); });
+    expect(calls.at(-1)).toEqual(['open', 'http://10.0.0.5:4780/console/cycles/studio-1']);
   });
 });
