@@ -16,4 +16,4 @@
 - ExportPanel: 방식 전환·이름·미리보기·복사·파일 저장(메인 저장 대화상자, 크기 제한)·녹화 캐시에 저장(`save-recording` → control-plane `PUT /cache/:key`, 첫 실행부터 모델 없이 재생).
 - 왕복 테스트 `apps/studio/test/export-roundtrip.test.ts`: 내보낸 코드를 그대로 러너에 넣어 FakeEngine 에서 통과(결정적은 act 모델 0회).
 - 실기(SM-N981N, YouTube): 결정적 내보내기를 데몬이 locator 만으로 통과(`studio-export-1`). 자연어 + 녹화 저장은 처음에 재생이 입력 단계에서 어긋남 — 검색창에 직전 검색어가 남아 라벨이 달랐다. 입력 역할은 이름만 라벨(정책 `exact/3`)로 고친 뒤 `studio-export-natural-2` verified, act `cache=replayed calls=0` 5.6초.
-- 알려진 한계: `app.open` 은 앱 상태를 초기화하지 않는다(직전 검색어·화면이 남음).
+- 알려진 한계: `app.open` 은 앱 상태를 초기화하지 않는다(직전 검색어·화면이 남음). → 07 에서 내보내기 첫 줄을 `app.restart(앱)` 으로 바꿔 해결.

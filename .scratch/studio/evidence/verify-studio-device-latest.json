@@ -1,0 +1,65 @@
+{
+  "skill": "verify-studio",
+  "mode": "device",
+  "at": "2026-11-14T03:03:07.337Z",
+  "ok": true,
+  "checks": [
+    {
+      "name": "작업 프로세스가 발견 파일로 디바이스 RPC 에 붙음(툴바 \"데몬\")",
+      "ok": true
+    },
+    {
+      "name": "기기 화면 스냅샷을 그림",
+      "ok": true,
+      "detail": "1080×2400, 기동 4203ms"
+    },
+    {
+      "name": "화면 클릭 → 그 자리 노드 하이라이트",
+      "ok": true
+    },
+    {
+      "name": "고른 노드의 locator 후보 목록",
+      "ok": true
+    },
+    {
+      "name": "에이전트 준비 점검(count_tokens) 통과",
+      "ok": true,
+      "detail": "모델 claude-sonnet-5-5"
+    },
+    {
+      "name": "세션 성공(턴 타임라인 + 결과)",
+      "ok": true,
+      "detail": "성공 — 검색창에 \"플로렌스 게랭 데뷔작\"을 입력해 검색했습니다. 화면에 필터 칩(전체, Shorts, 동영상)과 검색 결과 목록(id=results)이 표시됩니다. · 4턴 · 모델 4회 · 입력 5,705 토큰 | 턴: 1. tap @e9 / 2. type @e8 / 3. submit @e8 / 4. done"
+    },
+    {
+      "name": "지금 화면 판정 = 참",
+      "ok": true,
+      "detail": "참 · 검색 결과 목록이 열려 있다"
+    },
+    {
+      "name": "자연어 내보내기(app.restart + act + assert), 복사 = 클립보드",
+      "ok": true,
+      "detail": "9줄"
+    },
+    {
+      "name": "녹화 캐시에 저장(control-plane PUT /cache)",
+      "ok": true,
+      "detail": "녹화 캐시에 저장함 — 이 테스트의 첫 실행부터 모델 없이 재생된다"
+    },
+    {
+      "name": "결정적 내보내기(app.restart + locator 코드, 이름 바꿈)",
+      "ok": true,
+      "detail": "await screen.getByRole('button', { name: '검색', exact: true }).tap(); | await screen.getByTestId('com.google.android.youtube:id/search_edit_text').type('플로렌스 게랭 데뷔작'); | await screen.getByTestId('com.g"
+    },
+    {
+      "name": "데몬이 내보낸 두 테스트를 Cycle 로 돌려 verified(둘 다 통과)",
+      "ok": true,
+      "detail": "Cycle verify-studio-1794625360005 verdict=verified · 자연어=passed, 결정적=passed"
+    },
+    {
+      "name": "자연어 act 는 Studio 가 저장한 녹화로 재생(모델 0회)",
+      "ok": true,
+      "detail": "cache=replayed calls=0"
+    }
+  ]
+}

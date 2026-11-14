@@ -1,0 +1,76 @@
+{
+  "skill": "verify-studio",
+  "mode": "fake",
+  "at": "2026-11-14T02:58:20.874Z",
+  "ok": true,
+  "checks": [
+    {
+      "name": "작업 프로세스가 발견 파일로 디바이스 RPC 에 붙음(툴바 \"데몬\")",
+      "ok": true
+    },
+    {
+      "name": "기기 화면 스냅샷을 그림",
+      "ok": true,
+      "detail": "1080×2400, 기동 2423ms"
+    },
+    {
+      "name": "화면 클릭 → 그 자리 노드 하이라이트",
+      "ok": true
+    },
+    {
+      "name": "화면 클릭이 기기 픽셀 좌표 탭으로 감(여백·배율 변환)",
+      "ok": true,
+      "detail": "tap 538,600"
+    },
+    {
+      "name": "고른 입력칸의 locator 후보(testId 우선)",
+      "ok": true,
+      "detail": "screen.getByTestId('com.verify.app:id/username')"
+    },
+    {
+      "name": "트리 검색 → 노드 선택 → 역할+이름 locator",
+      "ok": true,
+      "detail": "screen.getByRole('button', { name: '로그인', exact: true })"
+    },
+    {
+      "name": "에이전트 준비 점검(count_tokens) 통과",
+      "ok": true,
+      "detail": "모델 claude-sonnet-5-5"
+    },
+    {
+      "name": "세션 성공(턴 타임라인 + 결과)",
+      "ok": true,
+      "detail": "성공 — \"환영합니다\" 화면이 보인다 · 3턴 · 모델 3회 · 입력 300 토큰 | 턴: 1. type @e2 / 2. tap @e4 / 3. done"
+    },
+    {
+      "name": "지금 화면 판정 = 참",
+      "ok": true,
+      "detail": "참 · 환영 화면이 보인다"
+    },
+    {
+      "name": "자연어 내보내기(app.restart + act + assert), 복사 = 클립보드",
+      "ok": true,
+      "detail": "9줄"
+    },
+    {
+      "name": "녹화 캐시에 저장(control-plane PUT /cache)",
+      "ok": true,
+      "detail": "녹화 캐시에 저장함 — 이 테스트의 첫 실행부터 모델 없이 재생된다"
+    },
+    {
+      "name": "결정적 내보내기(app.restart + locator 코드, 이름 바꿈)",
+      "ok": true,
+      "detail": "await screen.getByTestId('com.verify.app:id/username').type('qa'); | await screen.getByRole('button', { name: '로그인', exact: true }).tap();"
+    },
+    {
+      "name": "내보낸 두 테스트가 같은 기기에서 통과",
+      "ok": true,
+      "detail": "Studio 검증 2026-11-14-02-58-12=passed, Studio 검증 2026-11-14-02-58-12 · 결정적=passed"
+    },
+    {
+      "name": "자연어 act 는 Studio 가 저장한 녹화로 재생(act 모델 0회)",
+      "ok": true,
+      "detail": "act 스텝 cache=replayed · act 모델 호출 0"
+    }
+  ]
+}
