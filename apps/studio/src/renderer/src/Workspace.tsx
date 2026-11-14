@@ -11,7 +11,7 @@ import { AppShell } from '@astryxdesign/core/AppShell';
 import type { StudioApi, WorkerStatus } from '../../shared/studio-ipc.ts';
 import { Toolbar } from './Toolbar.tsx';
 import { DevicePanel } from './DevicePanel.tsx';
-import { useSnapshot } from './useSnapshot.ts';
+import { snapshotIntervalFor, useSnapshot, useWindowActivity } from './useSnapshot.ts';
 import { Inspector } from './Inspector.tsx';
 import { SessionPanel, type JudgeTarget } from './SessionPanel.tsx';
 import { findNode, locatorCandidates } from '../../shared/locators.ts';
@@ -53,7 +53,10 @@ export function Workspace({ api }: { api: StudioApi }) {
   const [appId, setAppId] = useState('');
   // 세션 중에는 화면 폴링을 멈추고 턴마다 한 번만 받는다(기기를 에이전트에게 양보)
   const [sessionBusy, setSessionBusy] = useState(false);
-  const screen = useSnapshot(api, deviceId, { paused: sessionBusy });
+  // 보지 않는 Studio 는 기기를 양보한다: 포커스 0.5초, 보이기만 3초, 가려지면 멈춤(돌아오면 곧바로 한 번)
+  const activity = useWindowActivity();
+  const interval = snapshotIntervalFor(activity);
+  const screen = useSnapshot(api, deviceId, { paused: sessionBusy || interval === undefined, ...(interval ? { intervalMs: interval } : {}) });
   const refreshScreen = screen.refresh;
   const onTurn = useCallback(() => refreshScreen(), [refreshScreen]);
   const [selectedRef, setSelectedRef] = useState<string>();

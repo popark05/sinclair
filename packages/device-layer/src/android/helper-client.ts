@@ -13,6 +13,9 @@ const TOKEN_ACTION = `${HELPER_PACKAGE}.SET_TOKEN`;
 const TOKEN_RECEIVER = `${HELPER_PACKAGE}/.TokenReceiver`;
 /** 요청 하나의 상한. 루프백 + 포워드에서 /dump 도 수백 ms 안에 끝난다. */
 const REQUEST_TIMEOUT_MS = 5_000;
+/** 스냅샷(스크린샷 PNG + 트리)은 실기 약 2초, 다른 호출과 겹치면 6초를 넘는다 — 느린 것을 실패로 보지 않게 따로 */
+const SNAPSHOT_TIMEOUT_MS = 15_000;
+export const helperRequestTimeoutMs = (path: string): number => (path === '/snapshot' ? SNAPSHOT_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
 
 export class HelperHttpError extends Error {
   constructor(readonly status: number, readonly body: string) {
@@ -94,7 +97,7 @@ export class HelperSession {
     return new Promise((resolve, reject) => {
       const req = http.request(
         {
-          host: '127.0.0.1', port: this.tunnel.port, path, method, timeout: REQUEST_TIMEOUT_MS,
+          host: '127.0.0.1', port: this.tunnel.port, path, method, timeout: helperRequestTimeoutMs(path),
           headers: { authorization: `Bearer ${this.token}`, ...(payload ? { 'content-type': 'application/json', 'content-length': payload.length } : {}) },
         },
         (res) => {
@@ -108,7 +111,7 @@ export class HelperSession {
           res.on('error', reject);
         }
       );
-      req.on('timeout', () => req.destroy(new Error(`헬퍼 응답 시간 초과(${path}, ${REQUEST_TIMEOUT_MS}ms)`)));
+      req.on('timeout', () => req.destroy(new Error(`헬퍼 응답 시간 초과(${path}, ${helperRequestTimeoutMs(path)}ms)`)));
       req.on('error', reject);
       req.end(payload);
     });

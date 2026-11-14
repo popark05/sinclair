@@ -365,6 +365,10 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
       } catch (e) {
         firstError = e;
         if (fallback) return fallback();
+        // 헬퍼가 ping 에 답하면 살아 있다(바쁘거나 그 요청만 실패): 온보딩 없이 같은 세션으로 한 번 더. 온보딩은 기기에 셸 명령을 여럿 보내 경합을 키운다
+        const session = entry.session;
+        const alive = await session.ping().then(() => true, () => false);
+        if (alive) return call(session);
         await ensureHelper(entry);
         if (entry.helper?.state === 'ready' && entry.session) return call(entry.session);
       }

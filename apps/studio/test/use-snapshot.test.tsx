@@ -31,4 +31,12 @@ describe('useSnapshot', () => {
     await tick(SNAPSHOT_INTERVAL_MS * 3 + 10);
     expect(calls.n).toBeGreaterThanOrEqual(3);
   });
+
+  it('intervalMs 로 간격을 바꾼다(보이지만 포커스 없는 창은 3초)', async () => {
+    vi.useFakeTimers();
+    const { calls, api: a } = api();
+    renderHook(() => useSnapshot(a, 'SER1', { intervalMs: 3_000 }));
+    await tick(3_000 * 2 + 10);
+    expect(calls.n).toBe(3); // 처음 1 + 3초마다 2
+  });
 });
