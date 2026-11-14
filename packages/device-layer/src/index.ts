@@ -5,3 +5,7 @@ export { serveHttp } from './http.ts';
 export { createAndroidBackend, parseScreenState, type AndroidBackend, type AndroidBackendOptions, type InputRouteEvent } from './android/android-backend.ts';
 export { Dadb, type DadbOptions, type DadbListOptions } from './adb/dadb.ts';
 export { publishDeviceRpc, readDeviceRpc, unpublishDeviceRpc, defaultDiscoveryFile, type DeviceRpcDiscovery } from './discovery.ts';
+export { createIosBackend, noLauncher, type IosRunnerLauncher, type IosBackendOptions } from './ios/ios-backend.ts';
+export { xcodebuildLauncher, xcodebuildArgs } from './ios/xcodebuild-launcher.ts';
+export { createUsbmuxClient, readLockdownValues, forwardPort, type UsbmuxClient, type UsbmuxDevice } from './ios/usbmux.ts';
+export { IosRunnerClient, IOS_RUNNER_PORT } from './ios/runner-client.ts';
