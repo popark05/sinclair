@@ -232,6 +232,12 @@ async function main(): Promise<void> {
   await screen.waitFor({ timeout: 30_000 });
   const natural = await screen.evaluate((el: HTMLImageElement) => ({ w: el.naturalWidth, h: el.naturalHeight }));
   check('기기 화면 스냅샷을 그림', natural.w > 0 && natural.h > 0, `${natural.w}×${natural.h}, 기동 ${Date.now() - t0}ms`);
+  // 현재 앱: 기기에 앞 화면 앱을 묻고(fake 는 구현이 없어 화면 트리의 resource-id 로) 버튼 옆에 결과를 보인다
+  await win.getByRole('button', { name: '현재 앱' }).click();
+  const toolbarStatus = win.getByRole('status', { name: '툴바 상태' });
+  await toolbarStatus.getByText(/현재 앱:|알 수 없음/).waitFor({ timeout: 15_000 });
+  const fgText = await toolbarStatus.innerText();
+  check('현재 앱 버튼이 앞 화면 앱을 채우고 버튼 옆에 결과', fgText.includes(`현재 앱: ${app}`), fgText);
   await win.getByLabel('Studio 툴바').getByPlaceholder('com.example.app').fill(app);
 
   // 화면 클릭 = 탭 + 그 자리 노드 선택(Inspector 하이라이트·locator 후보)

@@ -1,7 +1,7 @@
 {
   "skill": "verify-studio",
   "mode": "fake",
-  "at": "2026-11-14T05:09:02.843Z",
+  "at": "2026-11-14T08:43:20.223Z",
   "ok": true,
   "checks": [
     {
@@ -11,7 +11,12 @@
     {
       "name": "기기 화면 스냅샷을 그림",
       "ok": true,
-      "detail": "1080×2400, 기동 1505ms"
+      "detail": "1080×2400, 기동 1557ms"
+    },
+    {
+      "name": "현재 앱 버튼이 앞 화면 앱을 채우고 버튼 옆에 결과",
+      "ok": true,
+      "detail": "현재 앱: com.verify.app"
     },
     {
       "name": "화면 클릭 → 그 자리 노드 하이라이트",
@@ -83,7 +88,7 @@
     {
       "name": "내보낸 두 테스트가 같은 기기에서 통과",
       "ok": true,
-      "detail": "Studio 검증 2026-11-14-05-08-55=passed, Studio 검증 2026-11-14-05-08-55 · 결정적=passed"
+      "detail": "Studio 검증 2026-11-14-08-43-12=passed, Studio 검증 2026-11-14-08-43-12 · 결정적=passed"
     },
     {
       "name": "자연어 act 는 Studio 가 저장한 녹화로 재생(act 모델 0회)",
