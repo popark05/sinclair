@@ -1,6 +1,6 @@
 // Device 패널(studio 03): 기기 화면(스냅샷)을 그리고 조작을 기기로 보낸다. 클릭 = 탭, 드래그 = 스와이프, 화면에 초점을 두고 치면 글자 입력·키.
 // 라이브 화면은 미디어라 astryx 컴포넌트가 아닌 <img>(object-fit: contain)를 쓴다 — 좌표 변환은 device-coords.
-import { useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
+import { useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
 import { Stack } from '@astryxdesign/core/Layout';
 import { Heading, Text } from '@astryxdesign/core/Text';
 import { Button } from '@astryxdesign/core/Button';
@@ -8,7 +8,8 @@ import { EmptyState } from '@astryxdesign/core/EmptyState';
 import { Icon } from '@astryxdesign/core/Icon';
 import { DevicePhoneMobileIcon } from '@heroicons/react/24/outline';
 import type { StudioApi, StudioKey, StudioSnapshot } from '../../shared/studio-ipc.ts';
-import { toDevicePoint, type Point } from './device-coords.ts';
+import { fitRect, toDevicePoint, type Point } from './device-coords.ts';
+import { findNode, nodeAt } from './inspector-model.ts';
 
 /** 이만큼 덜 움직였으면 탭(손 떨림), 넘으면 스와이프 */
 const TAP_SLOP_PX = 10;
@@ -18,7 +19,9 @@ const KEY_MAP: Record<string, StudioKey> = { Enter: 'enter', Backspace: 'backspa
 
 const styles: Record<string, CSSProperties> = {
   panel: { padding: 'var(--spacing-4)', height: '100%' },
-  screen: { width: '100%', flex: 1, minHeight: 0, objectFit: 'contain', touchAction: 'none', cursor: 'pointer', outlineOffset: 2, borderRadius: 'var(--radius-2)' },
+  frame: { position: 'relative', flex: 1, minHeight: 0 },
+  screen: { width: '100%', height: '100%', objectFit: 'contain', touchAction: 'none', cursor: 'pointer', outlineOffset: 2, borderRadius: 'var(--radius-2)', display: 'block' },
+  highlight: { position: 'absolute', pointerEvents: 'none', border: '2px solid var(--color-accent)', background: 'var(--color-accent-muted)', borderRadius: 'var(--radius-1)' },
 };
 
 export interface DevicePanelProps {
@@ -30,14 +33,39 @@ export interface DevicePanelProps {
   onInput?: () => void;
   /** 스냅샷을 받지 못한 이유 */
   error?: string;
+  /** Inspector 가 고른 노드(화면 위 하이라이트) */
+  selectedRef?: string;
+  /** 화면을 클릭하면 그 자리의 가장 안쪽 노드를 고른다(탭과 함께) */
+  onSelectNode?: (ref: string) => void;
 }
 
-export function DevicePanel({ api, deviceId, deviceLabel, snapshot, onInput, error }: DevicePanelProps) {
+export function DevicePanel({ api, deviceId, deviceLabel, snapshot, onInput, error, selectedRef, onSelectNode }: DevicePanelProps) {
   const img = useRef<HTMLImageElement>(null);
   const down = useRef<{ p: Point; at: number }>(undefined);
   const buffer = useRef('');
   const flushTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [problem, setProblem] = useState('');
+  const [highlight, setHighlight] = useState<{ left: number; top: number; width: number; height: number }>();
+  /** 그림이 로드되면 원본 크기를 알게 되므로 하이라이트를 다시 놓는다 */
+  const [loaded, setLoaded] = useState(0);
+
+  // 고른 노드의 rect(기기 픽셀)를 표시 좌표로: 그림이 들어간 사각형(여백 제외)과 배율로
+  useLayoutEffect(() => {
+    const place = (): void => {
+      const el = img.current;
+      const node = snapshot && selectedRef ? findNode(snapshot.root, selectedRef) : undefined;
+      if (!el || !node?.rect || !el.naturalWidth) { setHighlight(undefined); return; }
+      const r = el.getBoundingClientRect();
+      const fit = fitRect({ width: r.width, height: r.height }, { width: el.naturalWidth, height: el.naturalHeight });
+      const k = fit.width / el.naturalWidth;
+      setHighlight({ left: Math.round(fit.x + node.rect.x * k), top: Math.round(fit.y + node.rect.y * k), width: Math.round(node.rect.width * k), height: Math.round(node.rect.height * k) });
+    };
+    place();
+    if (typeof ResizeObserver === 'undefined' || !img.current) return;
+    const ro = new ResizeObserver(place);
+    ro.observe(img.current);
+    return () => ro.disconnect();
+  }, [snapshot, selectedRef, loaded]);
 
   const send = async (f: () => Promise<void>): Promise<void> => {
     try { await f(); setProblem(''); onInput?.(); } catch (err) { setProblem(err instanceof Error ? err.message : String(err)); }
@@ -61,7 +89,12 @@ export function DevicePanel({ api, deviceId, deviceLabel, snapshot, onInput, err
     const from = devicePoint(start.p.x, start.p.y);
     if (!from) return;
     const moved = Math.hypot(e.clientX - start.p.x, e.clientY - start.p.y);
-    if (moved < TAP_SLOP_PX) { void send(() => api.tap(deviceId, from.x, from.y)); return; }
+    if (moved < TAP_SLOP_PX) {
+      const hit = snapshot ? nodeAt(snapshot.root, from) : undefined;
+      if (hit) onSelectNode?.(hit.ref);
+      void send(() => api.tap(deviceId, from.x, from.y));
+      return;
+    }
     const to = devicePoint(e.clientX, e.clientY);
     if (!to) return;
     const durationMs = Math.min(2_000, Math.max(100, Date.now() - start.at));
@@ -92,6 +125,7 @@ export function DevicePanel({ api, deviceId, deviceLabel, snapshot, onInput, err
         {deviceLabel ? <Text type="supporting" color="secondary" maxLines={1}>{deviceLabel}</Text> : null}
       </Stack>
       {snapshot ? (
+        <Stack direction="vertical" style={styles.frame}>
         <img
           ref={img}
           src={`data:image/png;base64,${snapshot.png}`}
@@ -102,7 +136,10 @@ export function DevicePanel({ api, deviceId, deviceLabel, snapshot, onInput, err
           onPointerDown={onPointerDown}
           onPointerUp={onPointerUp}
           onKeyDown={onKeyDown}
+          onLoad={() => setLoaded((n) => n + 1)}
         />
+          {highlight ? <Stack aria-label="선택한 노드 영역" style={{ ...styles.highlight, left: highlight.left, top: highlight.top, width: highlight.width, height: highlight.height }} /> : null}
+        </Stack>
       ) : (
         <EmptyState
           isCompact

@@ -3,26 +3,25 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Layout, LayoutContent, LayoutPanel, Stack, StackItem } from '@astryxdesign/core/Layout';
 import { ResizeHandle, useResizable } from '@astryxdesign/core/Resizable';
-import { Heading, Text } from '@astryxdesign/core/Text';
+import { Text } from '@astryxdesign/core/Text';
 import { TabList, Tab } from '@astryxdesign/core/TabList';
-import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { List, ListItem } from '@astryxdesign/core/List';
 import { EmptyState } from '@astryxdesign/core/EmptyState';
 import { Icon } from '@astryxdesign/core/Icon';
 import { useMediaQuery } from '@astryxdesign/core/hooks';
 import { AppShell } from '@astryxdesign/core/AppShell';
-import { ChatBubbleLeftRightIcon, Squares2X2Icon } from '@heroicons/react/24/outline';
+import { ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
 import type { StudioApi, WorkerStatus } from '../../shared/studio-ipc.ts';
 import { Toolbar } from './Toolbar.tsx';
 import { DevicePanel } from './DevicePanel.tsx';
 import { useSnapshot } from './useSnapshot.ts';
+import { Inspector } from './Inspector.tsx';
 
 const styles: Record<string, CSSProperties> = {
   contentFill: { height: '100%' },
   terminalWrapper: { minHeight: 0, overflow: 'auto', display: 'grid' },
   tabListPadding: { paddingTop: 'var(--spacing-2)' },
   editorArea: { overflow: 'auto', minHeight: 0 },
-  propertiesPanel: { height: '100%' },
   terminalPanel: { flexShrink: 0, overflow: 'hidden' },
 };
 
@@ -48,12 +47,12 @@ export function Workspace({ api }: { api: StudioApi }) {
   const worker = useWorkerStatus(api);
   const [centerTab, setCenterTab] = useState('session');
   const [drawerTab, setDrawerTab] = useState('log');
-  const [inspectorTab, setInspectorTab] = useState('tree');
   // 고른 기기·앱(기기 화면·세션이 쓴다). 화면 폴링은 여기서 한 번 — Device 패널과 Inspector 가 같은 스냅샷을 본다
   const [deviceId, setDeviceId] = useState('');
   const [deviceLabel, setDeviceLabel] = useState('');
   const [, setAppId] = useState('');
   const screen = useSnapshot(api, deviceId);
+  const [selectedRef, setSelectedRef] = useState<string>();
 
   // 기기 화면은 세로로 길어 기본 폭을 넉넉히(폰 비율), Inspector 는 트리·속성이 읽힐 만큼
   const startPanel = useResizable({ defaultSize: 360, minSize: 240, maxSize: 560, collapsible: true, collapsedSize: 50 });
@@ -75,7 +74,7 @@ export function Workspace({ api }: { api: StudioApi }) {
               <>
                 {!startPanel.isCollapsed && (
                   <LayoutPanel width={startPanel.size} hasDivider={false} padding={0}>
-                    <DevicePanel api={api} deviceId={deviceId} deviceLabel={deviceLabel} {...(screen.snapshot ? { snapshot: screen.snapshot } : {})} {...(screen.error ? { error: screen.error } : {})} onInput={screen.refresh} />
+                    <DevicePanel api={api} deviceId={deviceId} deviceLabel={deviceLabel} {...(screen.snapshot ? { snapshot: screen.snapshot } : {})} {...(screen.error ? { error: screen.error } : {})} onInput={screen.refresh} {...(selectedRef ? { selectedRef } : {})} onSelectNode={setSelectedRef} />
                   </LayoutPanel>
                 )}
                 <ResizeHandle direction="horizontal" hasDivider isAlwaysVisible={false} resizable={startPanel.props} label="기기 패널 크기 조절" />
@@ -126,18 +125,7 @@ export function Workspace({ api }: { api: StudioApi }) {
                       <ResizeHandle direction="horizontal" hasDivider isReversed isAlwaysVisible={false} resizable={endPanel.props} label="Inspector 크기 조절" />
                       {!endPanel.isCollapsed && (
                         <LayoutPanel width={endPanel.size} hasDivider={false} padding={4}>
-                          <Stack as="section" aria-label="Inspector" direction="vertical" gap={3} style={styles.propertiesPanel}>
-                            <SegmentedControl label="Inspector 보기" value={inspectorTab} onChange={setInspectorTab} size="sm" layout="fill">
-                              <SegmentedControlItem label="화면 트리" value="tree" />
-                              <SegmentedControlItem label="속성" value="props" />
-                            </SegmentedControl>
-                            <EmptyState
-                              isCompact
-                              icon={<Icon icon={Squares2X2Icon} size="lg" />}
-                              title="화면 트리 없음"
-                              description="기기를 연결하면 지금 화면의 노드 트리와 locator 후보가 보입니다."
-                            />
-                          </Stack>
+                          <Inspector snapshot={screen.snapshot} selectedRef={selectedRef} onSelect={setSelectedRef} />
                         </LayoutPanel>
                       )}
                     </>

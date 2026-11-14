@@ -9,8 +9,10 @@ afterEach(() => { cleanup(); vi.useRealTimers(); });
 // jsdom 의 PointerEvent 는 clientX 를 싣지 않는다: 마우스 이벤트 바탕으로 채운다(테스트 환경 한정)
 class TestPointerEvent extends MouseEvent { constructor(type: string, init?: PointerEventInit) { super(type, init); } }
 (window as unknown as { PointerEvent: typeof MouseEvent }).PointerEvent = TestPointerEvent;
-const snap: StudioSnapshot = { png: 'iVBORw0KGgo=', root: { ref: '@e0', role: 'root' }, capturedAt: '2026-11-14T00:00:00.000Z' };
-function setup() {
+const snap: StudioSnapshot = { png: 'iVBORw0KGgo=', capturedAt: '2026-11-14T00:00:00.000Z', root: { ref: '@e0', role: 'root', rect: { x: 0, y: 0, width: 1080, height: 2400 }, children: [
+  { ref: '@e1', role: 'button', name: '가운데', rect: { x: 540, y: 1200, width: 108, height: 240 } },
+] } };
+function setup(extra: { selectedRef?: string; onSelectNode?: (ref: string) => void } = {}) {
   const calls: string[] = [];
   const api = {
     tap: async (d: string, x: number, y: number) => { calls.push(`tap ${d} ${x},${y}`); },
@@ -20,12 +22,12 @@ function setup() {
     button: async (d: string, b: string) => { calls.push(`button ${d} ${b}`); },
   } as unknown as StudioApi;
   const changed = vi.fn();
-  render(<DevicePanel api={api} deviceId="SER1" deviceLabel="SM-N981N (…SER1)" snapshot={snap} onInput={changed} />);
+  const view = render(<DevicePanel api={api} deviceId="SER1" deviceLabel="SM-N981N (…SER1)" snapshot={snap} onInput={changed} {...extra} />);
   const img = screen.getByRole('img', { name: /기기 화면/ }) as HTMLImageElement;
   // jsdom 은 레이아웃이 없다: 표시 크기와 원본 크기를 정해 준다
   Object.defineProperty(img, 'naturalWidth', { value: 1080 }); Object.defineProperty(img, 'naturalHeight', { value: 2400 });
   img.getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 600, right: 400, bottom: 600, x: 0, y: 0, toJSON: () => ({}) });
-  return { calls, img, changed };
+  return { calls, img, changed, view, api };
 }
 
 describe('DevicePanel', () => {
@@ -68,5 +70,23 @@ describe('DevicePanel', () => {
     const { calls } = setup();
     await act(async () => { screen.getByRole('button', { name: '뒤로' }).click(); screen.getByRole('button', { name: '홈' }).click(); });
     expect(calls).toEqual(['button SER1 back', 'button SER1 home']);
+  });
+});
+
+describe('DevicePanel · Inspector 연동(studio 04)', () => {
+  it('고른 노드를 화면 위에 하이라이트(기기 픽셀 → 표시 좌표)', () => {
+    const { view, api } = setup();
+    view.rerender(<DevicePanel api={api} deviceId="SER1" snapshot={snap} selectedRef="@e1" />);
+    const box = screen.getByLabelText('선택한 노드 영역');
+    // 배율 270/1080 = 0.25, 좌우 여백 65
+    expect([box.style.left, box.style.top, box.style.width, box.style.height]).toEqual(['200px', '300px', '27px', '60px']);
+  });
+
+  it('화면을 클릭하면 탭과 함께 그 자리의 가장 안쪽 노드를 고른다', async () => {
+    const picked: string[] = [];
+    const { calls, img } = setup({ onSelectNode: (r) => picked.push(r) });
+    await act(async () => { fireEvent.pointerDown(img, { clientX: 205, clientY: 310 }); fireEvent.pointerUp(img, { clientX: 205, clientY: 310 }); });
+    expect(picked).toEqual(['@e1']);
+    expect(calls[0]).toMatch(/^tap SER1/);
   });
 });

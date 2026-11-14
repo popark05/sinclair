@@ -44,7 +44,7 @@ describe('renderLedger', () => {
     expect(last.truncatedObservation).toBe(true);
     expect(last.text).toMatch(/줄 생략/);
     expect(last.text).toMatch(/@n0 button/); // 누를 수 있는 노드를 먼저 남긴다
-  });
+  }, 30_000); // 턴 50개 × 매 턴 예산 맞추기 — CPU 집약이라 전체 실행 부하에서 기본 5초를 넘기기도 한다
 
   it('줄이는 순서: 사유 문구 자르기 → 최근 턴 줄이기(최소 3) → 관찰 자르기', () => {
     const full = renderLedger(req(14));
