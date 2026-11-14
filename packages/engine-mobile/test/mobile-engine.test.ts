@@ -115,6 +115,24 @@ describe('createMobileEngine', () => {
     await expect(engine.perform(btn!.ref, 'tap')).rejects.toMatchObject({ code: 'not-actionable' });
   });
 
+  it('dump 하나가 안정화 기한보다 느려도 멈춘 노드는 탭한다: 표본 하나로 움직인다고 하지 않는다(실기기 dump 1.5~3초에 기한 2초 — Studio 세션의 모든 탭이 거부됐다)', async () => {
+    const { backend, engine } = setup({ stabilityTimeoutMs: 100, settleChangeMs: 0 });
+    const [btn] = await engine.locate({ role: 'button', name: '로그인' });
+    backend.dumpDelayMs = 150;
+    await engine.perform(btn!.ref, 'tap');
+    expect(backend.calls.filter((c) => c.startsWith('tap'))).toHaveLength(1);
+  });
+
+  it('느린 dump 에서도 정말 움직이는 노드는 기한 뒤 not-actionable(표본 둘 이상 비교한 뒤)', async () => {
+    const { backend, engine } = setup({ stabilityTimeoutMs: 100 });
+    const [btn] = await engine.locate({ role: 'button', name: '로그인' });
+    backend.dumpDelayMs = 150;
+    backend.animateButtonFor = 1_000;
+    const before = backend.dumps;
+    await expect(engine.perform(btn!.ref, 'tap')).rejects.toMatchObject({ code: 'not-actionable' });
+    expect(backend.dumps - before).toBeGreaterThanOrEqual(2);
+  });
+
   it('scroll 은 노드 안에서 swipe 하고, press 는 키코드로, keyboard/session capability 는 해당 RPC 로 간다', async () => {
     const { backend, engine } = setup();
     const [root] = await engine.locate({ role: 'root' });

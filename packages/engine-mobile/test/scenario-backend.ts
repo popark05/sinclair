@@ -17,6 +17,8 @@ export class ScenarioBackend implements DeviceBackend {
   /** true 면 다음 dump 마다 로그인 버튼 rect 가 움직인다(애니메이션 흉내). dumps 로 횟수를 센다. */
   animateButtonFor = 0;
   dumps = 0;
+  /** 느린 dump 흉내: dump 하나에 이만큼 걸린다(실기기 복잡한 화면·다른 호출자와 기기 줄 서기로 1.5~3초) */
+  dumpDelayMs = 0;
   /** 입력이 트리에 늦게 보이는 기기 흉내: text 뒤 이 횟수의 dump 동안 값이 아직 없다(실기기 YouTube 검색창 약 200ms). Infinity 면 끝내 안 보인다 */
   textLagDumps = 0;
   /** 화면 전환이 트리에 늦게 보이는 기기 흉내: 로그인 탭 뒤 이 횟수의 dump 동안 이전 화면이 보인다(실기기 탭 직후 관찰에 옛 화면) */
@@ -53,6 +55,7 @@ export class ScenarioBackend implements DeviceBackend {
   async screenshot(): Promise<Uint8Array> { return PNG; }
   async dumpUi(): Promise<SemanticNode> {
     this.dumps++;
+    if (this.dumpDelayMs > 0) await new Promise((r) => setTimeout(r, this.dumpDelayMs));
     if (this.launchStages.length) {
       const stage = this.launchStages[0]!;
       this.screen = structuredClone(stage.screen);
