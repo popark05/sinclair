@@ -1,7 +1,7 @@
 // 메인 쪽 작업 프로세스 관리(ADR 0005): plain Node 로 띄우고, 상태를 알리고, 요청을 id 로 짝짓는다.
 import { fork, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { parseFromWorker, type StudioRequest, type StudioResponses, type ToWorker, type WorkerStatus } from '../shared/studio-ipc.ts';
+import { parseFromWorker, type StudioEvent, type StudioRequest, type StudioResponses, type ToWorker, type WorkerStatus } from '../shared/studio-ipc.ts';
 
 /** 작업 프로세스용 Node: SINCLAIR_STUDIO_NODE, 없으면 PATH 의 node(개발). 설치본은 동봉 Node 를 이 변수로 넘긴다(패키징 티켓) */
 export function resolveWorkerNode(env: NodeJS.ProcessEnv): string {
@@ -15,6 +15,8 @@ export interface WorkerHostOptions {
   node: string;
   script: string;
   onStatus?: (s: WorkerStatus) => void;
+  /** 작업 프로세스가 밀어 보낸 이벤트(세션 턴·끝) */
+  onEvent?: (e: StudioEvent) => void;
   env?: NodeJS.ProcessEnv;
   /** 작업 프로세스 Node 플래그. 리포에서는 워크스페이스 패키지가 TS 라 --experimental-transform-types */
   execArgv?: string[];
@@ -67,6 +69,7 @@ export function createWorkerHost(opts: WorkerHostOptions): WorkerHost {
     const m = parseFromWorker(raw);
     if (!m) return;
     if (m.type === 'ready') { set({ state: 'ready', node: m.node, pid: m.pid }); readyResolve(); return; }
+    if (m.type === 'event') { opts.onEvent?.(m.event); return; }
     if (m.type === 'response') {
       const r = requests.get(m.id);
       if (!r) return;

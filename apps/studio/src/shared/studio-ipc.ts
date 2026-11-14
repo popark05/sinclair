@@ -1,6 +1,6 @@
 // Studio IPC 계약(studio 01, ADR 0005): 렌더러 ↔ 메인(preload 채널)과 메인 ↔ 작업 프로세스(Node IPC) 메시지의 단일 정의.
 // 모두 구조화 복제 가능한 평범한 데이터만. 작업 프로세스에서 온 메시지는 parseFromWorker 를 지나야 쓴다.
-import type { SemanticNode } from '@sinclair/protocol';
+import type { CacheAction, CacheTarget, SemanticNode } from '@sinclair/protocol';
 
 /** 렌더러 ↔ 메인 채널(ipcMain.handle / webContents.send) */
 export const STUDIO_CHANNELS = {
@@ -8,6 +8,8 @@ export const STUDIO_CHANNELS = {
   workerStatus: 'studio:worker-status',
   workerStatusChanged: 'studio:worker-status-changed',
   request: 'studio:request',
+  /** 작업 프로세스가 밀어 보내는 이벤트(세션 턴·끝) */
+  event: 'studio:event',
 } as const;
 
 /** 렌더러가 작업 프로세스에 묻는 것(메인이 parseStudioRequest 로 거른 뒤 그대로 넘긴다). 닫힌 집합 */
@@ -19,7 +21,23 @@ export type StudioRequest =
   | { kind: 'swipe'; deviceId: string; fromX: number; fromY: number; toX: number; toY: number; durationMs: number }
   | { kind: 'text'; deviceId: string; text: string }
   | { kind: 'key'; deviceId: string; key: StudioKey }
-  | { kind: 'button'; deviceId: string; button: 'back' | 'home' };
+  | { kind: 'button'; deviceId: string; button: 'back' | 'home' }
+  // 에이전트 세션(studio 05)
+  | { kind: 'agent-status' }
+  | { kind: 'session-start'; deviceId: string; goal: string }
+  | { kind: 'session-stop'; sessionId: string }
+  | { kind: 'session-assert'; deviceId: string; statement: string };
+
+/** 에이전트를 쓸 수 있는가(자격 증명·API 연결 — 과금 없는 점검). 못 쓰면 사유 */
+export interface AgentStatus { ready: boolean; model?: string; reason?: string }
+/** 세션 턴 하나(타임라인 한 줄). 모델이 쓴 입력 글자는 싣지 않는다 */
+export interface TurnView { tool?: string; target?: string; result: 'ok' | 'rejected' | 'error'; detail?: string; guard?: 'gone' | 'ambiguous' | 'covered'; retargeted?: string }
+/** 세션이 끝났을 때 */
+export interface SessionResult { ok: boolean; summary?: string; reason?: string; turns: number; modelCalls: number; inputTokens?: number; outputTokens?: number; recording?: { actions: CacheAction[]; end: { anchors: CacheTarget[] } } }
+export type SessionEvent = { type: 'turn'; index: number; turn: TurnView } | { type: 'done'; result: SessionResult };
+/** 작업 프로세스 → 메인 → 렌더러 푸시 */
+export type StudioEvent = { kind: 'session'; sessionId: string; payload: SessionEvent };
+export interface JudgeView { pass: boolean; reason: string }
 
 /** 화면 키보드 대신 보내는 키(작업 프로세스가 KEYCODE 로 바꾼다). 닫힌 집합 — 전원 등 기기 상태를 바꾸는 키는 없다 */
 export const STUDIO_KEYS = ['enter', 'backspace', 'tab', 'escape', 'up', 'down', 'left', 'right'] as const;
@@ -35,7 +53,8 @@ export interface ConnectionInfo { mode: 'daemon' | 'own' | 'none'; detail: strin
 export interface StudioDevice { id: string; model: string; osVersion: string; state: string; stateDetail?: string; helper?: string }
 
 /** 요청별 응답 타입 */
-export interface StudioResponses { connection: ConnectionInfo; devices: StudioDevice[]; 'foreground-app': string | null; snapshot: StudioSnapshot; tap: null; swipe: null; text: null; key: null; button: null }
+export interface StudioResponses { connection: ConnectionInfo; devices: StudioDevice[]; 'foreground-app': string | null; snapshot: StudioSnapshot; tap: null; swipe: null; text: null; key: null; button: null;
+  'agent-status': AgentStatus; 'session-start': { sessionId: string }; 'session-stop': null; 'session-assert': JudgeView }
 
 /** 작업 프로세스 상태: 띄우는 중 → 준비됨 → (죽으면) 종료됨 */
 export interface WorkerStatus {
@@ -54,12 +73,15 @@ export type FromWorker =
   | { type: 'ready'; node: string; pid: number }
   | { type: 'pong'; id: string; node: string; pid: number }
   | { type: 'response'; id: string; ok: true; value: unknown }
-  | { type: 'response'; id: string; ok: false; error: string };
+  | { type: 'response'; id: string; ok: false; error: string }
+  | { type: 'event'; event: StudioEvent };
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 /** 화면 좌표: 0~20000 의 유한한 수 → 정수 */
 const coord = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 20_000 ? Math.round(v) : undefined);
 const MAX_TEXT = 500;
+/** 목표·판정 문장 상한 */
+const MAX_GOAL = 2_000;
 
 export function parseFromWorker(v: unknown): FromWorker | undefined {
   if (!isRecord(v)) return undefined;
@@ -69,6 +91,7 @@ export function parseFromWorker(v: unknown): FromWorker | undefined {
     if (v.ok === true) return { type: 'response', id: v.id, ok: true, value: v.value };
     if (v.ok === false && typeof v.error === 'string') return { type: 'response', id: v.id, ok: false, error: v.error };
   }
+  if (v.type === 'event' && isRecord(v.event) && v.event.kind === 'session' && typeof v.event.sessionId === 'string' && isRecord(v.event.payload)) return { type: 'event', event: v.event as unknown as StudioEvent };
   return undefined;
 }
 
@@ -77,6 +100,8 @@ export function parseStudioRequest(v: unknown): StudioRequest | undefined {
   if (!isRecord(v)) return undefined;
   if (v.kind === 'connection') return { kind: 'connection' };
   if (v.kind === 'devices') return { kind: 'devices' };
+  if (v.kind === 'agent-status') return { kind: 'agent-status' };
+  if (v.kind === 'session-stop') return typeof v.sessionId === 'string' && v.sessionId ? { kind: 'session-stop', sessionId: v.sessionId } : undefined;
   if (typeof v.deviceId !== 'string' || !v.deviceId) return undefined;
   const deviceId = v.deviceId;
   if (v.kind === 'foreground-app') return { kind: 'foreground-app', deviceId };
@@ -90,6 +115,8 @@ export function parseStudioRequest(v: unknown): StudioRequest | undefined {
   if (v.kind === 'text') return typeof v.text === 'string' && v.text.length > 0 && v.text.length <= MAX_TEXT ? { kind: 'text', deviceId, text: v.text } : undefined;
   if (v.kind === 'key') return (STUDIO_KEYS as readonly unknown[]).includes(v.key) ? { kind: 'key', deviceId, key: v.key as StudioKey } : undefined;
   if (v.kind === 'button') return v.button === 'back' || v.button === 'home' ? { kind: 'button', deviceId, button: v.button } : undefined;
+  if (v.kind === 'session-start') return typeof v.goal === 'string' && v.goal.trim() && v.goal.length <= MAX_GOAL ? { kind: 'session-start', deviceId, goal: v.goal } : undefined;
+  if (v.kind === 'session-assert') return typeof v.statement === 'string' && v.statement.trim() && v.statement.length <= MAX_GOAL ? { kind: 'session-assert', deviceId, statement: v.statement } : undefined;
   return undefined;
 }
 
@@ -109,4 +136,11 @@ export interface StudioApi {
   text(deviceId: string, text: string): Promise<void>;
   key(deviceId: string, key: StudioKey): Promise<void>;
   button(deviceId: string, button: 'back' | 'home'): Promise<void>;
+  agentStatus(): Promise<AgentStatus>;
+  startSession(deviceId: string, goal: string): Promise<{ sessionId: string }>;
+  stopSession(sessionId: string): Promise<void>;
+  /** 지금 화면에 대한 판정(agent.assert) */
+  assertNow(deviceId: string, statement: string): Promise<JudgeView>;
+  /** 작업 프로세스 이벤트 구독. 돌려준 함수로 해제 */
+  onEvent(cb: (e: StudioEvent) => void): () => void;
 }

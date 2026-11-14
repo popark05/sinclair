@@ -3,9 +3,11 @@
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { createAndroidBackend, createDeviceServer, defaultDiscoveryFile } from '@sinclair/device-layer';
-import { rpcOverDispatcher } from '@sinclair/engine-mobile';
-import type { FromWorker, StudioRequest, StudioResponses, ToWorker } from '../shared/studio-ipc.ts';
+import { createMobileEngine, rpcOverDispatcher } from '@sinclair/engine-mobile';
+import { agentFromEnv, claudeOptionsFromEnv, probeClaude, DEFAULT_AGENT_MODEL } from '@sinclair/agent';
+import type { AgentStatus, FromWorker, StudioRequest, StudioResponses, ToWorker } from '../shared/studio-ipc.ts';
 import { connectDevices, type DeviceConnection } from './device-session.ts';
+import { createSessionManager, type SessionAgent } from './sessions.ts';
 
 const send = (m: FromWorker): void => { process.send?.(m); };
 
@@ -26,7 +28,44 @@ const devices = (): Promise<DeviceConnection> => (connection ??= connectDevices(
   },
 }));
 
+// 에이전트: SINCLAIR_AGENT_* · ANTHROPIC_* 환경변수로(runner-agent 와 같은 설정). 실행기는 한 번 만들어 둔다
+let agentSetup: SessionAgent | undefined;
+const agent = async (): Promise<SessionAgent> => {
+  if (agentSetup) return agentSetup;
+  const status = await agentStatus();
+  if (!status.ready) throw new Error(status.reason ?? '에이전트를 쓸 수 없음');
+  const a = agentFromEnv(process.env);
+  agentSetup = { executor: a.executor, ...(a.maxTurns !== undefined ? { maxTurns: a.maxTurns } : {}), ...(a.timeoutMs !== undefined ? { timeoutMs: a.timeoutMs } : {}) };
+  return agentSetup;
+};
+/** 자격 증명·API 연결 점검(토큰 세기 한 번, 과금 없음). 준비되면 기억, 아니면 다음에 다시 본다 */
+let readyStatus: AgentStatus | undefined;
+async function agentStatus(): Promise<AgentStatus> {
+  if (readyStatus) return readyStatus;
+  const model = process.env.SINCLAIR_AGENT_MODEL || DEFAULT_AGENT_MODEL;
+  try {
+    const r = await probeClaude(claudeOptionsFromEnv(process.env));
+    if (r === 'ok') return (readyStatus = { ready: true, model });
+    return { ready: false, model, reason: 'Claude API 에 닿지 않음 — 네트워크·사내망이면 NODE_EXTRA_CA_CERTS 를 확인' };
+  } catch (err) {
+    return { ready: false, model, reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+const sessions = createSessionManager({
+  engineFor: async (deviceId) => {
+    const c = await devices();
+    if (!c.rpc) throw new Error(`기기 연결이 없음: ${c.connection.detail}`);
+    return createMobileEngine(c.rpc, { deviceId });
+  },
+  agent,
+  emit: (sessionId, payload) => send({ type: 'event', event: { kind: 'session', sessionId, payload } }),
+});
+
 async function handle(req: StudioRequest): Promise<StudioResponses[StudioRequest['kind']]> {
+  if (req.kind === 'agent-status') return agentStatus();
+  if (req.kind === 'session-start') return sessions.start(req.deviceId, req.goal);
+  if (req.kind === 'session-stop') { await sessions.stop(req.sessionId); return null; }
+  if (req.kind === 'session-assert') return sessions.assert(req.deviceId, req.statement);
   const c = await devices();
   if (req.kind === 'connection') return c.connection;
   switch (req.kind) {

@@ -1,6 +1,6 @@
 // preload(CJS, 샌드박스): 렌더러에 StudioApi 만 노출한다. ipcRenderer 자체는 넘기지 않는다.
 import { contextBridge, ipcRenderer } from 'electron';
-import { STUDIO_CHANNELS, type ConnectionInfo, type StudioApi, type StudioDevice, type StudioSnapshot, type WorkerStatus } from '../shared/studio-ipc.ts';
+import { STUDIO_CHANNELS, type ConnectionInfo, type StudioApi, type StudioDevice, type StudioSnapshot, type WorkerStatus, type AgentStatus, type JudgeView, type StudioEvent } from '../shared/studio-ipc.ts';
 
 const api: StudioApi = {
   getWorkerStatus: () => ipcRenderer.invoke(STUDIO_CHANNELS.workerStatus) as Promise<WorkerStatus>,
@@ -19,5 +19,14 @@ const api: StudioApi = {
   text: async (deviceId, text) => { await ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'text', deviceId, text }); },
   key: async (deviceId, key) => { await ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'key', deviceId, key }); },
   button: async (deviceId, button) => { await ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'button', deviceId, button }); },
+  agentStatus: () => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'agent-status' }) as Promise<AgentStatus>,
+  startSession: (deviceId, goal) => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'session-start', deviceId, goal }) as Promise<{ sessionId: string }>,
+  stopSession: async (sessionId) => { await ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'session-stop', sessionId }); },
+  assertNow: (deviceId, statement) => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'session-assert', deviceId, statement }) as Promise<JudgeView>,
+  onEvent: (cb) => {
+    const listener = (_e: unknown, ev: StudioEvent) => cb(ev);
+    ipcRenderer.on(STUDIO_CHANNELS.event, listener);
+    return () => { ipcRenderer.removeListener(STUDIO_CHANNELS.event, listener); };
+  },
 };
 contextBridge.exposeInMainWorld('sinclair', api);

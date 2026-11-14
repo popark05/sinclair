@@ -32,6 +32,17 @@ describe('studio IPC 계약', () => {
     ]) expect(parseStudioRequest(bad), JSON.stringify(bad)).toBeUndefined();
   });
 
+  it('세션 요청(studio 05)과 작업 프로세스의 이벤트 푸시', () => {
+    expect(parseStudioRequest({ kind: 'agent-status' })).toEqual({ kind: 'agent-status' });
+    expect(parseStudioRequest({ kind: 'session-start', deviceId: 'S', goal: '로그인' })).toEqual({ kind: 'session-start', deviceId: 'S', goal: '로그인' });
+    expect(parseStudioRequest({ kind: 'session-stop', sessionId: 's1' })).toEqual({ kind: 'session-stop', sessionId: 's1' });
+    expect(parseStudioRequest({ kind: 'session-assert', deviceId: 'S', statement: '홈이다' })).toEqual({ kind: 'session-assert', deviceId: 'S', statement: '홈이다' });
+    for (const bad of [{ kind: 'session-start', deviceId: 'S', goal: '' }, { kind: 'session-start', deviceId: 'S', goal: 'x'.repeat(2001) }, { kind: 'session-stop' }, { kind: 'session-assert', deviceId: 'S' }]) expect(parseStudioRequest(bad), JSON.stringify(bad)).toBeUndefined();
+    const ev = { type: 'event', event: { kind: 'session', sessionId: 's1', payload: { type: 'turn', index: 0, turn: { tool: 'tap', result: 'ok' } } } };
+    expect(parseFromWorker(ev)).toEqual(ev);
+    expect(parseFromWorker({ type: 'event', event: { kind: 'other' } })).toBeUndefined();
+  });
+
   it('렌더러 채널 이름은 studio: 접두사로 겹치지 않는다', () => {
     const names = Object.values(STUDIO_CHANNELS);
     expect(new Set(names).size).toBe(names.length);

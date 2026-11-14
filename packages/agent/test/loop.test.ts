@@ -50,6 +50,24 @@ describe('runAct', () => {
     expect(exec.requests[2]!.history.map((h) => [h.call?.name, h.result])).toEqual([['type', 'ok'], ['submit', 'ok']]);
   });
 
+  it('onTurn 은 턴이 기록될 때마다 그 턴과 번호로 불린다(거부된 턴 포함, 순서대로) — Studio 세션 타임라인', async () => {
+    const seen: Array<[number, string | undefined, string]> = [];
+    const r = await runAct(login(), '로그인', { executor: scriptedExecutor([{ name: 'tap', input: { ref: '@e9' } }, ...script]), onTurn: (t, i) => seen.push([i, t.call?.name, t.result]) });
+    expect(r.ok).toBe(true);
+    expect(seen).toEqual([[0, 'tap', 'rejected'], [1, 'type', 'ok'], [2, 'type', 'ok'], [3, 'tap', 'ok'], [4, 'done', 'ok']]);
+  });
+
+  it('signal 을 abort 하면 곧바로 멈추고 사유는 중지됨(시간 한도가 아니다)', async () => {
+    const ac = new AbortController();
+    const slow: StepExecutor = { next: (_r, sig) => new Promise((_, rej) => sig.addEventListener('abort', () => rej(new Error('aborted')), { once: true })) };
+    const p = runAct(login(), '로그인', { executor: slow, signal: ac.signal });
+    setTimeout(() => ac.abort(), 30);
+    const t0 = Date.now();
+    const r = await p;
+    expect(r).toMatchObject({ ok: false, reason: '중지됨' });
+    expect(Date.now() - t0).toBeLessThan(1_000);
+  });
+
   it('닫힌 스키마를 어긴 호출은 실행하지 않고 다음 턴에 거부 사유를 돌려주며 턴에 센다', async () => {
     const engine = login();
     const exec = scriptedExecutor([{ name: 'tap', input: { ref: '@e4', force: true } }, ...script]);

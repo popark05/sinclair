@@ -9,6 +9,7 @@ const worker = createWorkerHost({
   node: resolveWorkerNode(process.env),
   script: path.join(import.meta.dirname, 'worker.js'),
   onStatus: (s) => win?.webContents.send(STUDIO_CHANNELS.workerStatusChanged, s),
+  onEvent: (e) => win?.webContents.send(STUDIO_CHANNELS.event, e),
 });
 
 ipcMain.handle(STUDIO_CHANNELS.workerStatus, () => worker.status());

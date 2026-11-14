@@ -1,0 +1,63 @@
+// 에이전트 세션(studio 05): 고른 기기의 엔진에서 runAct(실제 모델)를 돌리고 턴·끝을 이벤트로 밀어 보낸다. 중지는 AbortSignal, 판정은 judgeAssert.
+// 녹화(recording)는 결과에 실어 내보내기(06)가 쓴다 — 저장소에 쓰는 것은 내보낼 때.
+import { randomUUID } from 'node:crypto';
+import { runAct, judgeAssert, type AgentTurn, type StepExecutor } from '@sinclair/agent';
+import type { Engine } from '@sinclair/protocol';
+import type { JudgeView, SessionEvent, SessionResult, TurnView } from '../shared/studio-ipc.ts';
+
+export interface SessionAgent { executor: StepExecutor; maxTurns?: number; timeoutMs?: number }
+export interface SessionDeps {
+  /** 그 기기의 엔진(세션마다 새로 — 엔진은 한 번에 한 호출자) */
+  engineFor: (deviceId: string) => Promise<Engine>;
+  /** 실행기(모델). 못 만들면 사유로 던진다 */
+  agent: () => Promise<SessionAgent>;
+  emit: (sessionId: string, event: SessionEvent) => void;
+}
+
+const REF = /^@[\w:.-]{1,40}$/;
+/** 타임라인 한 줄: 툴 이름과 대상 ref 만(입력 글자는 싣지 않는다 — 비밀값·개인정보일 수 있다) */
+export function toTurnView(t: AgentTurn): TurnView {
+  const ref = (t.call?.input as { ref?: unknown } | undefined)?.ref;
+  return {
+    ...(t.call ? { tool: t.call.name } : {}),
+    ...(typeof ref === 'string' && REF.test(ref) ? { target: ref } : {}),
+    result: t.result,
+    ...(t.detail ? { detail: t.detail.slice(0, 300) } : {}),
+    ...(t.guard ? { guard: t.guard } : {}),
+    ...(t.retargeted && REF.test(t.retargeted) ? { retargeted: t.retargeted } : {}),
+  };
+}
+
+export function createSessionManager(deps: SessionDeps) {
+  const running = new Map<string, AbortController>();
+  return {
+    async start(deviceId: string, goal: string): Promise<{ sessionId: string }> {
+      const agent = await deps.agent(); // 설정 문제는 시작 전에 드러낸다
+      const engine = await deps.engineFor(deviceId);
+      const sessionId = randomUUID();
+      const ac = new AbortController();
+      running.set(sessionId, ac);
+      void (async () => {
+        let result: SessionResult;
+        try {
+          const r = await runAct(engine, goal, { executor: agent.executor, signal: ac.signal, onTurn: (t, index) => deps.emit(sessionId, { type: 'turn', index, turn: toTurnView(t) }), ...(agent.maxTurns !== undefined ? { maxTurns: agent.maxTurns } : {}), ...(agent.timeoutMs !== undefined ? { timeoutMs: agent.timeoutMs } : {}) });
+          result = { ok: r.ok, turns: r.turns, modelCalls: r.modelCalls, ...(r.summary ? { summary: r.summary } : {}), ...(r.reason ? { reason: r.reason } : {}), ...(r.usage ? { inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens } : {}), ...(r.recording ? { recording: r.recording } : {}) };
+        } catch (err) {
+          result = { ok: false, reason: err instanceof Error ? err.message : String(err), turns: 0, modelCalls: 0 };
+        } finally {
+          running.delete(sessionId);
+        }
+        deps.emit(sessionId, { type: 'done', result });
+      })();
+      return { sessionId };
+    },
+    async stop(sessionId: string): Promise<void> {
+      running.get(sessionId)?.abort(new Error('중지됨'));
+    },
+    async assert(deviceId: string, statement: string): Promise<JudgeView> {
+      const agent = await deps.agent();
+      const r = await judgeAssert(await deps.engineFor(deviceId), statement, { executor: agent.executor });
+      return { pass: r.ok, reason: r.reason ?? (r.ok ? '참' : '거짓') };
+    },
+  };
+}

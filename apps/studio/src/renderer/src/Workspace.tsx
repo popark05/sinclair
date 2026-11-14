@@ -6,16 +6,14 @@ import { ResizeHandle, useResizable } from '@astryxdesign/core/Resizable';
 import { Text } from '@astryxdesign/core/Text';
 import { TabList, Tab } from '@astryxdesign/core/TabList';
 import { List, ListItem } from '@astryxdesign/core/List';
-import { EmptyState } from '@astryxdesign/core/EmptyState';
-import { Icon } from '@astryxdesign/core/Icon';
 import { useMediaQuery } from '@astryxdesign/core/hooks';
 import { AppShell } from '@astryxdesign/core/AppShell';
-import { ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
 import type { StudioApi, WorkerStatus } from '../../shared/studio-ipc.ts';
 import { Toolbar } from './Toolbar.tsx';
 import { DevicePanel } from './DevicePanel.tsx';
 import { useSnapshot } from './useSnapshot.ts';
 import { Inspector } from './Inspector.tsx';
+import { SessionPanel } from './SessionPanel.tsx';
 
 const styles: Record<string, CSSProperties> = {
   contentFill: { height: '100%' },
@@ -91,13 +89,7 @@ export function Workspace({ api }: { api: StudioApi }) {
                           <Tab label="세션" value="session" />
                         </TabList>
                         <StackItem size="fill" style={styles.editorArea}>
-                          <Stack as="section" aria-label="세션" direction="vertical" style={styles.contentFill}>
-                            <EmptyState
-                              icon={<Icon icon={ChatBubbleLeftRightIcon} size="lg" />}
-                              title="에이전트 세션"
-                              description="목표를 자연어로 넣으면 에이전트가 기기를 조작하고, 한 일을 테스트 코드로 내보냅니다."
-                            />
-                          </Stack>
+                          <SessionPanel api={api} deviceId={deviceId} />
                         </StackItem>
                         <ResizeHandle direction="vertical" hasDivider isReversed isAlwaysVisible={false} resizable={bottomPanel.props} label="로그 드로어 크기 조절" />
                         {!bottomPanel.isCollapsed && (

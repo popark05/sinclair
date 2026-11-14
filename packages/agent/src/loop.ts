@@ -65,6 +65,10 @@ export interface ActOptions {
   replayedPrefix?: { done: string[]; total: number; reason: string };
   /** 끝 anchor 를 계산할 시작 화면(이어받은 act 는 재생 시작 화면 — 없으면 이 act 의 첫 관찰) */
   anchorsFrom?: SemanticNode;
+  /** 바깥 중지 신호: abort 되면 진행 중인 모델 호출·엔진 액션을 끊고 ok false, 사유 '중지됨' */
+  signal?: AbortSignal;
+  /** 턴이 기록될 때마다(거부·오류 턴 포함, 번호는 0 부터). 던져도 루프는 계속 */
+  onTurn?: (turn: AgentTurn, index: number) => void;
 }
 export interface ActResult {
   ok: boolean;
@@ -104,7 +108,20 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
   const aborter = new AbortController();
   const timer = setTimeout(() => aborter.abort(new Error(`시간 한도 ${timeoutMs}ms`)), timeoutMs);
   timer.unref?.();
+  // 바깥 중지 신호(Studio 의 중지 버튼): 시간 한도와 같은 길로 멈추되 사유는 '중지됨'
+  const onStop = (): void => aborter.abort(new Error('중지됨'));
+  if (opts.signal?.aborted) onStop(); else opts.signal?.addEventListener('abort', onStop, { once: true });
   const history: AgentTurn[] = [];
+  // onTurn: 턴이 기록되는 순간 알린다(Studio 세션 타임라인). 기록 지점이 여럿이라 push 하나에 건다
+  if (opts.onTurn) {
+    const push = history.push.bind(history);
+    history.push = (...turns: AgentTurn[]): number => {
+      const start = history.length;
+      const n = push(...turns);
+      turns.forEach((t, i) => { try { opts.onTurn!(t, start + i); } catch { /* 보는 쪽의 오류가 루프를 멈추지 않게 */ } });
+      return n;
+    };
+  }
   let modelCalls = 0;
   let usage: StepUsage | undefined;
   const secrets = opts.secrets;
@@ -137,7 +154,7 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
   const goalSecrets = new Set(SecretBox.mentioned(goal));
   const rp = opts.replayedPrefix;
   const handOff = rp ? hide(`녹화 재생이 이 목표의 액션 ${rp.done.length}/${rp.total} 을 이미 했다: ${rp.done.map((d, i) => `${i + 1}) ${d}`).join('; ')}. 멈춘 곳·이유: ${rp.reason}. 이 액션들을 다시 하지 말고 지금 화면에서 목표를 이어서 이뤄라 — 앞 액션의 결과가 화면에 반영됐는지 먼저 확인하라.`) : undefined;
-    const fail = (reason: string): ActResult => result({ ok: false, reason: hide(reason) });
+    const fail = (reason: string): ActResult => result({ ok: false, reason: opts.signal?.aborted ? '중지됨' : hide(reason) });
   // 픽셀은 가릴 수 없다: 비밀값이 있는 테스트에서는 이미지를 보내지 않는다
   const pixels = opts.executor.pixels === true && !(secrets && secrets.size > 0);
   // 안전망의 픽셀 비교는 모델에 보내지 않고 로컬에서만 쓰므로 비밀값과 무관하다
@@ -355,5 +372,6 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
     throw err;
   } finally {
     clearTimeout(timer);
+    opts.signal?.removeEventListener('abort', onStop);
   }
 }
