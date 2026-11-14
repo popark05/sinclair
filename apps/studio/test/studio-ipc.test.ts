@@ -37,6 +37,9 @@ describe('studio IPC 계약', () => {
     expect(parseStudioRequest({ kind: 'session-start', deviceId: 'S', goal: '로그인' })).toEqual({ kind: 'session-start', deviceId: 'S', goal: '로그인' });
     expect(parseStudioRequest({ kind: 'session-stop', sessionId: 's1' })).toEqual({ kind: 'session-stop', sessionId: 's1' });
     expect(parseStudioRequest({ kind: 'session-assert', deviceId: 'S', statement: '홈이다' })).toEqual({ kind: 'session-assert', deviceId: 'S', statement: '홈이다' });
+    expect(parseStudioRequest({ kind: 'session-start', deviceId: 'S', goal: '로그인', restartApp: 'com.google.android.youtube' })).toEqual({ kind: 'session-start', deviceId: 'S', goal: '로그인', restartApp: 'com.google.android.youtube' });
+    // 앱 id 는 패키지 이름 형식만(셸로 가는 값이다)
+    for (const restartApp of ['com app', 'com.app;reboot', '', 'x', 'a'.repeat(256), 3]) expect(parseStudioRequest({ kind: 'session-start', deviceId: 'S', goal: '로그인', restartApp }), String(restartApp)).toBeUndefined();
     for (const bad of [{ kind: 'session-start', deviceId: 'S', goal: '' }, { kind: 'session-start', deviceId: 'S', goal: 'x'.repeat(2001) }, { kind: 'session-stop' }, { kind: 'session-assert', deviceId: 'S' }]) expect(parseStudioRequest(bad), JSON.stringify(bad)).toBeUndefined();
     const ev = { type: 'event', event: { kind: 'session', sessionId: 's1', payload: { type: 'turn', index: 0, turn: { tool: 'tap', result: 'ok' } } } };
     expect(parseFromWorker(ev)).toEqual(ev);

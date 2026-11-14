@@ -64,7 +64,7 @@ const sessions = createSessionManager({
 
 async function handle(req: StudioRequest): Promise<StudioResponses[StudioRequest['kind']]> {
   if (req.kind === 'agent-status') return agentStatus();
-  if (req.kind === 'session-start') return sessions.start(req.deviceId, req.goal);
+  if (req.kind === 'session-start') return sessions.start(req.deviceId, req.goal, req.restartApp ? { restartApp: req.restartApp } : {});
   if (req.kind === 'session-stop') { await sessions.stop(req.sessionId); return null; }
   if (req.kind === 'session-assert') return sessions.assert(req.deviceId, req.statement);
   if (req.kind === 'save-recording') return saveRecording(req);

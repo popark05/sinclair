@@ -29,7 +29,7 @@ export type StudioRequest =
   | { kind: 'button'; deviceId: string; button: 'back' | 'home' }
   // 에이전트 세션(studio 05)
   | { kind: 'agent-status' }
-  | { kind: 'session-start'; deviceId: string; goal: string }
+  | { kind: 'session-start'; deviceId: string; goal: string; /** 이 앱을 처음 상태로 다시 띄운 뒤 시작(studio 08) */ restartApp?: string }
   | { kind: 'session-stop'; sessionId: string }
   | { kind: 'session-assert'; deviceId: string; statement: string }
   // 녹화를 control-plane 녹화 캐시에(studio 06)
@@ -44,11 +44,16 @@ export interface TurnView { tool?: string; target?: string; result: 'ok' | 'reje
 /** 세션이 끝났을 때 */
 export interface SessionResult { ok: boolean; summary?: string; reason?: string; turns: number; modelCalls: number; inputTokens?: number; outputTokens?: number; recording?: { actions: CacheAction[]; end: { anchors: CacheTarget[] } };
   /** act 시작 화면의 앱(녹화 캐시 키·전제) */
-  startApp?: string }
+  startApp?: string;
+  /** 앱을 처음 상태로 다시 띄운 뒤 시작했다(내보낸 테스트의 app.restart 와 같은 시작 화면) */
+  freshStart?: boolean }
 export type SessionEvent = { type: 'turn'; index: number; turn: TurnView } | { type: 'done'; result: SessionResult };
 /** 작업 프로세스 → 메인 → 렌더러 푸시 */
 export type StudioEvent = { kind: 'session'; sessionId: string; payload: SessionEvent };
 export interface JudgeView { pass: boolean; reason: string }
+
+/** 앱 id(Android 패키지 이름 형식) — 기기 셸로 가는 값이라 형식만 받는다 */
+export const APP_ID = /^(?=.{3,255}$)[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$/;
 
 /** 화면 키보드 대신 보내는 키(작업 프로세스가 KEYCODE 로 바꾼다). 닫힌 집합 — 전원 등 기기 상태를 바꾸는 키는 없다 */
 export const STUDIO_KEYS = ['enter', 'backspace', 'tab', 'escape', 'up', 'down', 'left', 'right'] as const;
@@ -131,7 +136,11 @@ export function parseStudioRequest(v: unknown): StudioRequest | undefined {
   if (v.kind === 'text') return typeof v.text === 'string' && v.text.length > 0 && v.text.length <= MAX_TEXT ? { kind: 'text', deviceId, text: v.text } : undefined;
   if (v.kind === 'key') return (STUDIO_KEYS as readonly unknown[]).includes(v.key) ? { kind: 'key', deviceId, key: v.key as StudioKey } : undefined;
   if (v.kind === 'button') return v.button === 'back' || v.button === 'home' ? { kind: 'button', deviceId, button: v.button } : undefined;
-  if (v.kind === 'session-start') return typeof v.goal === 'string' && v.goal.trim() && v.goal.length <= MAX_GOAL ? { kind: 'session-start', deviceId, goal: v.goal } : undefined;
+  if (v.kind === 'session-start') {
+    if (typeof v.goal !== 'string' || !v.goal.trim() || v.goal.length > MAX_GOAL) return undefined;
+    if (v.restartApp === undefined) return { kind: 'session-start', deviceId, goal: v.goal };
+    return typeof v.restartApp === 'string' && APP_ID.test(v.restartApp) ? { kind: 'session-start', deviceId, goal: v.goal, restartApp: v.restartApp } : undefined;
+  }
   if (v.kind === 'session-assert') return typeof v.statement === 'string' && v.statement.trim() && v.statement.length <= MAX_GOAL ? { kind: 'session-assert', deviceId, statement: v.statement } : undefined;
   return undefined;
 }
@@ -153,7 +162,7 @@ export interface StudioApi {
   key(deviceId: string, key: StudioKey): Promise<void>;
   button(deviceId: string, button: 'back' | 'home'): Promise<void>;
   agentStatus(): Promise<AgentStatus>;
-  startSession(deviceId: string, goal: string): Promise<{ sessionId: string }>;
+  startSession(deviceId: string, goal: string, opts?: { restartApp?: string }): Promise<{ sessionId: string }>;
   stopSession(sessionId: string): Promise<void>;
   /** 지금 화면에 대한 판정(agent.assert) */
   assertNow(deviceId: string, statement: string): Promise<JudgeView>;

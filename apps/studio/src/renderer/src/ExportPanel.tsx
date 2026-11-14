@@ -54,6 +54,7 @@ export function ExportPanel({ api, record, appId }: { api: StudioApi; record: Se
           </>
         ) : null}
       </Stack>
+      {!record.result?.freshStart ? <Text type="supporting" color="secondary">앱 처음 화면에서 시작하지 않은 세션 — 내보낸 테스트는 app.restart 로 앱 처음 화면에서 시작하므로 녹화 재생·locator 가 어긋날 수 있음. 세션 패널의 "앱 처음부터 시작" 으로 다시 돌리면 맞는다</Text> : null}
       {style === 'natural' && !recording ? <Text type="supporting" color="secondary">이 세션은 녹화가 없어(가림·애매한 대상) 녹화 캐시에 저장할 수 없음 — 첫 실행은 모델로 돈다</Text> : null}
       {status ? <Text type="supporting" color="secondary">{status}</Text> : null}
     </Stack>

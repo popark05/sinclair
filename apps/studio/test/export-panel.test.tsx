@@ -15,13 +15,13 @@ const record: SessionRecord = {
   result: { ok: true, turns: 2, modelCalls: 2, startApp: 'com.google.android.youtube', recording: { actions: [{ tool: 'tap', target: { role: 'button', label: '검색' }, summary: 'tap' }], end: { anchors: [] } } },
   judgments: [{ statement: '결과가 보인다', pass: true, reason: '보임' }],
 };
-function setup() {
+function setup(rec: SessionRecord = record) {
   const calls: unknown[] = [];
   const api = {
     saveTestFile: async (name: string, content: string) => { calls.push(['file', name, content.length > 0]); return '/tmp/x.sinclair.ts'; },
     saveRecording: async (input: unknown) => { calls.push(['rec', input]); return { key: 'k'.repeat(64) }; },
   } as unknown as StudioApi;
-  render(<ExportPanel api={api} record={record} appId="com.google.android.youtube" />);
+  render(<ExportPanel api={api} record={rec} appId="com.google.android.youtube" />);
   return { calls };
 }
 
@@ -52,5 +52,16 @@ describe('ExportPanel', () => {
     await act(async () => { screen.getByRole('button', { name: '녹화 캐시에 저장' }).click(); });
     expect(calls).toEqual([['rec', { controlPlane: 'http://127.0.0.1:4780', testId: 'YouTube 검색', goal: 'YouTube 에서 검색한다', app: 'com.google.android.youtube', recording: record.result!.recording }]]);
     expect(await screen.findByText(/녹화 캐시에 저장함/)).toBeTruthy();
+  });
+
+  it('앱 처음 화면에서 시작하지 않은 세션이면 경고(내보낸 테스트는 app.restart 로 처음 화면에서 시작)', async () => {
+    setup();
+    expect(await screen.findByText(/앱 처음 화면에서 시작하지 않은 세션/)).toBeTruthy();
+  });
+
+  it('처음부터 시작한 세션이면 경고 없음', async () => {
+    setup({ ...record, result: { ...record.result!, freshStart: true } });
+    await screen.findByRole('button', { name: '복사' });
+    expect(screen.queryByText(/앱 처음 화면에서 시작하지 않은 세션/)).toBeNull();
   });
 });

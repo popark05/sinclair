@@ -35,6 +35,30 @@ describe('createSessionManager', () => {
     expect(end).toMatchObject({ result: { startApp: 'com.app' } });
   });
 
+  it('restartApp 이면 그 앱을 처음 상태로 다시 띄운 뒤 목표를 돌리고, 결과에 freshStart', async () => {
+    const { m, done, engine } = setup(script());
+    await engine.perform('@e2', 'type', '남은 글자'); // 앞 세션이 남긴 상태
+    const { sessionId } = await m.start('SER1', '로그인', { restartApp: 'com.app' });
+    const end = await done(sessionId);
+    expect(engine.sessionCalls).toEqual(['restart']);
+    expect(end).toMatchObject({ result: { ok: true, freshStart: true } });
+  });
+
+  it('restartApp 없이 시작하면 지금 화면에서(restart 안 함), freshStart 없음', async () => {
+    const { m, done, engine } = setup(script());
+    const { sessionId } = await m.start('SER1', '로그인');
+    const end = await done(sessionId);
+    expect(engine.sessionCalls).toEqual([]);
+    expect((end as { result: { freshStart?: boolean } }).result.freshStart).toBeUndefined();
+  });
+
+  it('restart 가 실패하면 목표를 돌리지 않고 done(ok false, 이유)', async () => {
+    const { m, done, engine } = setup(script());
+    engine.session.restart = async () => { throw new Error('앱이 설치되지 않음'); };
+    const { sessionId } = await m.start('SER1', '로그인', { restartApp: 'com.missing' });
+    expect(await done(sessionId)).toMatchObject({ result: { ok: false, reason: expect.stringMatching(/처음부터 시작하지 못함.*앱이 설치되지 않음/), modelCalls: 0 } });
+  });
+
   it('중지하면 done(ok false, 중지됨)', async () => {
     const slow: StepExecutor = { next: (_r, sig) => new Promise((_, rej) => sig.addEventListener('abort', () => rej(new Error('aborted')), { once: true })) };
     const { m, done } = setup(slow);

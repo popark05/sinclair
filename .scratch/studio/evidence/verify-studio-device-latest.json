@@ -1,7 +1,7 @@
 {
   "skill": "verify-studio",
   "mode": "device",
-  "at": "2026-11-14T03:03:07.337Z",
+  "at": "2026-11-14T03:12:39.601Z",
   "ok": true,
   "checks": [
     {
@@ -11,7 +11,7 @@
     {
       "name": "기기 화면 스냅샷을 그림",
       "ok": true,
-      "detail": "1080×2400, 기동 4203ms"
+      "detail": "1080×2400, 기동 3134ms"
     },
     {
       "name": "화면 클릭 → 그 자리 노드 하이라이트",
@@ -27,14 +27,22 @@
       "detail": "모델 claude-sonnet-5-5"
     },
     {
+      "name": "\"앱 처음부터 시작\" 이 기본으로 켜짐(툴바 앱 id)",
+      "ok": true
+    },
+    {
       "name": "세션 성공(턴 타임라인 + 결과)",
       "ok": true,
-      "detail": "성공 — 검색창에 \"플로렌스 게랭 데뷔작\"을 입력해 검색했습니다. 화면에 필터 칩(전체, Shorts, 동영상)과 검색 결과 목록(id=results)이 표시됩니다. · 4턴 · 모델 4회 · 입력 5,705 토큰 | 턴: 1. tap @e9 / 2. type @e8 / 3. submit @e8 / 4. done"
+      "detail": "성공 — 검색창에 \"플로렌스 게랭 데뷔작\"이 입력된 상태로 검색이 실행됐습니다. 필터 칩(전체, Shorts 등)과 검색 결과 목록(results)이 화면에 표시됩니다. · 5턴 · 모델 5회 · 입력 7,235 토 | 턴: 1. tap @e9 / 2. type @e8 / 3. submit @e8 / 4. scroll @e12 — 안전망: 사라짐 / 5. done"
     },
     {
       "name": "지금 화면 판정 = 참",
       "ok": true,
       "detail": "참 · 검색 결과 목록이 열려 있다"
+    },
+    {
+      "name": "처음부터 시작한 세션이라 내보내기 경고 없음",
+      "ok": true
     },
     {
       "name": "자연어 내보내기(app.restart + act + assert), 복사 = 클립보드",
@@ -54,7 +62,7 @@
     {
       "name": "데몬이 내보낸 두 테스트를 Cycle 로 돌려 verified(둘 다 통과)",
       "ok": true,
-      "detail": "Cycle verify-studio-1794625360005 verdict=verified · 자연어=passed, 결정적=passed"
+      "detail": "Cycle verify-studio-1794625931856 verdict=verified · 자연어=passed, 결정적=passed"
     },
     {
       "name": "자연어 act 는 Studio 가 저장한 녹화로 재생(모델 0회)",

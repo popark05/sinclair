@@ -29,9 +29,9 @@ node --experimental-transform-types --no-warnings .claude/skills/verify-studio/s
 1. 툴바 연결 방식 "데몬"(발견 파일로 붙음), 기기 화면 `<img>` 가 원본 크기로 로드.
 2. 화면 클릭 → 그 자리 노드 하이라이트(`선택한 노드 영역`), fake 는 기기에 간 탭 좌표가 기기 픽셀과 ±3 이내(여백·배율 변환), 속성 탭의 locator 후보(입력칸은 testId).
 3. fake: 트리 검색 "로그인" → 노드 선택 → `getByRole('button', { name: '로그인', exact: true })`.
-4. 에이전트 준비 점검(모델 표시) → **앱을 다시 띄운 뒤**(실기) 목표 입력·실행 → `세션 결과` 가 "성공" + 턴 타임라인.
+4. 에이전트 준비 점검(모델 표시) → "앱 처음부터 시작" 이 기본으로 켜졌는지(툴바 앱 id) → 목표 입력·실행(작업 프로세스가 앱을 restart 한 뒤 runAct) → `세션 결과` 가 "성공" + 턴 타임라인.
 5. 지금 화면 판정 = 참.
-6. 내보내기: 자연어(`app.restart` + `agent.act` + `agent.assert`) 복사 → 클립보드(main 프로세스 `clipboard.readText`)와 비교, 녹화 캐시에 저장, 결정적으로 바꾸고 이름을 `· 결정적` 으로(같은 suite 에 같은 testId 를 두지 않게) 복사.
+6. 내보내기: 처음부터 시작한 세션이라 경고 없음, 자연어(`app.restart` + `agent.act` + `agent.assert`) 복사 → 클립보드(main 프로세스 `clipboard.readText`)와 비교, 녹화 캐시에 저장, 결정적으로 바꾸고 이름을 `· 결정적` 으로(같은 suite 에 같은 testId 를 두지 않게) 복사.
 7. 내보낸 두 테스트 실행: 둘 다 passed, 자연어 act 스텝 `cache=replayed`·act 모델 0회.
 
 ## Evidence
@@ -45,10 +45,11 @@ node --experimental-transform-types --no-warnings .claude/skills/verify-studio/s
 
 ## 함정
 
-- **화면 클릭은 실제 탭이다.** Inspector 검사의 클릭이 실기 화면을 바꾸므로 세션 전에 앱을 다시 띄운다. 세션이 앱 처음 화면이 아닌 곳에서 시작하면 내보낸 자연어 테스트(`app.restart` 로 처음 화면에서 시작)의 녹화 첫 대상이 맞지 않아 재생 대신 라이브로 돈다(경고만 남고 통과는 한다).
+- **화면 클릭은 실제 탭이다.** Inspector 검사의 클릭이 실기 화면을 바꾼다 — 세션의 "앱 처음부터 시작"(studio 08)이 앱을 다시 띄워 바로잡는다. 그 옵션을 끄고 세션이 앱 처음 화면이 아닌 곳에서 시작하면 내보낸 자연어 테스트(`app.restart` 로 처음 화면에서 시작)의 녹화 첫 대상이 맞지 않아 재생 대신 라이브로 돈다(경고만 남고 통과는 한다).
 - **이름이 같은 두 테스트**를 한 suite 에 두면 Cycle 셀이 하나로 합쳐져 실패가 verified 에 가려진다.
 - 녹화 재생이 안 된 이유(Run 이벤트에는 안 남는 테스트 경고)를 보려면 `.e2e/studio/replay-diag*.ts` 처럼 `runTests` 를 직접 불러 `t.warnings` 를 찍는다.
 
 ## 검증 이력
 
 - 2026-11-14: 최초(studio 07). fake 14/14. 실기 SM-N981N·YouTube 12/12 — Cycle verified(자연어·결정적 둘 다 통과), 자연어 act `cache=replayed calls=0`. 처음 실기 실행에서 (1) suite 의 `@sinclair/runner` 해석 실패, (2) 같은 이름 두 테스트가 Cycle 셀에서 합쳐져 결정적 실패가 가려짐, (3) 앞 테스트가 남긴 검색 결과 화면에서 결정적 테스트가 '검색' 버튼을 못 찾음(`app.open` 은 상태를 버리지 않음) → 계약 `session.restart(target?)`·러너 `app.restart(앱)`·내보내기 첫 줄 `app.restart`, (4) Inspector 클릭이 화면을 바꿔 녹화가 처음 화면과 어긋남 → 세션 전에 앱 재실행.
+- 2026-11-14: studio 08 "앱 처음부터 시작" — 스크립트의 직접 restart 를 빼고 세션 체크박스로. 검사 2개 추가(기본 켬, 내보내기 경고 없음). fake 16/16, 실기 14/14(Cycle verified, 자연어 재생 calls=0).

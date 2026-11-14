@@ -6,9 +6,10 @@ import { Stack, StackItem } from '@astryxdesign/core/Layout';
 import { TextArea } from '@astryxdesign/core/TextArea';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Button } from '@astryxdesign/core/Button';
+import { CheckboxInput } from '@astryxdesign/core/CheckboxInput';
 import { List, ListItem } from '@astryxdesign/core/List';
 import { Text } from '@astryxdesign/core/Text';
-import type { AgentStatus, JudgeView, SessionResult, StudioApi, TurnView } from '../../shared/studio-ipc.ts';
+import { APP_ID, type AgentStatus, type JudgeView, type SessionResult, type StudioApi, type TurnView } from '../../shared/studio-ipc.ts';
 import { ExportPanel } from './ExportPanel.tsx';
 
 export interface SessionRecord { goal: string; turns: TurnView[]; result?: SessionResult; judgments: Array<JudgeView & { statement: string }> }
@@ -37,6 +38,8 @@ export function SessionPanel({ api, deviceId, appId, onRecord }: { api: StudioAp
   const [record, setRecord] = useState<SessionRecord>();
   const [statement, setStatement] = useState('');
   const [problem, setProblem] = useState('');
+  /** 앱 처음부터 시작(studio 08): 내보낸 테스트는 app.restart 로 처음 화면에서 시작하므로 세션도 같은 화면에서 */
+  const [fresh, setFresh] = useState(true);
   const current = useRef<string>(undefined);
 
   useEffect(() => { void api.agentStatus().then(setStatus, (err: unknown) => setStatus({ ready: false, reason: err instanceof Error ? err.message : String(err) })); }, [api]);
@@ -53,12 +56,14 @@ export function SessionPanel({ api, deviceId, appId, onRecord }: { api: StudioAp
   }), [api, onRecord]);
 
   const running = sessionId !== undefined;
+  const canRestart = !!appId && APP_ID.test(appId);
+  const restartApp = canRestart && fresh ? appId : undefined;
   const canRun = !!deviceId && !!status?.ready && !!goal.trim() && !running;
   const run = async (): Promise<void> => {
     setProblem('');
     try {
       setRecord({ goal: goal.trim(), turns: [], judgments: [] });
-      const { sessionId: id } = await api.startSession(deviceId, goal.trim());
+      const { sessionId: id } = await api.startSession(deviceId, goal.trim(), restartApp ? { restartApp } : undefined);
       current.current = id;
       setSessionId(id);
     } catch (err) { setProblem(err instanceof Error ? err.message : String(err)); }
@@ -77,6 +82,13 @@ export function SessionPanel({ api, deviceId, appId, onRecord }: { api: StudioAp
   return (
     <Stack as="section" aria-label="세션" direction="vertical" gap={3} style={styles.panel}>
       <TextArea label="목표" value={goal} onChange={(v) => setGoal(v)} rows={2} placeholder='예: YouTube 앱에서 "florence guerin 영화" 를 검색해 결과 목록을 연다' />
+      <CheckboxInput
+        label="앱 처음부터 시작"
+        description={canRestart ? `${appId} 를 종료하고 다시 띄운 뒤 시작 — 내보낸 테스트와 같은 시작 화면` : '툴바에 앱 id 를 넣으면 쓸 수 있음 — 지금 화면에서 시작'}
+        value={canRestart && fresh}
+        onChange={(v) => setFresh(v)}
+        isDisabled={!canRestart || running}
+      />
       <Stack direction="horizontal" gap={2}>
         {running
           ? <Button label="중지" variant="destructive" size="sm" onClick={() => void api.stopSession(sessionId)} />

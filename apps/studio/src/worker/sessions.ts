@@ -35,7 +35,8 @@ export function toTurnView(t: AgentTurn, observed?: SemanticNode): TurnView {
 export function createSessionManager(deps: SessionDeps) {
   const running = new Map<string, AbortController>();
   return {
-    async start(deviceId: string, goal: string): Promise<{ sessionId: string }> {
+    /** restartApp: 그 앱을 처음 상태로 다시 띄운 뒤 시작한다 — 내보낸 테스트(app.restart)와 같은 시작 화면이라야 녹화·locator 가 맞는다 */
+    async start(deviceId: string, goal: string, opts: { restartApp?: string } = {}): Promise<{ sessionId: string }> {
       const agent = await deps.agent(); // 설정 문제는 시작 전에 드러낸다
       const engine = await deps.engineFor(deviceId);
       const sessionId = randomUUID();
@@ -44,8 +45,12 @@ export function createSessionManager(deps: SessionDeps) {
       void (async () => {
         let result: SessionResult;
         try {
+          if (opts.restartApp) {
+            if (!engine.session) throw new Error('처음부터 시작하지 못함: 이 엔진은 앱을 다시 띄울 수 없음');
+            await engine.session.restart(opts.restartApp).catch((err: unknown) => { throw new Error(`처음부터 시작하지 못함(${opts.restartApp}): ${err instanceof Error ? err.message : String(err)}`); });
+          }
           const r = await runAct(engine, goal, { executor: agent.executor, signal: ac.signal, onTurn: (t, index, observed) => deps.emit(sessionId, { type: 'turn', index, turn: toTurnView(t, observed) }), ...(agent.maxTurns !== undefined ? { maxTurns: agent.maxTurns } : {}), ...(agent.timeoutMs !== undefined ? { timeoutMs: agent.timeoutMs } : {}) });
-          result = { ok: r.ok, turns: r.turns, modelCalls: r.modelCalls, ...(r.summary ? { summary: r.summary } : {}), ...(r.reason ? { reason: r.reason } : {}), ...(r.usage ? { inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens } : {}), ...(r.recording ? { recording: r.recording } : {}), ...(r.startApp ? { startApp: r.startApp } : {}) };
+          result = { ok: r.ok, turns: r.turns, modelCalls: r.modelCalls, ...(r.summary ? { summary: r.summary } : {}), ...(r.reason ? { reason: r.reason } : {}), ...(r.usage ? { inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens } : {}), ...(r.recording ? { recording: r.recording } : {}), ...(r.startApp ? { startApp: r.startApp } : {}), ...(opts.restartApp ? { freshStart: true } : {}) };
         } catch (err) {
           result = { ok: false, reason: err instanceof Error ? err.message : String(err), turns: 0, modelCalls: 0 };
         } finally {

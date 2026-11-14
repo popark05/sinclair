@@ -269,10 +269,10 @@ async function main(): Promise<void> {
   const ready = win.getByText(/^모델 /);
   await ready.waitFor({ timeout: 30_000 });
   check('에이전트 준비 점검(count_tokens) 통과', true, await ready.innerText());
-  // 세션은 앱의 처음 화면에서 시작한다: 내보낸 테스트가 app.restart 로 그 화면에서 시작하므로 녹화의 첫 대상이 맞아야 재생된다
-  // (위 Inspector 검사의 화면 클릭이 실제 탭이라 화면을 바꿔 놓는다)
-  phone?.reset();
-  if (DEVICE) { await rpc.call('device.apps.terminate', { deviceId, appId: app }); await rpc.call('device.apps.launch', { deviceId, appId: app }); await sleep(4_000); }
+  // 세션은 앱의 처음 화면에서 시작한다(studio 08 "앱 처음부터 시작", 앱 id 가 있으면 기본 켬): 내보낸 테스트가 app.restart 로
+  // 그 화면에서 시작하므로 녹화의 첫 대상이 맞아야 재생된다. 위 Inspector 검사의 화면 클릭이 실제 탭이라 화면을 바꿔 놓았다
+  const fresh = win.getByRole('checkbox', { name: '앱 처음부터 시작' });
+  check('"앱 처음부터 시작" 이 기본으로 켜짐(툴바 앱 id)', await fresh.isChecked());
   const goalBox = win.getByLabel('목표');
   await goalBox.fill(goal);
   await win.getByRole('button', { name: '실행' }).click();
@@ -293,6 +293,7 @@ async function main(): Promise<void> {
   // ───────────── 내보내기 ─────────────
   const exportPanel = win.getByRole('region', { name: '코드로 내보내기' }).or(win.locator('section[aria-label="코드로 내보내기"]')).first();
   await exportPanel.waitFor({ timeout: 10_000 });
+  check('처음부터 시작한 세션이라 내보내기 경고 없음', await exportPanel.getByText(/앱 처음 화면에서 시작하지 않은 세션/).count() === 0);
   const testName = `Studio 검증 ${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}`;
   await exportPanel.getByPlaceholder('테스트 이름').fill(testName);
   const copy = async (): Promise<string> => {
