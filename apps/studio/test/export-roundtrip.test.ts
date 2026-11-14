@@ -42,8 +42,8 @@ const write = (code: string): string => {
 };
 
 describe('내보낸 코드 왕복', () => {
-  it('결정적: locator 코드만으로 FakeEngine 에서 통과(act 모델 0회, 비밀값은 secret 저장소에서)', async () => {
-    const file = write(exportTest(session, { style: 'deterministic', testName: '로그인' }));
+  it('결정적: app.restart + locator 코드만으로 FakeEngine 에서 통과(act 모델 0회, 비밀값은 secret 저장소에서)', async () => {
+    const file = write(exportTest(session, { style: 'deterministic', testName: '로그인', appId: 'com.example.app' }));
     const engine = loginEngine();
     const report = await runTests([file], { engine, timeoutMs: 2_000, secrets: { get: (n) => (n === 'QA_PASSWORD' ? 'pw-1' : undefined) }, agent: { executor: judgeOnly } });
     expect(report.tests.map((t) => [t.name, t.result])).toEqual([['로그인', 'passed']]);

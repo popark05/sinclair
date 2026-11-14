@@ -77,6 +77,13 @@ describe('runTests', () => {
     vexpect(engine.sessionCalls).toEqual(['open', 'open', 'restart', 'open']); // skip 은 세션을 건드리지 않는다
   });
 
+  it('app.restart(앱) 은 그 앱을 다시 띄운다(엔진 session.restart 에 대상 전달)', async () => {
+    const engine = engineWithApps();
+    const report = await runTests([fixture('restart-target.sinclair.ts')], { engine, artifactsDir, timeoutMs: 500 });
+    vexpect(report.tests[0]).toMatchObject({ result: 'passed' });
+    vexpect(engine.sessionCalls).toEqual(['open', 'restart']);
+  });
+
   it('secure 입력값은 스텝 instruction 에 남지 않는다', async () => {
     const engine = engineWithApps();
     const report = await runTests([fixture('secure.sinclair.ts')], { engine, timeoutMs: 200 });

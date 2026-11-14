@@ -23,12 +23,12 @@ const record: SessionExportInput = {
 };
 
 describe('exportTest', () => {
-  it('자연어: app.open(앱이 있으면) + act + 참이었던 판정만 assert(거짓은 주석)', () => {
+  it('자연어: app.restart(앱이 있으면 — 세션처럼 그 앱의 처음 화면에서 시작) + act + 참이었던 판정만 assert(거짓은 주석)', () => {
     expect(exportTest(record, { style: 'natural', testName: 'YouTube 검색', appId: 'com.google.android.youtube' })).toBe(`// Sinclair Studio 에서 내보냄: 에이전트 세션 1개(모델 6회)
 import { test } from '@sinclair/runner';
 
 test('YouTube 검색', async ({ app, agent }) => {
-  await app.open('com.google.android.youtube');
+  await app.restart('com.google.android.youtube');
   await agent.act('YouTube 앱에서 "florence guerin" 을 검색한다');
   await agent.assert('검색 결과 목록이 열려 있다');
   // 세션에서 거짓이었던 판정: agent.assert('광고가 없다') — 광고가 보인다

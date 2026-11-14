@@ -29,6 +29,7 @@ export const LOGIN_SCENARIO: ContractScenario = {
   disabled: { role: 'button', name: '회원가입' },
   secure: { testId: 'password' },
   nonEditable: { role: 'text', text: 'Sinclair 로그인' },
+  appId: 'com.example.app',
 };
 
 /** 로그인 버튼을 탭하면 홈 화면으로 가는 FakeEngine. */

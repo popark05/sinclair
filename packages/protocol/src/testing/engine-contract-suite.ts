@@ -20,6 +20,8 @@ export interface ContractScenario {
   secure?: LocatorQuery;
   /** 편집할 수 없는 노드(type → not-actionable) */
   nonEditable: LocatorQuery;
+  /** 이 시나리오의 앱 id(있으면 session.restart(appId) 검사 — 내보낸 테스트가 그 앱을 처음 상태로 시작한다) */
+  appId?: string;
 }
 
 /** scenario 의 질의에서 typeText 같은 부가 필드를 뺀 순수 LocatorQuery */
@@ -138,6 +140,20 @@ export function engineContractSuite(name: string, { makeEngine, scenario, navTim
         if (found.length === 0) await new Promise((r) => setTimeout(r, NAV_POLL_MS));
       }
       expect(found.length, `탭 뒤 ${JSON.stringify(scenario.afterNav)} 가 보여야 함`).toBeGreaterThan(0);
+    });
+
+    it('session.restart(appId) 는 그 앱을 처음 화면으로 다시 띄운다(바뀐 화면을 버린다)', async (ctx) => {
+      const e = await fresh();
+      if (!e.session || !scenario.appId) return ctx.skip();
+      const btn = await only(e, scenario.navButton, 'navButton');
+      await e.perform(btn.ref, 'tap');
+      const deadline = Date.now() + navTimeoutMs;
+      while ((await e.locate(scenario.afterNav)).length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, NAV_POLL_MS));
+      await e.session.restart(scenario.appId);
+      const back = Date.now() + navTimeoutMs;
+      while ((await e.locate(scenario.navButton)).length === 0 && Date.now() < back) await new Promise((r) => setTimeout(r, NAV_POLL_MS));
+      expect(await e.locate(scenario.navButton), 'restart 뒤 처음 화면').toHaveLength(1);
+      expect(await e.locate(scenario.afterNav), 'restart 뒤 전환 화면은 사라짐').toHaveLength(0);
     });
 
     it('편집할 수 없는 노드에 type 하면 not-actionable 이다', async () => {

@@ -132,6 +132,20 @@ describe('createMobileEngine', () => {
     await expect(engine.session!.reset()).rejects.toMatchObject({ code: 'unsupported-action' });
   });
 
+  it('session.restart(target) 는 그 앱을 종료하고 다시 띄운다(엔진의 기본 appId 가 아니라) — Studio 가 내보낸 테스트는 세션의 앱을 처음 상태로 시작한다', async () => {
+    const { backend, engine } = setup();
+    await engine.session!.restart('com.other.app');
+    expect(backend.calls).toEqual(['terminate com.other.app', 'launch com.other.app']);
+  });
+
+  it('appId 없는 엔진도 restart(target) 는 된다', async () => {
+    const backend = new ScenarioBackend();
+    const engine = createMobileEngine(rpcOverDispatcher(createDeviceServer([backend])), { deviceId: 'PHONE1', launchSettleMs: 200 });
+    await engine.session!.restart('com.other.app');
+    expect(backend.calls).toEqual(['terminate com.other.app', 'launch com.other.app']);
+    await expect(engine.session!.restart()).rejects.toMatchObject({ code: 'unsupported-action' });
+  });
+
   it('keyboard.shown 은 device.io.keyboard 를 묻고, 모르면(null) false — 근거 없이 키보드를 내리지 않게', async () => {
     const { backend, engine } = setup();
     expect(await engine.keyboard!.shown!()).toBe(false); // 시나리오 백엔드는 모른다
