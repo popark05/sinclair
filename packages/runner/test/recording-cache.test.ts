@@ -5,7 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { CACHE_KEY, parseCacheEntry, type RunEvent, type SemanticNode } from '@sinclair/protocol';
 import { FakeEngine, HOME_SCREEN, LOGIN_SCREEN, cacheStoreContractSuite, createMemoryCacheStore, SAMPLE_CACHE_ENTRY as SAMPLE_ENTRY } from '@sinclair/protocol/testing';
-import { scriptedExecutor } from '@sinclair/agent';
+import { scriptedExecutor, DEFAULT_SETTLE_CAP_MS } from '@sinclair/agent';
 import { runTests, cacheKey, createFileCacheStore, CACHE_POLICY } from '../src/index.ts';
 
 const fixture = (name: string) => path.resolve(import.meta.dirname, 'fixtures', name);
@@ -89,6 +89,22 @@ describe('runTests · 녹화 재생', () => {
     const again = await runTests([fixture('agent-login.sinclair.ts')], { engine: engine(), timeoutMs: 500, agent: { executor: noModel }, cache: { store } });
     vexpect(again.tests[0]).toMatchObject({ result: 'passed' });
     vexpect(acts(again.events)).toEqual([vexpect.objectContaining({ cache: 'replayed', modelCalls: 0, instruction: vexpect.stringMatching(/^act "아이디 qa 로 로그인해줘" → 재생 2\/2$/) })]);
+  });
+
+  it('재생 끝 대기 상한(cache.settleCapMs): 계속 바뀌는 화면(자동재생 영상)에서 그 상한에 끝난다 — 기본은 DEFAULT_SETTLE_CAP_MS(4초)', async () => {
+    vexpect(DEFAULT_SETTLE_CAP_MS).toBe(4_000); // 실기 YouTube 검색 결과는 Enter 뒤 1.2~2.3초에 마지막 변화(2026-11-14)
+    const store = createMemoryCacheStore();
+    await runTests([fixture('agent-login.sinclair.ts')], { engine: engine(), timeoutMs: 500, agent: { executor: loginScript() }, cache: { store } });
+    // 로그인 뒤 홈 화면에 자막처럼 계속 바뀌는 노드
+    let tick = 0;
+    const live = engine();
+    const observe = live.observe.bind(live);
+    live.observe = async (o) => { const r = await observe(o); if (JSON.stringify(r.root).includes('환영합니다')) r.root.children = [...(r.root.children ?? []), { ref: '@sub', role: 'view', name: `자막 ${tick++}` }]; return r; };
+    const started = Date.now();
+    const again = await runTests([fixture('agent-login.sinclair.ts')], { engine: live, timeoutMs: 500, agent: { executor: noModel }, cache: { store, settleCapMs: 300 } });
+    vexpect(again.tests[0]).toMatchObject({ result: 'passed' });
+    vexpect(acts(again.events)[0]).toMatchObject({ cache: 'replayed' });
+    vexpect(Date.now() - started).toBeLessThan(2_500); // 기본 상한(4초)이 아니라 준 상한에서 끝났다
   });
 
   it('녹화가 없으면 live 로 돈다(실행기 호출)', async () => {

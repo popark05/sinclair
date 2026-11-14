@@ -28,6 +28,8 @@ export type ReplayResult =
 
 const BACKOFF_MS = [100, 300, 600, 1000];
 const END_POLL_MS = 200;
+/** 재생 끝 대기 상한. 자동재생 영상·광고가 도는 화면은 구조째 계속 바뀌어 조용해지지 않으므로 상한이 곧 비용이다 — 실기 YouTube 검색 결과는 Enter 뒤 1.2~2.3초에 마지막 변화라 4초면 덮는다(2026-11-14, 8초에서 낮춤) */
+export const DEFAULT_SETTLE_CAP_MS = 4_000;
 const labelOf = (n: SemanticNode): string | undefined => n.name ?? n.text;
 function* walk(n: SemanticNode): Generator<SemanticNode> { yield n; for (const c of n.children ?? []) yield* walk(c); }
 const sameField = (a: string | undefined, b: string | undefined): boolean => (a ?? undefined) === (b ?? undefined);
@@ -135,7 +137,7 @@ export async function replayRecording(engine: Engine, entry: CacheEntry, opts: R
     const missing = anchors.filter((t) => exactMatches(t, root).length === 0);
     const changed = signature(root) !== startSig;
     if (anchors.length - missing.length >= need && changed) {
-      await settleQuiet(engine, signature(root), opts.quietMs ?? 1_500, opts.settleCapMs ?? 8_000);
+      await settleQuiet(engine, signature(root), opts.quietMs ?? 1_500, opts.settleCapMs ?? DEFAULT_SETTLE_CAP_MS);
       return { outcome: 'replayed', executed: total, total, done };
     }
     if (Date.now() >= endDeadline) return stop(anchors.length - missing.length < need ? `끝 화면에 ${missing.slice(0, 3).map(describe).join(', ')} 이 없음(${anchors.length - missing.length}/${anchors.length} 보임)` : '재생 뒤 화면이 바뀌지 않음');

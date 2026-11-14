@@ -48,7 +48,7 @@ export interface RunOptions {
   /** agent.act 의 실행기(모델)와 한도. 없으면 agent.act 는 설정 오류로 실패한다 */
   agent?: { executor: StepExecutor; maxTurns?: number; timeoutMs?: number; safetyNet?: { pixels?: boolean }; incidents?: { permission?: 'allow' | 'deny' }; pii?: PiiFilter | false };
   /** 녹화 캐시(recording-cache): agent.act 가 한 액션을 기록해 두고 다음 실행에 재생한다. 없거나 mode off 면 끔. 기본 mode read-write */
-  cache?: { store: CacheStore; mode?: CacheMode; /** 재생: 대상이 없을 때 기다리는 상한(기본 3초) */ findTimeoutMs?: number; /** 재생: 끝 anchor 를 기다리는 상한(기본 5초) */ endTimeoutMs?: number };
+  cache?: { store: CacheStore; mode?: CacheMode; /** 재생: 대상이 없을 때 기다리는 상한(기본 3초) */ findTimeoutMs?: number; /** 재생: 끝 anchor 를 기다리는 상한(기본 5초) */ endTimeoutMs?: number; /** 재생: 끝난 뒤 화면이 잠잠해지기를 기다리는 상한(기본 4초, 자동재생 화면은 여기까지 간다) */ settleCapMs?: number };
   /** failed 테스트를 다시 돌리는 횟수(기본 0, 최대 5). 시도마다 새 Attempt(attemptNo 2, 3…)로 보고하고 재시도 전에 앱을 다시 띄운다. blocked·skipped 는 재시도하지 않는다 */
   retries?: number;
   /** locator 액션 기한(ms, 기본 10초). 판정(expect) 기한은 그 절반: 판정은 화면이 이미 그 상태여야 하므로 액션보다 짧게 잡아 실패를 빨리 드러낸다 */
@@ -369,7 +369,7 @@ async function runTestsExclusive(files: string[], options: RunOptions): Promise<
               throw new CacheReplayError('cache-miss', msg);
             }
             if (entry) {
-              const rp = await replayRecording(engine, entry, { goal, secrets: secretBox, ...(options.cache!.findTimeoutMs !== undefined ? { findTimeoutMs: options.cache!.findTimeoutMs } : {}), ...(options.cache!.endTimeoutMs !== undefined ? { endTimeoutMs: options.cache!.endTimeoutMs } : {}) });
+              const rp = await replayRecording(engine, entry, { goal, secrets: secretBox, ...(options.cache!.findTimeoutMs !== undefined ? { findTimeoutMs: options.cache!.findTimeoutMs } : {}), ...(options.cache!.endTimeoutMs !== undefined ? { endTimeoutMs: options.cache!.endTimeoutMs } : {}), ...(options.cache!.settleCapMs !== undefined ? { settleCapMs: options.cache!.settleCapMs } : {}) });
               if (rp.outcome === 'replayed') {
                 onStep({ kind: 'act', instruction: `act ${JSON.stringify(goal)} → 재생 ${rp.executed}/${rp.total}`, durationMs: Date.now() - started, modelCalls: 0, cache: 'replayed' });
                 consumed.push({ stepIndex: steps.length - 1, key });
