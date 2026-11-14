@@ -12,7 +12,7 @@ const api = (over: Partial<StudioApi> = {}): StudioApi => ({
   listDevices: async () => [{ id: 'R3CN30ABCDXLZW', model: 'SM-N981N', osVersion: '13', state: 'device', helper: 'ready' }, { id: 'EMU0000001', model: 'sdk_gphone', osVersion: '14', state: 'unauthorized' }],
   foregroundApp: async () => 'com.google.android.youtube',
   ...over,
-});
+}) as unknown as StudioApi;
 
 describe('Toolbar', () => {
   it('연결 방식과 첫 쓸 수 있는 기기를 고른 상태(원시 시리얼 대신 끝 4자리)', async () => {

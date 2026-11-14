@@ -4,7 +4,8 @@ import { readDeviceRpc } from '@sinclair/device-layer';
 import { rpcOverHttp, type DeviceRpc } from '@sinclair/engine-mobile';
 import { appPackageOf } from '@sinclair/agent';
 import type { DeviceInfo, SemanticNode } from '@sinclair/protocol';
-import type { ConnectionInfo, StudioDevice } from '../shared/studio-ipc.ts';
+import type { ConnectionInfo, StudioDevice, StudioKey, StudioSnapshot } from '../shared/studio-ipc.ts';
+import type { SnapshotResult } from '@sinclair/protocol';
 
 export interface OwnDevices { rpc: DeviceRpc; close(): Promise<void> }
 export interface ConnectDeps {
@@ -19,8 +20,17 @@ export interface DeviceConnection {
   rpc?: DeviceRpc;
   listDevices(): Promise<StudioDevice[]>;
   foregroundApp(deviceId: string): Promise<string | null>;
+  snapshot(deviceId: string): Promise<StudioSnapshot>;
+  tap(deviceId: string, x: number, y: number): Promise<void>;
+  swipe(deviceId: string, from: { x: number; y: number }, to: { x: number; y: number }, durationMs: number): Promise<void>;
+  text(deviceId: string, text: string): Promise<void>;
+  key(deviceId: string, key: StudioKey): Promise<void>;
+  button(deviceId: string, button: 'back' | 'home'): Promise<void>;
   close(): Promise<void>;
 }
+
+const KEYCODES: Record<StudioKey, string> = { enter: 'KEYCODE_ENTER', backspace: 'KEYCODE_DEL', tab: 'KEYCODE_TAB', escape: 'KEYCODE_ESCAPE', up: 'KEYCODE_DPAD_UP', down: 'KEYCODE_DPAD_DOWN', left: 'KEYCODE_DPAD_LEFT', right: 'KEYCODE_DPAD_RIGHT' };
+const noDevice = async (): Promise<never> => { throw new Error('기기 연결이 없음'); };
 
 const withTimeout = <T>(p: Promise<T>, ms: number): Promise<T> => Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`${ms}ms 안에 응답 없음`)), ms))]);
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -32,6 +42,15 @@ function over(rpc: DeviceRpc, connection: ConnectionInfo, close: () => Promise<v
     connection, rpc, close,
     listDevices: async () => ((await rpc.call('devices.list', {})) as DeviceInfo[]).map(toStudioDevice),
     foregroundApp: async (deviceId) => appPackageOf((await rpc.call('device.dump.ui', { deviceId })) as SemanticNode) ?? null,
+    snapshot: async (deviceId) => {
+      const s = (await rpc.call('device.snapshot', { deviceId })) as SnapshotResult;
+      return { png: s.screenshot.base64, root: s.root, capturedAt: s.capturedAt };
+    },
+    tap: async (deviceId, x, y) => { await rpc.call('device.io.tap', { deviceId, x, y }); },
+    swipe: async (deviceId, a, b, durationMs) => { await rpc.call('device.io.swipe', { deviceId, fromX: a.x, fromY: a.y, toX: b.x, toY: b.y, durationMs }); },
+    text: async (deviceId, text) => { await rpc.call('device.io.text', { deviceId, text }); },
+    key: async (deviceId, key) => { await rpc.call('device.io.keys', { deviceId, keys: [KEYCODES[key]] }); },
+    button: async (deviceId, button) => { await rpc.call('device.io.button', { deviceId, button }); },
   };
 }
 
@@ -49,6 +68,6 @@ export async function connectDevices(deps: ConnectDeps): Promise<DeviceConnectio
     const own = await deps.openOwn();
     return over(own.rpc, { mode: 'own', detail: `${daemonProblem}작업 프로세스가 직접 연 디바이스 서버` }, () => own.close());
   } catch (err) {
-    return { connection: { mode: 'none', detail: `${daemonProblem}기기를 열 수 없음: ${errMsg(err)}` }, listDevices: async () => [], foregroundApp: async () => null, close: async () => {} };
+    return { connection: { mode: 'none', detail: `${daemonProblem}기기를 열 수 없음: ${errMsg(err)}` }, listDevices: async () => [], foregroundApp: async () => null, snapshot: noDevice, tap: noDevice, swipe: noDevice, text: noDevice, key: noDevice, button: noDevice, close: async () => {} };
   }
 }

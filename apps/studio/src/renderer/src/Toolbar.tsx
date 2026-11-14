@@ -14,7 +14,7 @@ const STATE: Record<string, string> = { device: '연결됨', unauthorized: 'USB 
 export const maskSerial = (id: string): string => `…${id.slice(-4)}`;
 export const deviceLabel = (d: StudioDevice): string => `${d.model} (${maskSerial(d.id)})`;
 
-export function Toolbar({ api, onDeviceChange, onAppChange }: { api: StudioApi; onDeviceChange: (id: string) => void; onAppChange: (app: string) => void }) {
+export function Toolbar({ api, onDeviceChange, onAppChange }: { api: StudioApi; onDeviceChange: (id: string, label?: string) => void; onAppChange: (app: string) => void }) {
   const [conn, setConn] = useState<ConnectionInfo>();
   const [devices, setDevices] = useState<StudioDevice[]>([]);
   const [device, setDevice] = useState('');
@@ -30,7 +30,8 @@ export function Toolbar({ api, onDeviceChange, onAppChange }: { api: StudioApi; 
       // 고른 기기가 없거나 사라졌으면 첫 쓸 수 있는 기기
       setDevice((cur) => {
         const keep = list.some((d) => d.id === cur) ? cur : list.find((d) => d.state === 'device')?.id ?? '';
-        if (keep !== cur) onDeviceChange(keep);
+        const d = list.find((x) => x.id === keep);
+        if (keep !== cur) onDeviceChange(keep, d ? deviceLabel(d) : undefined);
         return keep;
       });
     } catch (err) { setProblem(err instanceof Error ? err.message : String(err)); }
@@ -38,7 +39,7 @@ export function Toolbar({ api, onDeviceChange, onAppChange }: { api: StudioApi; 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { void load(); }, [api]);
 
-  const pickDevice = (id: string): void => { setDevice(id); onDeviceChange(id); };
+  const pickDevice = (id: string): void => { setDevice(id); const d = devices.find((x) => x.id === id); onDeviceChange(id, d ? deviceLabel(d) : undefined); };
   const changeApp = (v: string): void => { setApp(v); onAppChange(v); };
   const fillForeground = async (): Promise<void> => {
     if (!device) return;

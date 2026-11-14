@@ -18,6 +18,20 @@ describe('studio IPC 계약', () => {
     for (const bad of [{ kind: 'shell', cmd: 'rm' }, { kind: 'foreground-app' }, { kind: 'foreground-app', deviceId: 3 }, null]) expect(parseStudioRequest(bad)).toBeUndefined();
   });
 
+  it('기기 조작 요청(studio 03): 좌표는 0~20000 정수로 반올림, 스와이프 시간 50~5000ms, 글자 500자, 키·버튼은 정해진 것만', () => {
+    expect(parseStudioRequest({ kind: 'snapshot', deviceId: 'S' })).toEqual({ kind: 'snapshot', deviceId: 'S' });
+    expect(parseStudioRequest({ kind: 'tap', deviceId: 'S', x: 10.6, y: 20.2 })).toEqual({ kind: 'tap', deviceId: 'S', x: 11, y: 20 });
+    expect(parseStudioRequest({ kind: 'swipe', deviceId: 'S', fromX: 1, fromY: 2, toX: 3, toY: 4, durationMs: 300 })).toEqual({ kind: 'swipe', deviceId: 'S', fromX: 1, fromY: 2, toX: 3, toY: 4, durationMs: 300 });
+    expect(parseStudioRequest({ kind: 'text', deviceId: 'S', text: '안녕' })).toEqual({ kind: 'text', deviceId: 'S', text: '안녕' });
+    expect(parseStudioRequest({ kind: 'key', deviceId: 'S', key: 'enter' })).toEqual({ kind: 'key', deviceId: 'S', key: 'enter' });
+    expect(parseStudioRequest({ kind: 'button', deviceId: 'S', button: 'home' })).toEqual({ kind: 'button', deviceId: 'S', button: 'home' });
+    for (const bad of [
+      { kind: 'tap', deviceId: 'S', x: -1, y: 0 }, { kind: 'tap', deviceId: 'S', x: 'a', y: 0 }, { kind: 'tap', deviceId: 'S', x: 1e9, y: 0 },
+      { kind: 'swipe', deviceId: 'S', fromX: 1, fromY: 2, toX: 3, toY: 4, durationMs: 10 }, { kind: 'text', deviceId: 'S', text: 'x'.repeat(501) },
+      { kind: 'key', deviceId: 'S', key: 'POWER' }, { kind: 'button', deviceId: 'S', button: 'power' }, { kind: 'snapshot' },
+    ]) expect(parseStudioRequest(bad), JSON.stringify(bad)).toBeUndefined();
+  });
+
   it('렌더러 채널 이름은 studio: 접두사로 겹치지 않는다', () => {
     const names = Object.values(STUDIO_CHANNELS);
     expect(new Set(names).size).toBe(names.length);

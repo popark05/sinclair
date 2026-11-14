@@ -30,7 +30,7 @@ function createWindow(): void {
   const shot = process.env.SINCLAIR_STUDIO_SCREENSHOT;
   if (shot) {
     win.webContents.once('did-finish-load', () => {
-      void worker.ready().catch(() => {}).then(() => new Promise((r) => setTimeout(r, 1_500))).then(async () => {
+      void worker.ready().catch(() => {}).then(() => new Promise((r) => setTimeout(r, Number(process.env.SINCLAIR_STUDIO_SCREENSHOT_DELAY_MS) || 1_500))).then(async () => {
         const img = await win!.webContents.capturePage();
         const { writeFile } = await import('node:fs/promises');
         await writeFile(shot, img.toPNG());

@@ -18,6 +18,31 @@ let dir: string;
 beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sinclair-studio-')); });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
+describe('기기 조작(studio 03)', () => {
+  it('스냅샷은 스크린샷(base64 PNG)과 트리, 입력은 디바이스 RPC 로(키 이름은 KEYCODE 로)', async () => {
+    const calls: string[] = [];
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64');
+    const backend = {
+      ...fakeBackend('OWN0000002', 'Pixel 7'),
+      snapshot: async () => ({ screenshot: { format: 'png', base64: png }, root: { ref: '@e0', role: 'root' }, atomic: true, capturedAt: '2026-11-14T00:00:00.000Z' }),
+      tap: async (_: string, p: { x: number; y: number }) => { calls.push(`tap ${p.x},${p.y}`); },
+      swipe: async (_: string, a: { x: number; y: number }, b: { x: number; y: number }, d: number) => { calls.push(`swipe ${a.x},${a.y}->${b.x},${b.y} ${d}`); },
+      text: async (_: string, t: string) => { calls.push(`text ${t}`); },
+      keys: async (_: string, k: string[]) => { calls.push(`keys ${k.join('+')}`); },
+      button: async (_: string, b: string) => { calls.push(`button ${b}`); },
+    } as unknown as DeviceBackend;
+    const c = await connectDevices({ discoveryFile: path.join(dir, 'none.json'), openOwn: async () => ({ rpc: rpcOverDispatcher(createDeviceServer([backend])), close: async () => {} }) });
+    expect(await c.snapshot('OWN0000002')).toEqual({ png, root: { ref: '@e0', role: 'root' }, capturedAt: '2026-11-14T00:00:00.000Z' });
+    await c.tap('OWN0000002', 10, 20);
+    await c.swipe('OWN0000002', { x: 1, y: 2 }, { x: 3, y: 4 }, 300);
+    await c.text('OWN0000002', 'abc');
+    await c.key('OWN0000002', 'enter');
+    await c.key('OWN0000002', 'backspace');
+    await c.button('OWN0000002', 'back');
+    expect(calls).toEqual(['tap 10,20', 'swipe 1,2->3,4 300', 'text abc', 'keys KEYCODE_ENTER', 'keys KEYCODE_DEL', 'button back']);
+  });
+});
+
 describe('connectDevices', () => {
   it('발견 파일의 데몬이 살아 있고 응답하면 데몬 RPC 에 붙는다(직접 열지 않음)', async () => {
     const server = await serveHttp(createDeviceServer([fakeBackend('DAEMON0001', 'SM-N981N')]));

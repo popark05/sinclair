@@ -29,8 +29,16 @@ const devices = (): Promise<DeviceConnection> => (connection ??= connectDevices(
 async function handle(req: StudioRequest): Promise<StudioResponses[StudioRequest['kind']]> {
   const c = await devices();
   if (req.kind === 'connection') return c.connection;
-  if (req.kind === 'devices') return c.listDevices();
-  return c.foregroundApp(req.deviceId);
+  switch (req.kind) {
+    case 'devices': return c.listDevices();
+    case 'foreground-app': return c.foregroundApp(req.deviceId);
+    case 'snapshot': return c.snapshot(req.deviceId);
+    case 'tap': await c.tap(req.deviceId, req.x, req.y); return null;
+    case 'swipe': await c.swipe(req.deviceId, { x: req.fromX, y: req.fromY }, { x: req.toX, y: req.toY }, req.durationMs); return null;
+    case 'text': await c.text(req.deviceId, req.text); return null;
+    case 'key': await c.key(req.deviceId, req.key); return null;
+    case 'button': await c.button(req.deviceId, req.button); return null;
+  }
 }
 
 process.on('message', (raw: unknown) => {

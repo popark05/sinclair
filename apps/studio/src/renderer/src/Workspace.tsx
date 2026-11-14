@@ -11,16 +11,17 @@ import { EmptyState } from '@astryxdesign/core/EmptyState';
 import { Icon } from '@astryxdesign/core/Icon';
 import { useMediaQuery } from '@astryxdesign/core/hooks';
 import { AppShell } from '@astryxdesign/core/AppShell';
-import { DevicePhoneMobileIcon, ChatBubbleLeftRightIcon, Squares2X2Icon } from '@heroicons/react/24/outline';
+import { ChatBubbleLeftRightIcon, Squares2X2Icon } from '@heroicons/react/24/outline';
 import type { StudioApi, WorkerStatus } from '../../shared/studio-ipc.ts';
 import { Toolbar } from './Toolbar.tsx';
+import { DevicePanel } from './DevicePanel.tsx';
+import { useSnapshot } from './useSnapshot.ts';
 
 const styles: Record<string, CSSProperties> = {
   contentFill: { height: '100%' },
   terminalWrapper: { minHeight: 0, overflow: 'auto', display: 'grid' },
   tabListPadding: { paddingTop: 'var(--spacing-2)' },
   editorArea: { overflow: 'auto', minHeight: 0 },
-  devicePanel: { padding: 'var(--spacing-4)', height: '100%' },
   propertiesPanel: { height: '100%' },
   terminalPanel: { flexShrink: 0, overflow: 'hidden' },
 };
@@ -48,9 +49,11 @@ export function Workspace({ api }: { api: StudioApi }) {
   const [centerTab, setCenterTab] = useState('session');
   const [drawerTab, setDrawerTab] = useState('log');
   const [inspectorTab, setInspectorTab] = useState('tree');
-  // 고른 기기·앱(03~ 의 기기 화면·세션이 쓴다)
-  const [, setDeviceId] = useState('');
+  // 고른 기기·앱(기기 화면·세션이 쓴다). 화면 폴링은 여기서 한 번 — Device 패널과 Inspector 가 같은 스냅샷을 본다
+  const [deviceId, setDeviceId] = useState('');
+  const [deviceLabel, setDeviceLabel] = useState('');
   const [, setAppId] = useState('');
+  const screen = useSnapshot(api, deviceId);
 
   // 기기 화면은 세로로 길어 기본 폭을 넉넉히(폰 비율), Inspector 는 트리·속성이 읽힐 만큼
   const startPanel = useResizable({ defaultSize: 360, minSize: 240, maxSize: 560, collapsible: true, collapsedSize: 50 });
@@ -61,7 +64,7 @@ export function Workspace({ api }: { api: StudioApi }) {
   // AppShell 이 뷰포트(100dvh)를 채우고, 그 안의 ide 레이아웃이 height fill 로 남은 높이를 채운다(루트에 높이가 없으면 내용만큼만 자란다)
   return (
     <AppShell height="fill" contentPadding={0} variant="section" mobileNav={false}
-      topNav={<Toolbar api={api} onDeviceChange={setDeviceId} onAppChange={setAppId} />}>
+      topNav={<Toolbar api={api} onDeviceChange={(id, label) => { setDeviceId(id); setDeviceLabel(label ?? ''); }} onAppChange={setAppId} />}>
     <Layout
       height="fill"
       content={
@@ -72,15 +75,7 @@ export function Workspace({ api }: { api: StudioApi }) {
               <>
                 {!startPanel.isCollapsed && (
                   <LayoutPanel width={startPanel.size} hasDivider={false} padding={0}>
-                    <Stack as="section" aria-label="기기" direction="vertical" gap={3} style={styles.devicePanel}>
-                      <Heading level={2} maxLines={1}>기기</Heading>
-                      <EmptyState
-                        isCompact
-                        icon={<Icon icon={DevicePhoneMobileIcon} size="lg" />}
-                        title="연결된 기기 없음"
-                        description="Android 기기를 USB 로 연결하면 화면이 여기 보입니다. 클릭하면 탭, 드래그하면 스와이프합니다."
-                      />
-                    </Stack>
+                    <DevicePanel api={api} deviceId={deviceId} deviceLabel={deviceLabel} {...(screen.snapshot ? { snapshot: screen.snapshot } : {})} {...(screen.error ? { error: screen.error } : {})} onInput={screen.refresh} />
                   </LayoutPanel>
                 )}
                 <ResizeHandle direction="horizontal" hasDivider isAlwaysVisible={false} resizable={startPanel.props} label="기기 패널 크기 조절" />

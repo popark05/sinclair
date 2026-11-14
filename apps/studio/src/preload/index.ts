@@ -1,6 +1,6 @@
 // preload(CJS, 샌드박스): 렌더러에 StudioApi 만 노출한다. ipcRenderer 자체는 넘기지 않는다.
 import { contextBridge, ipcRenderer } from 'electron';
-import { STUDIO_CHANNELS, type ConnectionInfo, type StudioApi, type StudioDevice, type WorkerStatus } from '../shared/studio-ipc.ts';
+import { STUDIO_CHANNELS, type ConnectionInfo, type StudioApi, type StudioDevice, type StudioSnapshot, type WorkerStatus } from '../shared/studio-ipc.ts';
 
 const api: StudioApi = {
   getWorkerStatus: () => ipcRenderer.invoke(STUDIO_CHANNELS.workerStatus) as Promise<WorkerStatus>,
@@ -13,5 +13,11 @@ const api: StudioApi = {
   connection: () => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'connection' }) as Promise<ConnectionInfo>,
   listDevices: () => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'devices' }) as Promise<StudioDevice[]>,
   foregroundApp: (deviceId) => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'foreground-app', deviceId }) as Promise<string | null>,
+  snapshot: (deviceId) => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'snapshot', deviceId }) as Promise<StudioSnapshot>,
+  tap: async (deviceId, x, y) => { await ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'tap', deviceId, x, y }); },
+  swipe: async (deviceId, a, b, durationMs) => { await ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'swipe', deviceId, fromX: a.x, fromY: a.y, toX: b.x, toY: b.y, durationMs }); },
+  text: async (deviceId, text) => { await ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'text', deviceId, text }); },
+  key: async (deviceId, key) => { await ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'key', deviceId, key }); },
+  button: async (deviceId, button) => { await ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'button', deviceId, button }); },
 };
 contextBridge.exposeInMainWorld('sinclair', api);
