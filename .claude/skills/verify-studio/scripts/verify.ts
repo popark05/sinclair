@@ -283,7 +283,7 @@ async function main(): Promise<void> {
   check('세션 성공(턴 타임라인 + 결과)', resultText.startsWith('성공'), `${resultText.replace(/\s+/g, ' ').slice(0, 120)} | 턴: ${turnItems.map((s) => s.split('\n')[0]).join(' / ')}`);
   await shot('02-session');
 
-  await win.getByPlaceholder(/지금 화면에 대한 판정/).fill(statement);
+  await win.getByPlaceholder(/지금 화면에서 참이어야 할 문장/).fill(statement);
   await win.getByRole('button', { name: '판정' }).click();
   const judged = win.getByRole('list', { name: '판정' }).getByRole('listitem').first();
   await judged.waitFor({ timeout: DEVICE ? 60_000 : 15_000 });

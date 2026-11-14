@@ -113,7 +113,9 @@ export function SessionPanel({ api, deviceId, appId, onRecord, onBusyChange, onT
         </List>
       </StackItem>
       <Stack direction="horizontal" gap={2}>
-        <TextInput label="판정 문장" isLabelHidden size="sm" placeholder="지금 화면에 대한 판정 — 예: 검색 결과 목록이 열려 있다" value={statement} onChange={(v) => setStatement(v)} />
+        <StackItem size="fill">
+          <TextInput label="판정 문장" isLabelHidden size="sm" width="100%" placeholder="지금 화면에서 참이어야 할 문장 — 예: 검색 결과 목록이 열려 있다" value={statement} onChange={(v) => setStatement(v)} />
+        </StackItem>
         <Button label="판정" size="sm" variant="secondary" isDisabled={!deviceId || !status?.ready || running || !statement.trim()} onClick={() => void judge()} />
       </Stack>
       <List aria-label="판정">
