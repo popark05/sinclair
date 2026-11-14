@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import { assertCacheKey, parseCacheEntry, CACHE_SCHEMA, type CacheStore } from '@sinclair/protocol';
 
 /** 재생 정책 버전: 재탐색·확인 규칙을 바꾸면 올려서 모든 녹화를 새로 만든다 */
-export const CACHE_POLICY = 'exact/2';
+export const CACHE_POLICY = 'exact/3';
 export const CACHE_MODES = ['off', 'read-only', 'read-write', 'strict'] as const;
 export type CacheMode = (typeof CACHE_MODES)[number];
 

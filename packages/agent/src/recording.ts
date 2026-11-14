@@ -4,12 +4,15 @@ import { CACHE_LIMITS, type CacheAction, type CacheTarget, type SemanticNode } f
 import type { TargetDescriptor } from './relocate.ts';
 
 const labelOf = (n: SemanticNode): string | undefined => n.name ?? n.text;
+const EDITABLE = new Set(['textbox', 'searchbox', 'combobox']);
 
 /**
  * 녹화·재생이 같은 규칙으로 쓰는 대상 라벨: 이름, 없으면 글자, 그것도 없으면 첫 자손의 글자(문서 순서).
  * 이름 없는 줄 버튼(검색 기록 줄처럼 글자를 자식으로 가진 것)이 testId 만으로는 여럿이라 재생이 애매해지는 것을 막는다(2026-11-14 실기기 YouTube).
  */
 export function cacheLabelOf(n: SemanticNode): string | undefined {
+  // 입력창의 글자는 담긴 내용이지 정체가 아니다(재생 때 직전 검색어가 남아 있기도 하다 — 2026-11-14 실기기 YouTube): 이름만
+  if (EDITABLE.has(n.role)) return n.name;
   const own = labelOf(n);
   if (own) return own;
   for (const c of n.children ?? []) { const d = cacheLabelOf(c); if (d) return d; }
