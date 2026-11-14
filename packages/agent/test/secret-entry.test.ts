@@ -61,6 +61,17 @@ describe('enter_secret', () => {
     expect(r.recording?.actions).toEqual([{ tool: 'enter_secret', target: expect.objectContaining({ role: 'group' }), text: '{{secret:SIMPLE_PIN}}', summary: expect.any(String) }]);
   });
 
+  it('실기 OneApp 간편비밀번호 키패드 모양: 이름 없는 버튼(두 겹) 안의 text 가 숫자 — 그 숫자 노드를 탭한다(2026-11-14 SM-N981N 트리)', async () => {
+    const pad: SemanticNode = { ref: '@r', role: 'root', children: [{ ref: '@g', role: 'group', rect: { x: 0, y: 1590, width: 1080, height: 675 }, children: '1234567890'.split('').map((d, i) => {
+      const x = (d === '0' ? 1 : i % 3) * 360, y = 1590 + (d === '0' ? 3 : Math.floor(i / 3)) * 169;
+      return { ref: `@b${i}`, role: 'button', rect: { x, y, width: 360, height: 169 }, children: [{ ref: `@bb${i}`, role: 'button', rect: { x, y, width: 360, height: 169 }, children: [{ ref: `@t${i}`, role: 'text', text: d, rect: { x: x + 160, y: y + 36, width: 40, height: 97 } }] }] };
+    }) }, { ref: '@del', role: 'view', name: '삭제' }] };
+    const engine = new FakeEngine({ root: pad });
+    const r = await runAct(engine, goal, { executor: scriptedExecutor([{ name: 'enter_secret', input: { ref: '@g', name: 'SIMPLE_PIN' } }, done]), secrets: secrets() });
+    expect(r.ok).toBe(true);
+    expect(engine.performed.map((p) => p.ref)).toEqual(['@t1', '@t4', '@t7', '@t9']); // 2·5·8·0
+  });
+
   it('입력칸이면 그대로 입력(type)', async () => {
     const engine = new FakeEngine({ root: { ref: '@r', role: 'root', children: [{ ref: '@pw', role: 'textbox', testId: 'com.app:id/pin', placeholder: 'PIN', states: { secure: true } }] } });
     const r = await runAct(engine, goal, { executor: scriptedExecutor([{ name: 'enter_secret', input: { ref: '@pw', name: 'SIMPLE_PIN' } }, done]), secrets: secrets() });
