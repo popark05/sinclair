@@ -53,6 +53,8 @@ export class FakeAndroid {
   /** root: 응답. "restarting"으로 시작하면 root 상태로 바꾸고 onAdbdRestart를 호출. */
   rootResponse = 'adbd cannot run as root in production builds\n';
   onAdbdRestart: () => void = () => {};
+  /** true 면 root: 응답을 보내기 전에 재시작한다(연결이 응답보다 먼저 끊기는 기기·부하 상황) */
+  restartBeforeRootResponse = false;
   /** true면 pm이 APK를 끝까지 읽기 전에 거부하고 스트림을 닫는다. */
   rejectInstallEarly = false;
   private sessions = new Map<string, Buffer[]>();
@@ -324,6 +326,7 @@ export class FakeAndroid {
   // ---- root: / tcp: ----
 
   private async root(s: FakeDeviceStream): Promise<void> {
+    if (this.restartBeforeRootResponse) { this.isRoot = true; this.onAdbdRestart(); return; }
     await s.send(this.rootResponse);
     s.close();
     if (this.rootResponse.startsWith('restarting')) {

@@ -382,6 +382,19 @@ describe('root', () => {
     expect((await dadb.shell('getprop service.adb.root')).output).toBe('1\n');
     expect(server.devices.length).toBeGreaterThan(1);
   });
+
+  it('응답을 읽기 전에 연결이 끊겨도(adbd 가 먼저 재시작) 재시작으로 보고 재연결해 root 를 확인한다 — 부하에서 위 테스트가 ECONNRESET 으로 흔들렸다', async () => {
+    const phone = new FakeAndroid();
+    phone.rootResponse = 'restarting adbd as root\n';
+    phone.restartBeforeRootResponse = true;
+    const server = await tcpDevice(phone.services);
+    cleanups.push(() => server.close());
+    phone.onAdbdRestart = () => server.sockets.forEach((s) => s.destroy());
+    const dadb = Dadb.create('127.0.0.1', server.port, { keyPair: null });
+    cleanups.push(() => dadb.close());
+    expect(await dadb.root({ intervalMs: 20 })).toEqual({ success: true });
+    expect((await dadb.shell('getprop service.adb.root')).output).toBe('1\n');
+  });
 });
 
 describe('tcpForward', () => {
