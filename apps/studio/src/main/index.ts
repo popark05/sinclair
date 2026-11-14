@@ -1,7 +1,7 @@
 // Studio 메인 프로세스: 창 하나와 작업 프로세스 하나(ADR 0005). 기기·러너·에이전트는 작업 프로세스가 맡고, 메인은 중계만 한다.
 import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'node:path';
-import { STUDIO_CHANNELS } from '../shared/studio-ipc.ts';
+import { parseStudioRequest, STUDIO_CHANNELS } from '../shared/studio-ipc.ts';
 import { createWorkerHost, resolveWorkerNode } from './worker-host.ts';
 
 let win: BrowserWindow | undefined;
@@ -13,6 +13,12 @@ const worker = createWorkerHost({
 
 ipcMain.handle(STUDIO_CHANNELS.workerStatus, () => worker.status());
 ipcMain.handle(STUDIO_CHANNELS.ping, () => worker.ping());
+// 렌더러는 믿지 않는다: 닫힌 요청 집합만 작업 프로세스로
+ipcMain.handle(STUDIO_CHANNELS.request, (_e, raw: unknown) => {
+  const req = parseStudioRequest(raw);
+  if (!req) throw new Error('알 수 없는 요청');
+  return worker.request(req as never);
+});
 
 function createWindow(): void {
   win = new BrowserWindow({

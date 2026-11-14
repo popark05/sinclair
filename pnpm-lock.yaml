@@ -259,6 +259,18 @@ importers:
       '@heroicons/react':
         specifier: 2.2.0
         version: 2.2.0(react@19.1.1)
+      '@sinclair/agent':
+        specifier: workspace:*
+        version: link:../../packages/agent
+      '@sinclair/device-layer':
+        specifier: workspace:*
+        version: link:../../packages/device-layer
+      '@sinclair/engine-mobile':
+        specifier: workspace:*
+        version: link:../../packages/engine-mobile
+      '@sinclair/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       '@sinclair/runner':
         specifier: workspace:*
         version: link:../../packages/runner

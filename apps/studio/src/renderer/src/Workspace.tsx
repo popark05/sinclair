@@ -13,6 +13,7 @@ import { useMediaQuery } from '@astryxdesign/core/hooks';
 import { AppShell } from '@astryxdesign/core/AppShell';
 import { DevicePhoneMobileIcon, ChatBubbleLeftRightIcon, Squares2X2Icon } from '@heroicons/react/24/outline';
 import type { StudioApi, WorkerStatus } from '../../shared/studio-ipc.ts';
+import { Toolbar } from './Toolbar.tsx';
 
 const styles: Record<string, CSSProperties> = {
   contentFill: { height: '100%' },
@@ -47,6 +48,9 @@ export function Workspace({ api }: { api: StudioApi }) {
   const [centerTab, setCenterTab] = useState('session');
   const [drawerTab, setDrawerTab] = useState('log');
   const [inspectorTab, setInspectorTab] = useState('tree');
+  // 고른 기기·앱(03~ 의 기기 화면·세션이 쓴다)
+  const [, setDeviceId] = useState('');
+  const [, setAppId] = useState('');
 
   // 기기 화면은 세로로 길어 기본 폭을 넉넉히(폰 비율), Inspector 는 트리·속성이 읽힐 만큼
   const startPanel = useResizable({ defaultSize: 360, minSize: 240, maxSize: 560, collapsible: true, collapsedSize: 50 });
@@ -55,9 +59,9 @@ export function Workspace({ api }: { api: StudioApi }) {
   const isNarrow = useMediaQuery('(max-width: 768px)');
 
   // AppShell 이 뷰포트(100dvh)를 채우고, 그 안의 ide 레이아웃이 height fill 로 남은 높이를 채운다(루트에 높이가 없으면 내용만큼만 자란다)
-  // 툴바(기기·앱 선택)는 02 에서 topNav 슬롯에
   return (
-    <AppShell height="fill" contentPadding={0} variant="section" mobileNav={false}>
+    <AppShell height="fill" contentPadding={0} variant="section" mobileNav={false}
+      topNav={<Toolbar api={api} onDeviceChange={setDeviceId} onAppChange={setAppId} />}>
     <Layout
       height="fill"
       content={

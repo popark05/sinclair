@@ -6,7 +6,8 @@ import { Workspace } from '../src/renderer/src/Workspace.tsx';
 import type { StudioApi, WorkerStatus } from '../src/shared/studio-ipc.ts';
 
 afterEach(cleanup);
-const api = (status: WorkerStatus): StudioApi => ({ getWorkerStatus: async () => status, onWorkerStatus: () => () => {}, ping: async () => ({ roundTripMs: 3, node: 'v24.13.0' }) });
+const api = (status: WorkerStatus): StudioApi => ({ getWorkerStatus: async () => status, onWorkerStatus: () => () => {}, ping: async () => ({ roundTripMs: 3, node: 'v24.13.0' }),
+  connection: async () => ({ mode: 'own', detail: '직접' }), listDevices: async () => [], foregroundApp: async () => null });
 
 describe('Workspace', () => {
   it('기기·세션·Inspector·로그 네 영역', async () => {

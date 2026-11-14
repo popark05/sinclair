@@ -83,6 +83,8 @@ Plan(`intent/`) → Design(`specs/`, `/architect`로 타입 먼저) → Build(`t
 
 - **재생은 라이브보다 훨씬 빨리 끝난다.** 모델 생각 시간이 없어 2초 만에 끝난 재생 뒤 판정이 아직 비어 있는 검색 결과를 봤다(실기기 YouTube). 녹화 재생은 끝 확인 뒤 화면이 1.5초 잠잠해질 때까지 기다린다. 끝 anchor 는 과반만(자동재생 영상 버튼 같은 우연한 UI), 이름 없는 대상은 자식 글자로 라벨. 2026-11-14.
 
+- **Electron 메인 ↔ plain Node 자식의 IPC 는 `serialization: 'json'`.** 둘의 V8 버전이 달라 `'advanced'`(V8 직렬화) 메시지를 풀지 못한다("Unable to deserialize cloned data") — 같은 Node 로 도는 테스트에서는 드러나지 않는다(Studio 작업 프로세스, 2026-11-14).
+
 ## 참고 프로젝트에서 가져올 것 (2026-11-07 분석 요약)
 
 - **e2e**: 세 동사 분리(locator / act / 판정), `StepExecutor` 교체 구조(툴 루프·decision 모델·ACP), 녹화 캐시(검증 후 기록, descriptor 재탐색, 이어받기, strict 모드, 플러거블 스토어), `defineEngine` 계약과 JSON-RPC 엔진 프로토콜, 닫힌 Zod 툴 스키마와 redaction, trace.md/ai-trace/report 스키마. 약점: 판정은 캐시되지 않음, 코어 7만 줄이라 통째 포크 비현실적.

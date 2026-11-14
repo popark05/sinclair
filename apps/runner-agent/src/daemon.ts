@@ -10,6 +10,7 @@ import { resumeSpool } from './spool.ts';
 import { nodeDeviceProblem, parseNodeReport, type NodeDevice } from '@sinclair/protocol';
 import * as fs from 'node:fs/promises';
 import { fakeDevice, openAndroidNode, type AndroidNode } from './engines.ts';
+import { defaultDiscoveryFile, publishDeviceRpc, unpublishDeviceRpc } from '@sinclair/device-layer';
 import { runInWorker, type WorkerDevice } from './worker.ts';
 
 export interface DaemonArgs extends Omit<RunArgs, 'cycle' | 'target' | 'run'> {
@@ -39,6 +40,8 @@ export interface DaemonDeps extends RunOnceDeps {
   onWorkerSpawn?: (runId: string, pid: number) => void;
   /** 테스트용: Fleet 에 보고할 기기 목록. 없으면 fake 엔진은 가짜 기기 하나, mobile 은 데몬이 소유한 디바이스 백엔드의 목록 */
   inventory?: () => Promise<NodeDevice[]>;
+  /** 디바이스 RPC 발견 파일(Studio 가 읽는다). 기본 OS 데이터 디렉터리/sinclair/device-rpc.json */
+  discoveryFile?: string;
 }
 
 export interface DaemonSummary { runs: Array<{ runId: string; targetId: string; exitCode: ExitCode; leaseLost?: boolean; cancelled?: string }>; resumed: number; stoppedBy: 'signal' | 'maxRuns' }
@@ -120,11 +123,19 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
   const ownsBackend = args.engine === 'mobile' && !deps.createEngine && !deps.inventory; // 테스트가 엔진·인벤토리를 끼우면 USB 를 열지 않는다
   let node: AndroidNode | undefined;
   let lastOpenError = '';
+  const discoveryFile = deps.discoveryFile ?? defaultDiscoveryFile(process.env);
+  let published = false;
   const ensureNode = async (): Promise<AndroidNode | undefined> => {
     if (node || !ownsBackend) return node;
     try {
       node = await openAndroidNode(args, log);
       if (lastOpenError) log('디바이스 백엔드를 열었음');
+      // 같은 머신의 Studio 가 USB 를 다투지 않고 이 데몬의 디바이스 RPC 에 붙도록 포트·토큰을 남긴다(ADR 0005). 실패해도 데몬은 계속
+      try {
+        const rpc = await node.serveRpc();
+        await publishDeviceRpc(discoveryFile, { port: rpc.port, token: rpc.token, pid: process.pid, agentId });
+        published = true;
+      } catch (err) { log(`경고: 디바이스 RPC 발견 파일을 쓰지 못함(Studio 가 붙지 못한다): ${err instanceof Error ? err.message : String(err)}`); }
       lastOpenError = '';
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -351,6 +362,7 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
     reportsStopped = true;
     clearTimeout(reportTimer);
     await inFlight; // 진행 중이던 인벤토리가 백엔드를 쓰는 동안 닫지 않는다
+    if (published) await unpublishDeviceRpc(discoveryFile, process.pid);
     await node?.close().catch(() => undefined);
   }
 }
