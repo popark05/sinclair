@@ -159,3 +159,49 @@ describe('sweepAbandoned · SQLite 두 핸들', () => {
     await rm(dir, { recursive: true, force: true });
   });
 });
+
+// 대체 Run 은 돌지 못한 케이스만(replacement-remaining 02): 등록에 settled(사슬에서 결과가 확정된 testId) — 에이전트가 건너뛴다
+describe('sweepAbandoned · 대체 Run 의 settled', () => {
+  /** testId → 결과(undefined 면 시작만 함). errorCode 는 취소 skipped 용 */
+  const attempts = (runId: string, s: number, cases: Array<[string, 'passed' | 'failed' | 'skipped' | undefined, string?]>, end?: 'cancelled'): RunEvent[] => [
+    { ...base(`st-${runId}`, s, runId), type: 'run.started', cycleId: 'c1', targetId: 'android' },
+    ...cases.flatMap(([testId, result, errorCode], i): RunEvent[] => [
+      { ...base(`as-${runId}-${i}`, s + 1 + i * 2, runId), type: 'attempt.started', attemptId: `${runId}-${i}`, testId, attemptNo: 1 },
+      ...(result ? [{ ...base(`af-${runId}-${i}`, s + 2 + i * 2, runId), type: 'attempt.finished' as const, attemptId: `${runId}-${i}`, result, ...(errorCode ? { errorCode } : {}), artifacts: [] }] : []),
+    ]),
+    ...(end ? [{ ...base(`end-${runId}`, s + 50, runId), type: 'run.finished' as const, state: end }] : []),
+  ];
+  const claim = (agent: string, nowMs: number) => cycles.claimRun('android', agent, nowMs, GRACE, async (id) => (await events.eventsForRun(id)).length > 0);
+
+  it('버려진 Run: passed·작성자 skipped 만 settled — failed·끝나지 않음·취소 skipped 는 다시 돈다', async () => {
+    await claim('a1', T0);
+    for (const e of attempts('r-a', 0, [['A', 'passed'], ['B', 'failed'], ['D', 'skipped'], ['C', undefined]])) await events.append(e);
+    await sweep(T0 + 2 * GRACE);
+    expect((await cycles.runsForCycle('c1')).find((r) => r.runId === REP1)).toMatchObject({ replaces: 'r-a', settled: ['A', 'D'] });
+  });
+
+  it('취소된 Run: 취소로 시작하지 못한 케이스(skipped errorCode cancelled)는 settled 가 아니다', async () => {
+    await claim('a1', T0);
+    for (const e of attempts('r-a', 0, [['A', 'passed'], ['B', 'skipped', 'cancelled']], 'cancelled')) await events.append(e);
+    await sweep(T0 + 1000);
+    expect((await cycles.runsForCycle('c1')).find((r) => r.runId === REP1)).toMatchObject({ replaceReason: 'cancelled', settled: ['A'] });
+  });
+
+  it('대체 Run 이 또 대체되면 사슬 전체의 settled 를 잇는다', async () => {
+    // 한도와 무관하게 사슬을 만들려고 취소 대체(retryLimit 을 쓰지 않음)로 두 번
+    await claim('a1', T0);
+    for (const e of attempts('r-a', 0, [['A', 'passed'], ['B', 'skipped', 'cancelled']], 'cancelled')) await events.append(e);
+    await sweep(T0 + 1000);
+    await claim('a2', T0 + 2000);
+    for (const e of attempts(REP1, 100, [['B', 'passed'], ['C', 'skipped', 'cancelled']], 'cancelled')) await events.append(e);
+    await sweep(T0 + 3000);
+    expect((await cycles.runsForCycle('c1')).find((r) => r.runId === replacementRunId(REP1))).toMatchObject({ replaces: REP1, settled: ['A', 'B'] });
+  });
+
+  it('settled 가 없으면(끝난 케이스 없음) 필드를 두지 않는다', async () => {
+    await claim('a1', T0);
+    for (const e of started('r-a', 0)) await events.append(e);
+    await sweep(T0 + 2 * GRACE);
+    expect((await cycles.runsForCycle('c1')).find((r) => r.runId === REP1)!.settled).toBeUndefined();
+  });
+});

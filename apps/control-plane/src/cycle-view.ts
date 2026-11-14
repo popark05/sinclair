@@ -3,7 +3,7 @@ import type { CycleStore, RunRegistration } from './cycle-store.ts';
 import { leaseExpired } from './cycle-store.ts';
 import { projectRun, type RunView } from './projection.ts';
 import type { EventStore } from './store.ts';
-import { computeCycle, DEFAULT_RETRY_LIMIT, type CycleView } from './verdict.ts';
+import { computeCycle, settledTests, DEFAULT_RETRY_LIMIT, type CycleView } from './verdict.ts';
 
 /** 합성 종료 이벤트 id. 같은 Run 을 몇 번(두 서버가 동시에라도) 처리해도 Ingest 가 하나로 받는다 */
 export const abandonedEventId = (runId: string): string => `abandoned:${runId}`;
@@ -61,7 +61,7 @@ export async function sweepAbandoned(events: EventStore, cycles: CycleStore, cyc
     if (stored.length === 0) continue; // 아직 시작도 안 한 Run 은 클레임 규칙(lease 만료 재클레임)이 다룬다
     const view = projectRun(stored);
     if (view.state === 'cancelled') {
-      if (await replace(reg, 'cancelled', cancelUsed, MAX_CANCEL_REPLACEMENTS)) bump(cancelUsed, reg.targetId);
+      if (await replace(reg, 'cancelled', cancelUsed, MAX_CANCEL_REPLACEMENTS, settledTests(view, reg.settled))) bump(cancelUsed, reg.targetId);
       continue;
     }
     if (!stale || view.state === 'finished' || view.state === 'infra-failed') continue;
@@ -69,12 +69,12 @@ export async function sweepAbandoned(events: EventStore, cycles: CycleStore, cyc
     const abandonedAt = new Date(opts.nowMs).toISOString();
     await events.append({ schema: 1, eventId: abandonedEventId(reg.runId), runId: reg.runId, at: abandonedAt, type: 'run.finished', state: 'infra-failed' });
     result.abandoned.push(reg.runId);
-    if (await replace(reg, undefined, used, limit)) bump(used, reg.targetId); // 한도 소진이면 infra-failed 로 남아 Cycle 은 blocked
+    if (await replace(reg, undefined, used, limit, settledTests(view, reg.settled))) bump(used, reg.targetId); // 한도 소진이면 infra-failed 로 남아 Cycle 은 blocked
   }
   return result;
 
   /** 대체 Run 등록 + 원래 Run 표시. 새로 등록했으면 true */
-  async function replace(reg: RunRegistration, reason: 'cancelled' | undefined, counter: Map<string, number>, max: number): Promise<boolean> {
+  async function replace(reg: RunRegistration, reason: 'cancelled' | undefined, counter: Map<string, number>, max: number, settled: string[]): Promise<boolean> {
     const at = new Date(opts.nowMs).toISOString();
     const abandonedAt = reason ? undefined : at;
     // 앞선 정리가 등록까지 하고 죽었으면 한도와 무관하게 표시만 마친다
@@ -82,7 +82,7 @@ export async function sweepAbandoned(events: EventStore, cycles: CycleStore, cyc
     if (existing) { await cycles.markReplaced(reg.runId, existing.runId, abandonedAt); return false; }
     if ((counter.get(reg.targetId) ?? 0) >= max) return false;
     // 등록을 먼저, 표시를 나중에: 둘 사이에 죽어도 다음 정리가 같은 id 로 다시 와서 표시만 마친다(반대 순서면 존재하지 않는 Run 을 가리킨 채 영영 건너뛴다)
-    const replacement: RunRegistration = { runId: replacementRunId(reg.runId), cycleId, targetId: reg.targetId, createdAt: at, replaces: reg.runId, ...(reason ? { replaceReason: reason } : {}) };
+    const replacement: RunRegistration = { runId: replacementRunId(reg.runId), cycleId, targetId: reg.targetId, createdAt: at, replaces: reg.runId, ...(reason ? { replaceReason: reason } : {}), ...(settled.length ? { settled } : {}) };
     const registered = await cycles.registerRun(replacement);
     await cycles.markReplaced(reg.runId, replacement.runId, abandonedAt);
     if (registered !== 'registered') return false; // 다른 서버가 먼저 만들었다

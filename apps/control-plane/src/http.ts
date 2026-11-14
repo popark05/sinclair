@@ -378,7 +378,8 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         const cycle = await cycles.getCycle(run.cycleId);
         // 구버전 에이전트(devices 없음)도 지금처럼 Run 을 받는다. 다만 기기 lease 가 없어 같은 기기를 다른 Run 이 동시에 쓸 수 있음을 알린다
         const warning = devices ? undefined : '기기 없이 클레임함: 기기 lease 가 없어 다른 Run 과 같은 기기를 동시에 쓸 수 있음(에이전트를 올리면 사라진다)';
-        return json(res, 200, { run, leaseTtlMs: ttl, ...(cycle?.suite ? { suite: cycle.suite } : {}), ...(warning ? { warning } : {}) });
+        // 대체 Run: 앞 Run 에서 결과가 확정된 케이스는 건너뛴다(replacement-remaining 02)
+        return json(res, 200, { run, leaseTtlMs: ttl, ...(cycle?.suite ? { suite: cycle.suite } : {}), ...(run.settled?.length ? { skipTests: run.settled } : {}), ...(warning ? { warning } : {}) });
       }
       if (req.method === 'POST' && parts[0] === 'runs' && parts.length === 3 && parts[2] === 'heartbeat') {
         const read = await readJson(req, res);

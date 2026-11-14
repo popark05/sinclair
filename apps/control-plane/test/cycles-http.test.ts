@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import type { RunEvent } from '@sinclair/protocol';
 import { FakeEngine, HOME_SCREEN, LOGIN_SCREEN } from '@sinclair/protocol/testing';
 import { runTests } from '@sinclair/runner';
-import { createMemoryEventStore, serveControlPlane, type ControlPlaneServer, type CycleView, type CycleRecord, type RunRegistration } from '../src/index.ts';
+import { createMemoryEventStore, createMemoryCycleStore, serveControlPlane, type ControlPlaneServer, type CycleView, type CycleRecord, type RunRegistration } from '../src/index.ts';
 import { base } from './fixtures.ts';
 
 let server: ControlPlaneServer;
@@ -241,7 +241,7 @@ describe('버려진 Run 과 대체 Run (HTTP)', () => {
     expect(r1).toMatchObject({ runId: 'r1', state: 'infra-failed', replacedBy: rep!.runId, abandonedAt: new Date(now).toISOString() });
     expect(rep).toMatchObject({ targetId: 'android', state: 'queued', replaces: 'r1' });
     expect(view).toMatchObject({ state: 'running', verdict: 'incomplete', retriesUsed: { android: 1 } });
-    expect(view.matrix['로그인']).toBeUndefined(); // 대체된 run 의 케이스는 판정에서 빠진다(blocked 가 아님)
+    expect(view.matrix['로그인']).toEqual({}); // 대체된 run 에서 끝나지 않은 케이스는 이어받지 않는다: 대체 Run 이 채울 때까지 빈 행
     // 원래 에이전트의 heartbeat 는 이제 409 replaced: 이걸 받아야 취소한다
     const hb = await post('/runs/r1/heartbeat', { agentId: 'a1' });
     expect(hb.status).toBe(409);
@@ -275,5 +275,19 @@ describe('버려진 Run 과 대체 Run (HTTP)', () => {
     const created = (await (await post('/cycles', { cycleId: 'cd', build: 'b', targets: ['android'] })).json()) as CycleRecord;
     expect(created.retryLimit).toBeUndefined();
     expect((await get('/cycles/cd')).retryLimit).toBe(1);
+  });
+});
+
+// 대체 Run 은 돌지 못한 케이스만(replacement-remaining 02): 클레임 응답에 skipTests(등록의 settled)
+describe('대체 Run 클레임의 skipTests', () => {
+  it('settled 가 있는 대체 Run 을 클레임하면 skipTests 로 받고, 보통 Run 에는 없다', async () => {
+    await server.close();
+    const cycles = createMemoryCycleStore();
+    server = await serveControlPlane(createMemoryEventStore(), { cycles });
+    await cycles.createCycle({ cycleId: 'cx', build: 'b', targets: ['android'], requiredTags: [], createdAt: 'x' });
+    await cycles.registerRun({ runId: 'retry:r0', cycleId: 'cx', targetId: 'android', createdAt: 'x', replaces: 'r0', settled: ['A', 'B'] });
+    expect(await (await post('/runs/claim', { targetId: 'android', agentId: 'a' })).json()).toMatchObject({ run: { runId: 'retry:r0' }, skipTests: ['A', 'B'] });
+    await cycles.registerRun({ runId: 'r9', cycleId: 'cx', targetId: 'android', createdAt: 'y' });
+    expect(Object.hasOwn(await (await post('/runs/claim', { targetId: 'android', agentId: 'b' })).json() as object, 'skipTests')).toBe(false);
   });
 });

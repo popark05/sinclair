@@ -53,6 +53,19 @@ function lastFinished(attempts: AttemptView[]): AttemptView | undefined {
   return attempts.filter((a) => a.result !== undefined).sort((x, y) => (y.attemptNo ?? 0) - (x.attemptNo ?? 0))[0];
 }
 
+/** 이 Run 에서 결과가 확정된 testId(마지막 끝난 시도가 passed, 또는 작성자 skipped). failed 는 확정이 아니다 — 버려지거나 취소된 Run 의 실패는
+ *  죽어 가던 환경 탓일 수 있고 남은 재시도를 못 했을 수 있어 대체 Run 이 다시 돈다. 취소로 시작하지 못한 skipped 는 돌지 못한 것이다 */
+export function settledTests(view: { attempts: AttemptView[] }, inherited: readonly string[] = []): string[] {
+  const out = [...inherited];
+  const ids = [...new Set(view.attempts.map((a) => a.testId).filter((t): t is string => !!t))];
+  for (const id of ids) {
+    const last = lastFinished(view.attempts.filter((a) => a.testId === id));
+    const done = last && (last.result === 'passed' || (last.result === 'skipped' && last.errorCode !== CANCELLED_CODE));
+    if (done && !out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
 function caseVerdict(attempts: AttemptView[]): CaseCell | undefined {
   const last = lastFinished(attempts);
   if (!last) return undefined;
@@ -69,8 +82,12 @@ export function computeCycle(cycle: CycleRecord, registrations: RunRegistration[
     ...(view?.agentId ? { agentId: view.agentId } : {}), ...(view?.deviceId ? { deviceId: view.deviceId } : {}),
     ...(reg.replaces ? { replaces: reg.replaces } : {}), ...(reg.replaceReason ? { replaceReason: reg.replaceReason } : {}), ...(reg.replacedBy ? { replacedBy: reg.replacedBy } : {}), ...(reg.abandonedAt ? { abandonedAt: reg.abandonedAt } : {}),
   }));
-  // 대체된(버려진) run 은 매트릭스·판정에서 뺀다: 그 몫은 대체 Run 이 한다. 행에는 이력으로 남긴다
+  // 대체된(버려지거나 취소된) run 은 상태 판정에서 뺀다: 그 몫은 대체 Run 이 한다. 행에는 이력으로 남긴다.
+  // 다만 그 Run 에서 끝난 시도는 매트릭스에 이어받는다 — 대체 Run 은 결과가 확정된 케이스(settled)를 다시 돌지 않는다
   const runs = all.filter(({ reg }) => !reg.replacedBy);
+  const byRun = new Map(all.map((x) => [x.reg.runId, x.reg]));
+  /** reg 가 대체한 Run 들(사슬을 거슬러) */
+  const ancestors = (reg: RunRegistration): Set<string> => { const s = new Set<string>(); for (let r = reg.replaces; r && !s.has(r); r = byRun.get(r)?.replaces) s.add(r); return s; };
   const live = runRows.filter((r) => !r.replacedBy);
   const retriesUsed: Record<string, number> = Object.fromEntries(cycle.targets.map((t) => [t, all.filter(({ reg }) => reg.targetId === t && reg.replaces && reg.replaceReason !== 'cancelled').length]));
 
@@ -78,17 +95,26 @@ export function computeCycle(cycle: CycleRecord, registrations: RunRegistration[
 
   // 케이스 집합: 이 Cycle 의 run 들이 본 testId 합집합(처음 본 순서)
   const testIds: string[] = [];
-  for (const { view } of runs) for (const a of view?.attempts ?? []) if (a.testId && !testIds.includes(a.testId)) testIds.push(a.testId);
+  for (const { view } of all) for (const a of view?.attempts ?? []) if (a.testId && !testIds.includes(a.testId)) testIds.push(a.testId);
 
   const matrix: CycleView['matrix'] = {};
   for (const testId of testIds) {
     const row: Record<string, CaseCell> = {};
     for (const targetId of cycle.targets) {
-      // 같은 타깃에 run 이 여럿이면 뒤에 등록된 run 이 앞의 결과를 덮는다(재실행)
-      for (const { reg, view } of runs) {
+      // 같은 타깃에 run 이 여럿이면 뒤에 등록된 run 이 앞의 결과를 덮는다(재실행·대체)
+      let from: string | undefined;
+      for (const { reg, view } of all) {
         if (reg.targetId !== targetId) continue;
         const attempts = (view?.attempts ?? []).filter((a) => a.testId === testId);
-        const cell = caseVerdict(attempts);
+        let cell = caseVerdict(attempts);
+        if (reg.replacedBy) {
+          // 대체된 Run: 끝난 결과만 잇는다. 돌지 못함(취소 skipped·끝나지 않음·Run 상태로 채우는 blocked/skipped)은 대체 Run 의 몫
+          if (cell && !(cell.verdict === 'skipped' && lastFinished(attempts)?.errorCode === CANCELLED_CODE)) { row[targetId] = { ...cell, ...(reg.lease?.deviceId ? { deviceId: reg.lease.deviceId } : {}) }; from = reg.runId; }
+          continue;
+        }
+        // 대체 사슬에서 앞 Run 이 failed 였는데 대체 Run 이 통과시켰으면 불안정함을 숨기지 않는다
+        if (cell?.verdict === 'passed' && from && row[targetId]?.verdict === 'failed' && ancestors(reg).has(from)) cell = { ...cell, verdict: 'passed-flaky' };
+        if (cell) from = reg.runId;
         // 러너가 취소로 시작하지 못한 케이스(errorCode cancelled 인 skipped)는 "안 돌기로 한 것" 이 아니라 "돌지 못한 것" 이라 blocked. 작성자의 test.skip 은 그대로 skipped
         const dev = reg.lease?.deviceId ? { deviceId: reg.lease.deviceId } : {};
         if (cell) row[targetId] = { ...(cell.verdict === 'skipped' && lastFinished(attempts)?.errorCode === CANCELLED_CODE ? { ...cell, verdict: 'blocked' as const } : cell), ...dev };

@@ -98,6 +98,8 @@ export interface RunRegistration {
   replacedBy?: string;
   /** 버려진 것으로 정리된 시각. 취소로 대체된 Run 에는 없다 */
   abandonedAt?: string;
+  /** 대체 Run: 대체 사슬에서 결과가 확정된 testId(passed·passed-flaky·작성자 skipped). 에이전트가 건너뛰고 Verdict 는 앞 Run 의 결과를 잇는다(replacement-remaining 02) */
+  settled?: string[];
 }
 
 /** replaced: 버려진 Run 으로 정리돼 대체 Run 이 생겼다. lease 소유자가 그대로여도 연장하지 않는다 — 원래 에이전트가 이걸 받고 취소해야 두 Run 이 같은 몫을 계속 보고하지 않는다 */

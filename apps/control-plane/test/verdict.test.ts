@@ -117,4 +117,22 @@ describe('computeCycle', () => {
     expect(v.matrix.A).toEqual({ android: { verdict: 'passed', attemptId: 'A#1' } });
     expect(v.verdict).toBe('verified');
   });
+
+  // 대체 Run 은 돌지 못한 케이스만 돈다(replacement-remaining 02): 대체된 Run 의 끝난 시도를 사슬 순서로 이어받는다
+  it('대체된 Run 에서 끝난 케이스는 이어받고, 대체 Run 의 결과가 덮으며, 앞에서 failed 뒤 통과면 passed-flaky', () => {
+    const regs = [{ ...reg('r1', 'android'), replacedBy: 'r2' }, { ...reg('r2', 'android'), replaces: 'r1', settled: ['A'] }];
+    const r1 = run('r1', 'android', 'infra-failed', [attempt('A', 1, 'passed'), attempt('B', 1, 'failed'), { ...attempt('C', 1, undefined) }]);
+    const r2 = run('r2', 'android', 'finished', [{ ...attempt('B', 1, 'passed'), attemptId: 'B#r2' }, { ...attempt('C', 1, 'passed'), attemptId: 'C#r2' }]);
+    const view = computeCycle(single, regs, [r1, r2]);
+    expect(view.matrix).toEqual({ A: { android: { verdict: 'passed', attemptId: 'A#1' } }, B: { android: { verdict: 'passed-flaky', attemptId: 'B#r2' } }, C: { android: { verdict: 'passed', attemptId: 'C#r2' } } });
+    expect(view.verdict).toBe('verified');
+  });
+
+  it('대체된 Run 의 돌지 못함(취소 skipped·끝나지 않음)은 이어받지 않는다: 대체 Run 결과가 없으면 그 Run 의 상태로', () => {
+    const regs = [{ ...reg('r1', 'android'), replacedBy: 'r2' }, { ...reg('r2', 'android'), replaces: 'r1' }];
+    const r1 = run('r1', 'android', 'cancelled', [attempt('A', 1, 'passed'), { ...attempt('B', 1, 'skipped'), errorCode: 'cancelled' }]);
+    const view = computeCycle(single, regs, [r1, run('r2', 'android', 'infra-failed', [])]);
+    expect(view.matrix).toEqual({ A: { android: { verdict: 'passed', attemptId: 'A#1' } }, B: { android: { verdict: 'blocked' } } });
+    expect(view.verdict).toBe('blocked');
+  });
 });
