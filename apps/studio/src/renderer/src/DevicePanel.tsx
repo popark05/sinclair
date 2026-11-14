@@ -21,7 +21,8 @@ const styles: Record<string, CSSProperties> = {
   panel: { padding: 'var(--spacing-4)', height: '100%' },
   frame: { position: 'relative', flex: 1, minHeight: 0 },
   screen: { width: '100%', height: '100%', objectFit: 'contain', touchAction: 'none', cursor: 'pointer', outlineOffset: 2, borderRadius: 'var(--radius-2)', display: 'block' },
-  highlight: { position: 'absolute', pointerEvents: 'none', border: '2px solid var(--color-accent)', background: 'var(--color-accent-muted)', borderRadius: 'var(--radius-1)' },
+  highlight: { position: 'absolute', pointerEvents: 'none', border: '2px solid var(--color-accent)', background: 'color-mix(in srgb, var(--color-accent) 12%, transparent)', // 반투명: 테마의 muted 색은 다크에서 불투명이라 큰 노드가 화면을 가린다
+    borderRadius: 'var(--radius-1)' },
 };
 
 export interface DevicePanelProps {
