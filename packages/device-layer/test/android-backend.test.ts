@@ -322,12 +322,31 @@ describe('AndroidBackend 헬퍼 온보딩과 device.dump.ui', () => {
   });
 
   it('서비스가 꺼지고 재활성화도 거부되면 dump.ui 없이 device.info 만으로도 disabled 가 드러난다(능동 재검사)', async () => {
-    const { backend, phone } = helperSetup();
+    const { backend, phone } = helperSetup(undefined, { helperFreshMs: 0 }); // 방금 성공한 요청이 있어도 재검사(아래 테스트가 기본 동작을 본다)
     await backend.listDevices();
     expect((await backend.info('PHONE1')).helper?.state).toBe('ready');
     phone.secureSettings.set('enabled_accessibility_services', '');
     phone.ignoreSettingsPut = true;
     expect((await backend.info('PHONE1')).helper?.state).toBe('disabled');
+  });
+
+  it('최근 헬퍼 요청이 성공했으면 device.info 는 /ping 을 보내지 않는다(Studio 스냅샷 폴링 중에도 데몬의 상태 보고가 헬퍼를 두드리지 않게)', async () => {
+    const { backend, phone } = helperSetup();
+    await backend.listDevices();
+    await backend.dumpUi('PHONE1');
+    const pings = phone.helper.requests.filter((r) => r === 'GET /ping').length;
+    for (let i = 0; i < 3; i++) expect((await backend.info('PHONE1')).helper?.state).toBe('ready');
+    expect(phone.helper.requests.filter((r) => r === 'GET /ping')).toHaveLength(pings);
+  });
+
+  it('/ping 이 한 번 실패해도(바쁨) 곧바로 다시 온보딩하지 않고 한 번 더 확인한다 — 실기에서 바쁜 헬퍼를 죽은 것으로 보고 57번 다시 온보딩했다', async () => {
+    const { backend, phone } = helperSetup(undefined, { helperFreshMs: 0 });
+    await backend.listDevices();
+    const shells = phone.shellCommands.length;
+    phone.helper.failPings = 1;
+    expect((await backend.info('PHONE1')).helper?.state).toBe('ready');
+    // 온보딩(설치 확인 pm path·접근성 settings·토큰 broadcast)이 돌지 않았다
+    expect(phone.shellCommands.slice(shells).filter((c) => /pm path|settings|am broadcast/.test(c))).toEqual([]);
   });
 
   it('기기에 다른 토큰이 심겨 있으면(헬퍼 재시작 등) 재전송으로 복구하고, 재전송도 막히면 unreachable 이다', async () => {
