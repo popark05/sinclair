@@ -58,6 +58,16 @@ describe('Toolbar', () => {
     expect(saved).toEqual([{ controlPlane: 'http://10.0.0.5:4780', testsDir: '/Users/qa/Sinclair/tests' }]);
   });
 
+  it('열기 요청(studio-console 06): selectRequest 로 그 기기를 고르고 앱 id 를 채운다', async () => {
+    const picked: string[] = []; let app = '';
+    const { rerender } = render(<Toolbar api={api()} onDeviceChange={(id) => picked.push(id)} onAppChange={(a) => { app = a; }} />);
+    await screen.findByText('데몬');
+    rerender(<Toolbar api={api({ listDevices: async () => [{ id: 'R3CN30ABCDXLZW', model: 'SM-N981N', osVersion: '13', state: 'device' }, { id: 'PIXEL0000007', model: 'Pixel 7', osVersion: '14', state: 'device' }] })} onDeviceChange={(id) => picked.push(id)} onAppChange={(a) => { app = a; }} selectRequest={{ deviceId: 'PIXEL0000007', app: 'com.example.app', nonce: 1 }} />);
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    expect(picked.at(-1)).toBe('PIXEL0000007');
+    expect(app).toBe('com.example.app');
+  });
+
   it('연결이 없으면 사유를 보인다', async () => {
     render(<Toolbar api={api({ connection: async () => ({ mode: 'none', detail: 'USB 를 열 수 없음' }), listDevices: async () => [] })} onDeviceChange={() => {}} onAppChange={() => {}} />);
     expect(await screen.findByText('연결 없음')).toBeTruthy(); // 불러온 뒤에 나타난다(툴바 자체는 먼저 그려진다)

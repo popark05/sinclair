@@ -29,7 +29,7 @@ ipcMain.handle(STUDIO_CHANNELS.request, async (_e, raw: unknown) => {
   const req = parseStudioRequest(raw);
   if (!req) throw new Error('알 수 없는 요청');
   // Cycle 로 실행·상태: control-plane 주소·테스트 폴더는 설정에서(렌더러가 경로·주소를 정하지 못한다)
-  if (req.kind === 'run-cycle' || req.kind === 'cycle-status') {
+  if (req.kind === 'run-cycle' || req.kind === 'cycle-status' || req.kind === 'open-requests' || req.kind === 'open-ack') {
     const s = await settings.get();
     return worker.request({ ...req, controlPlane: s.controlPlane, ...(req.kind === 'run-cycle' ? { testsDir: s.testsDir } : {}) } as never);
   }

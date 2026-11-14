@@ -26,6 +26,8 @@ const api: StudioApi = {
   expectCheck: (deviceId, query, matcher, expected) => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'expect-check', deviceId, query, matcher, ...(expected !== undefined ? { expected } : {}) }) as Promise<JudgeView>,
   runAsCycle: (input) => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'run-cycle', ...input }),
   cycleStatus: (cycleId) => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'cycle-status', cycleId }),
+  openRequests: (devices) => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'open-requests', devices }),
+  openAck: (id) => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'open-ack', id }),
   openConsole: (url) => ipcRenderer.invoke(STUDIO_CHANNELS.openConsole, url),
   getSettings: () => ipcRenderer.invoke(STUDIO_CHANNELS.getSettings),
   setSettings: (settings) => ipcRenderer.invoke(STUDIO_CHANNELS.setSettings, settings),

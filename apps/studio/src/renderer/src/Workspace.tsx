@@ -11,7 +11,8 @@ import { AppShell } from '@astryxdesign/core/AppShell';
 import type { StudioApi, WorkerStatus } from '../../shared/studio-ipc.ts';
 import { Toolbar } from './Toolbar.tsx';
 import { DevicePanel } from './DevicePanel.tsx';
-import { snapshotIntervalFor, useDeviceInUse, useSnapshot, useWindowActivity } from './useSnapshot.ts';
+import { snapshotIntervalFor, useDeviceInUse, useOpenRequests, useSnapshot, useWindowActivity } from './useSnapshot.ts';
+import type { SelectRequest } from './Toolbar.tsx';
 import { Inspector } from './Inspector.tsx';
 import { SessionPanel, type JudgeTarget } from './SessionPanel.tsx';
 import { findNode, locatorCandidates } from '../../shared/locators.ts';
@@ -62,6 +63,14 @@ export function Workspace({ api }: { api: StudioApi }) {
   const refreshScreen = screen.refresh;
   const onTurn = useCallback(() => refreshScreen(), [refreshScreen]);
   const [selectedRef, setSelectedRef] = useState<string>();
+  // Console → Studio 열기 요청(studio-console 06): 그 기기를 고르고 목표·앱을 채운다(실행은 사람이)
+  const [selectRequest, setSelectRequest] = useState<SelectRequest>();
+  const [goalRequest, setGoalRequest] = useState<{ goal: string; label: string; nonce: number }>();
+  useOpenRequests(api, (r) => {
+    const nonce = Date.now();
+    setSelectRequest({ deviceId: r.deviceId, ...(r.app ? { app: r.app } : {}), nonce });
+    setGoalRequest({ goal: r.goal ?? '', label: [r.from?.testId, r.from?.cycleId].filter(Boolean).join(' · ') || '케이스', nonce });
+  });
   // 요소 판정 대상(studio 09): 고른 노드의, 지금 화면에서 하나로 정해지는 첫 locator 후보. 없으면 요소 판정을 할 수 없다
   const target = useMemo((): JudgeTarget | undefined => {
     const root = screen.snapshot?.root;
@@ -82,7 +91,7 @@ export function Workspace({ api }: { api: StudioApi }) {
   // AppShell 이 뷰포트(100dvh)를 채우고, 그 안의 ide 레이아웃이 height fill 로 남은 높이를 채운다(루트에 높이가 없으면 내용만큼만 자란다)
   return (
     <AppShell height="fill" contentPadding={0} variant="section" mobileNav={false}
-      topNav={<Toolbar api={api} onDeviceChange={(id, label) => { setDeviceId(id); setDeviceLabel(label ?? ''); }} onAppChange={setAppId} />}>
+      topNav={<Toolbar api={api} onDeviceChange={(id, label) => { setDeviceId(id); setDeviceLabel(label ?? ''); }} onAppChange={setAppId} {...(selectRequest ? { selectRequest } : {})} />}>
     <Layout
       height="fill"
       content={
@@ -110,7 +119,7 @@ export function Workspace({ api }: { api: StudioApi }) {
                           <Tab label="세션" value="session" />
                         </TabList>
                         <StackItem size="fill" style={styles.editorArea}>
-                          <SessionPanel api={api} deviceId={deviceId} appId={appId} onBusyChange={setSessionBusy} onTurn={onTurn} deviceInUse={deviceInUse} {...(deviceLabel ? { deviceLabel } : {})} {...(target ? { target } : {})} />
+                          <SessionPanel api={api} deviceId={deviceId} appId={appId} onBusyChange={setSessionBusy} onTurn={onTurn} deviceInUse={deviceInUse} {...(deviceLabel ? { deviceLabel } : {})} {...(goalRequest ? { goalRequest } : {})} {...(target ? { target } : {})} />
                         </StackItem>
                         <ResizeHandle direction="vertical" hasDivider isReversed isAlwaysVisible={false} resizable={bottomPanel.props} label="로그 드로어 크기 조절" />
                         {!bottomPanel.isCollapsed && (

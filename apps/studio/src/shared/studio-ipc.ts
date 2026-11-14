@@ -2,6 +2,9 @@
 // 모두 구조화 복제 가능한 평범한 데이터만. 작업 프로세스에서 온 메시지는 parseFromWorker 를 지나야 쓴다.
 import type { CacheAction, CacheTarget, SemanticNode } from '@sinclair/protocol';
 import type { StudioSettings } from './settings.ts';
+
+/** Console 이 남긴 열기 요청(control-plane /studio/open-requests) */
+export interface OpenRequestView { id: string; deviceId: string; goal?: string; app?: string; from?: { cycleId?: string; testId?: string; targetId?: string }; createdAt: string }
 import { EXPECT_MATCHERS, isExpectMatcher, parseLocatorQuery, type ExpectMatcher, type JudgeQuery } from './expect-judge.ts';
 
 /** 렌더러 ↔ 메인 채널(ipcMain.handle / webContents.send) */
@@ -45,6 +48,9 @@ export type StudioRequest =
   /** Cycle 로 실행(studio-console 04): 렌더러는 이름·코드·기기만. controlPlane·testsDir 는 메인이 설정에서 넣는다 */
   | { kind: 'run-cycle'; deviceId: string; deviceLabel: string; testName: string; code: string; controlPlane?: string; testsDir?: string }
   | { kind: 'cycle-status'; cycleId: string; controlPlane?: string }
+  /** Console → Studio 열기 요청(studio-console 06): 연결된 기기들의 요청, 처리 표시 */
+  | { kind: 'open-requests'; devices: string[]; controlPlane?: string }
+  | { kind: 'open-ack'; id: string; controlPlane?: string }
   | { kind: 'save-recording'; controlPlane: string; testId: string; goal: string; app: string; recording: { actions: CacheAction[]; end: { anchors: CacheTarget[] } } };
 
 /** 에이전트를 쓸 수 있는가(자격 증명·API 연결 — 과금 없는 점검). 못 쓰면 사유 */
@@ -90,7 +96,7 @@ export interface StudioDevice { id: string; model: string; osVersion: string; st
 
 /** 요청별 응답 타입 */
 export interface StudioResponses { connection: ConnectionInfo; devices: StudioDevice[]; 'foreground-app': string | null; snapshot: StudioSnapshot; tap: null; swipe: null; text: null; key: null; button: null;
-  'agent-status': AgentStatus; 'session-start': { sessionId: string }; 'session-stop': null; 'session-assert': JudgeView; 'expect-check': JudgeView; 'save-recording': { key: string }; 'run-cycle': { cycleId: string; consoleUrl: string; file: string }; 'cycle-status': { state: string; verdict: string; runState?: string } }
+  'agent-status': AgentStatus; 'session-start': { sessionId: string }; 'session-stop': null; 'session-assert': JudgeView; 'expect-check': JudgeView; 'save-recording': { key: string }; 'run-cycle': { cycleId: string; consoleUrl: string; file: string }; 'cycle-status': { state: string; verdict: string; runState?: string }; 'open-requests': OpenRequestView[]; 'open-ack': null }
 
 /** 작업 프로세스 상태: 띄우는 중 → 준비됨 → (죽으면) 종료됨 */
 export interface WorkerStatus {
@@ -137,6 +143,8 @@ export function parseStudioRequest(v: unknown): StudioRequest | undefined {
   if (v.kind === 'connection') return { kind: 'connection' };
   if (v.kind === 'devices') return { kind: 'devices' };
   if (v.kind === 'agent-status') return { kind: 'agent-status' };
+  if (v.kind === 'open-requests') return Array.isArray(v.devices) && v.devices.length <= 20 && v.devices.every((d) => typeof d === 'string' && d.length > 0 && d.length <= 128) ? { kind: 'open-requests', devices: v.devices as string[] } : undefined;
+  if (v.kind === 'open-ack') return typeof v.id === 'string' && /^[0-9a-f-]{8,64}$/.test(v.id) ? { kind: 'open-ack', id: v.id } : undefined;
   if (v.kind === 'cycle-status') return typeof v.cycleId === 'string' && /^[A-Za-z0-9._-]{1,120}$/.test(v.cycleId) ? { kind: 'cycle-status', cycleId: v.cycleId } : undefined;
   if (v.kind === 'run-cycle') {
     const ok = typeof v.deviceId === 'string' && v.deviceId && typeof v.deviceLabel === 'string' && v.deviceLabel.length <= 120
@@ -193,6 +201,9 @@ export interface StudioApi {
   runAsCycle(input: { deviceId: string; deviceLabel: string; testName: string; code: string }): Promise<{ cycleId: string; consoleUrl: string; file: string }>;
   cycleStatus(cycleId: string): Promise<{ state: string; verdict: string; runState?: string }>;
   openConsole(url: string): Promise<void>;
+  /** Console → Studio 열기 요청(studio-console 06) */
+  openRequests(devices: string[]): Promise<OpenRequestView[]>;
+  openAck(id: string): Promise<void>;
   getSettings(): Promise<StudioSettings>;
   setSettings(s: StudioSettings): Promise<StudioSettings>;
   getWorkerStatus(): Promise<WorkerStatus>;

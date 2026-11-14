@@ -3,7 +3,7 @@
 // 기기 줄을 다퉈 재생 act 가 7초 → 11~14초로 느려졌다(실기 2026-11-14) — 보지 않는 Studio 는 기기를 양보한다.
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { renderHook, act, cleanup } from '@testing-library/react';
-import { useWindowActivity, useDeviceInUse, snapshotIntervalFor, SNAPSHOT_INTERVAL_MS, SNAPSHOT_BACKGROUND_INTERVAL_MS, SNAPSHOT_IN_USE_INTERVAL_MS, DEVICE_IN_USE_POLL_MS } from '../src/renderer/src/useSnapshot.ts';
+import { useWindowActivity, useDeviceInUse, useOpenRequests, OPEN_REQUEST_POLL_MS, snapshotIntervalFor, SNAPSHOT_INTERVAL_MS, SNAPSHOT_BACKGROUND_INTERVAL_MS, SNAPSHOT_IN_USE_INTERVAL_MS, DEVICE_IN_USE_POLL_MS } from '../src/renderer/src/useSnapshot.ts';
 import type { StudioApi } from '../src/shared/studio-ipc.ts';
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -49,6 +49,27 @@ describe('useDeviceInUse', () => {
     busy = true;
     await act(async () => { await vi.advanceTimersByTimeAsync(DEVICE_IN_USE_POLL_MS + 10); });
     expect(result.current).toBe(true);
+    vi.useRealTimers();
+  });
+});
+
+describe('useOpenRequests(studio-console 06)', () => {
+  it('연결된(state device) 기기들의 열기 요청을 주기적으로 묻고, 오면 알리고 ack 한다', async () => {
+    vi.useFakeTimers();
+    const calls: unknown[] = [];
+    const got: unknown[] = [];
+    let pending = [{ id: 'q1', deviceId: 'D1', goal: '로그인', createdAt: 'x' }];
+    const api = {
+      listDevices: async () => [{ id: 'D1', model: 'M', osVersion: '13', state: 'device' }, { id: 'D2', model: 'M', osVersion: '13', state: 'unauthorized' }],
+      openRequests: async (devices: string[]) => { calls.push(['list', devices]); const r = pending; pending = []; return r; },
+      openAck: async (id: string) => { calls.push(['ack', id]); },
+    } as unknown as StudioApi;
+    renderHook(() => useOpenRequests(api, (r) => got.push(r)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    expect(got).toEqual([expect.objectContaining({ id: 'q1', goal: '로그인' })]);
+    expect(calls).toEqual([['list', ['D1']], ['ack', 'q1']]);
+    await act(async () => { await vi.advanceTimersByTimeAsync(OPEN_REQUEST_POLL_MS + 10); });
+    expect(got).toHaveLength(1);
     vi.useRealTimers();
   });
 });

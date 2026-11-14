@@ -1,7 +1,7 @@
 // 기기 화면 폴링(studio 03): 고른 기기의 스냅샷(스크린샷 + 트리)을 주기적으로 받는다. 겹쳐 묻지 않고, 조작 뒤에는 곧바로 다시 받는다.
 // 같은 스냅샷을 Device 패널과 Inspector(04)가 함께 쓴다 — 화면과 트리가 늘 같은 순간이다.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { StudioApi, StudioSnapshot } from '../../shared/studio-ipc.ts';
+import type { OpenRequestView, StudioApi, StudioSnapshot } from '../../shared/studio-ipc.ts';
 
 /** 초당 2장 남짓: 헬퍼의 원자 스냅샷 한 번이 수백 ms 라 그보다 자주 물어도 쌓이기만 한다 */
 export const SNAPSHOT_INTERVAL_MS = 500;
@@ -93,4 +93,33 @@ export function useSnapshot(api: StudioApi, deviceId: string, opts: { paused?: b
   }, [deviceId, fetchOnce, paused, intervalMs]);
 
   return { ...(snapshot ? { snapshot } : {}), ...(error ? { error } : {}), refresh: () => void fetchOnce() };
+}
+
+/** Console → Studio 열기 요청을 묻는 간격(control-plane 만 — 기기 줄을 쓰지 않는다) */
+export const OPEN_REQUEST_POLL_MS = 3_000;
+
+/** Console 이 남긴 열기 요청(studio-console 06): 연결된(state device) 기기들의 요청을 주기적으로 묻고, 오면 알리고 ack 한다 */
+export function useOpenRequests(api: StudioApi, onRequest: (r: OpenRequestView) => void): void {
+  const cb = useRef(onRequest);
+  cb.current = onRequest;
+  useEffect(() => {
+    let alive = true;
+    let busy = false;
+    const check = async (): Promise<void> => {
+      if (busy) return;
+      busy = true;
+      try {
+        const devices = (await api.listDevices()).filter((d) => d.state === 'device').map((d) => d.id);
+        if (!devices.length) return;
+        for (const r of await api.openRequests(devices)) {
+          if (!alive) return;
+          cb.current(r);
+          await api.openAck(r.id);
+        }
+      } catch { /* control-plane 이 없거나 설정 전: 다음 차례에 */ } finally { busy = false; }
+    };
+    void check();
+    const timer = setInterval(() => void check(), OPEN_REQUEST_POLL_MS);
+    return () => { alive = false; clearInterval(timer); };
+  }, [api]);
 }

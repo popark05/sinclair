@@ -48,6 +48,10 @@ describe('studio IPC 계약', () => {
     expect(parseStudioRequest({ kind: 'run-cycle', deviceId: 'S', deviceLabel: 'M (…S)', testName: 'YouTube 검색', code: 'x', testsDir: '/etc', controlPlane: 'http://evil' })).toEqual({ kind: 'run-cycle', deviceId: 'S', deviceLabel: 'M (…S)', testName: 'YouTube 검색', code: 'x' });
     expect(parseStudioRequest({ kind: 'cycle-status', cycleId: 'studio-20261114-1' })).toEqual({ kind: 'cycle-status', cycleId: 'studio-20261114-1' });
     for (const bad of [{ kind: 'run-cycle', deviceId: 'S', deviceLabel: 'M', testName: '', code: 'x' }, { kind: 'run-cycle', deviceId: 'S', deviceLabel: 'M', testName: 'n', code: 'x'.repeat(MAX_EXPORT_BYTES + 1) }, { kind: 'cycle-status', cycleId: '../x' }]) expect(parseStudioRequest(bad), JSON.stringify(bad).slice(0, 80)).toBeUndefined();
+    // Console → Studio(studio-console 06): 기기 id 목록·요청 id 만(control-plane 은 메인이)
+    expect(parseStudioRequest({ kind: 'open-requests', devices: ['D1', 'D2'] })).toEqual({ kind: 'open-requests', devices: ['D1', 'D2'] });
+    expect(parseStudioRequest({ kind: 'open-ack', id: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' })).toEqual({ kind: 'open-ack', id: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' });
+    for (const bad of [{ kind: 'open-requests', devices: 'D1' }, { kind: 'open-requests', devices: Array(21).fill('D') }, { kind: 'open-ack', id: '../x' }]) expect(parseStudioRequest(bad), JSON.stringify(bad)).toBeUndefined();
     // 요소 판정(studio 09): 닫힌 질의·검사 종류, 값은 값이 있는 검사에만
     expect(parseStudioRequest({ kind: 'expect-check', deviceId: 'S', query: { text: '창신동', exact: true }, matcher: 'visible' })).toEqual({ kind: 'expect-check', deviceId: 'S', query: { text: '창신동', exact: true }, matcher: 'visible' });
     expect(parseStudioRequest({ kind: 'expect-check', deviceId: 'S', query: { testId: 'a:id/q' }, matcher: 'value', expected: '사과' })).toEqual({ kind: 'expect-check', deviceId: 'S', query: { testId: 'a:id/q' }, matcher: 'value', expected: '사과' });

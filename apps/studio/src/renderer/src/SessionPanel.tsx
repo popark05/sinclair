@@ -51,9 +51,11 @@ export interface SessionPanelProps {
   deviceInUse?: boolean;
   /** 기기 표시 이름(Cycle 타깃 열 이름) */
   deviceLabel?: string;
+  /** Console 의 열기 요청(studio-console 06): 목표를 채우고 출처를 보인다(실행은 사람이). nonce 가 바뀔 때마다 */
+  goalRequest?: { goal: string; label: string; nonce: number };
 }
 
-export function SessionPanel({ api, deviceId, appId, onRecord, onBusyChange, onTurn, target, deviceInUse, deviceLabel }: SessionPanelProps) {
+export function SessionPanel({ api, deviceId, appId, onRecord, onBusyChange, onTurn, target, deviceInUse, deviceLabel, goalRequest }: SessionPanelProps) {
   const [matcher, setMatcher] = useState<ExpectMatcher>('visible');
   const [expected, setExpected] = useState('');
   // 대상이 바뀌면 값 칸을 그 노드의 글자·값으로 채운다(글자·값 검사의 출발점)
@@ -64,6 +66,12 @@ export function SessionPanel({ api, deviceId, appId, onRecord, onBusyChange, onT
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [secretName, setSecretName] = useState('');
   const [secretValue, setSecretValue] = useState('');
+  const [openedFrom, setOpenedFrom] = useState('');
+  useEffect(() => {
+    if (!goalRequest) return;
+    if (goalRequest.goal) setGoal(goalRequest.goal);
+    setOpenedFrom(goalRequest.label);
+  }, [goalRequest?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
   const [sessionId, setSessionId] = useState<string>();
   const [record, setRecord] = useState<SessionRecord>();
   const [statement, setStatement] = useState('');
@@ -138,6 +146,7 @@ export function SessionPanel({ api, deviceId, appId, onRecord, onBusyChange, onT
   const why = !deviceId ? '기기를 고르세요' : deviceInUse ? 'Run 이 이 기기를 쓰는 중 — 끝난 뒤 실행하세요' : status && !status.ready ? status.reason : undefined;
   return (
     <Stack as="section" aria-label="세션" direction="vertical" gap={3} style={styles.panel}>
+      {openedFrom ? <Text type="supporting" color="secondary">Console 에서 열림 · {openedFrom} — 목표를 확인하고 실행하세요</Text> : null}
       <TextArea label="목표" value={goal} onChange={(v) => setGoal(v)} rows={2} placeholder='예: YouTube 앱에서 "florence guerin 영화" 를 검색해 결과 목록을 연다' />
       <CheckboxInput
         label="앱 처음부터 시작"

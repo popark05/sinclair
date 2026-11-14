@@ -252,6 +252,13 @@ async function main(): Promise<void> {
   await win.getByRole('status', { name: '툴바 상태' }).getByText('설정 저장함').waitFor({ timeout: 10_000 });
   check('설정 대화상자로 control-plane·테스트 폴더 저장', JSON.parse(fs.readFileSync(path.join(userData, 'settings.json'), 'utf8')).testsDir === studioTests);
 
+  // Console → Studio(studio-console 06): Console 의 'Studio 에서 열기' 와 같은 요청을 control-plane 에 남기면 Studio 가 기기·목표를 채우고 ack
+  await fetch(`${controlPlane}/studio/open-requests`, { method: 'POST', body: JSON.stringify({ deviceId, goal, from: { testId: 'Console 케이스', cycleId: 'verify-open' } }) });
+  await win.getByText(/Console 에서 열림 · Console 케이스/).waitFor({ timeout: 15_000 });
+  const filledGoal = await win.getByLabel('목표').inputValue();
+  const leftOpen = await (await fetch(`${controlPlane}/studio/open-requests?devices=${encodeURIComponent(deviceId)}`)).json() as { requests: unknown[] };
+  check('Console 열기 요청 → Studio 가 목표를 채우고 처리(ack)', filledGoal === goal && leftOpen.requests.length === 0, `목표 ${filledGoal === goal ? '채움' : '다름'} · 남은 요청 ${leftOpen.requests.length}`);
+
   // 화면 클릭 = 탭 + 그 자리 노드 선택(Inspector 하이라이트·locator 후보)
   const box = (await screen.boundingBox())!;
   const fitK = Math.min(box.width / natural.w, box.height / natural.h);

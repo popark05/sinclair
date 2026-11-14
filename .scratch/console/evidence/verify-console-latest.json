@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-10T12:14:48.601Z",
+  "at": "2026-11-14T10:56:09.051Z",
   "ok": true,
   "chrome": "Google Chrome",
   "pages": [
@@ -29,7 +29,7 @@
         }
       ],
       "screenshot": ".e2e/verify-console/cycles.png",
-      "screenshotBytes": 24213
+      "screenshotBytes": 24258
     },
     {
       "page": "cycle",
@@ -54,7 +54,7 @@
         }
       ],
       "screenshot": ".e2e/verify-console/cycle.png",
-      "screenshotBytes": 45701
+      "screenshotBytes": 46474
     },
     {
       "page": "case",
@@ -96,10 +96,14 @@
         {
           "text": "같은 원인의 Issue",
           "found": true
+        },
+        {
+          "text": ">Studio 에서 열기</button>",
+          "found": true
         }
       ],
       "screenshot": ".e2e/verify-console/case.png",
-      "screenshotBytes": 78003
+      "screenshotBytes": 79523
     },
     {
       "page": "fleet",
@@ -140,7 +144,7 @@
         }
       ],
       "screenshot": ".e2e/verify-console/fleet.png",
-      "screenshotBytes": 41372
+      "screenshotBytes": 41111
     },
     {
       "page": "issues",

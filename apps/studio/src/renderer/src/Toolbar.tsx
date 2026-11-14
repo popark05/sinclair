@@ -16,7 +16,10 @@ const STATE: Record<string, string> = { device: '연결됨', unauthorized: 'USB 
 export const maskSerial = (id: string): string => `…${id.slice(-4)}`;
 export const deviceLabel = (d: StudioDevice): string => `${d.model} (${maskSerial(d.id)})`;
 
-export function Toolbar({ api, onDeviceChange, onAppChange }: { api: StudioApi; onDeviceChange: (id: string, label?: string) => void; onAppChange: (app: string) => void }) {
+/** Console 의 열기 요청(studio-console 06): 그 기기를 고르고 앱 id 를 채운다. nonce 가 바뀔 때마다 */
+export interface SelectRequest { deviceId: string; app?: string; nonce: number }
+
+export function Toolbar({ api, onDeviceChange, onAppChange, selectRequest }: { api: StudioApi; onDeviceChange: (id: string, label?: string) => void; onAppChange: (app: string) => void; selectRequest?: SelectRequest }) {
   const [conn, setConn] = useState<ConnectionInfo>();
   const [devices, setDevices] = useState<StudioDevice[]>([]);
   const [device, setDevice] = useState('');
@@ -57,6 +60,26 @@ export function Toolbar({ api, onDeviceChange, onAppChange }: { api: StudioApi; 
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { void load(); }, [api]);
+
+  useEffect(() => {
+    if (!selectRequest) return;
+    let alive = true;
+    void (async () => {
+      try {
+        const list = await api.listDevices(); // 요청의 기기가 목록에 막 들어왔을 수 있다
+        if (!alive) return;
+        setDevices(list);
+        const d = list.find((x) => x.id === selectRequest.deviceId);
+        if (!d) { setNote(`Console 의 요청 기기 …${selectRequest.deviceId.slice(-4)} 가 연결돼 있지 않음`); return; }
+        setDevice(d.id);
+        onDeviceChange(d.id, deviceLabel(d));
+        if (selectRequest.app) { setApp(selectRequest.app); onAppChange(selectRequest.app); }
+        setNote(`Console 에서 열림 — ${deviceLabel(d)}`);
+      } catch (err) { if (alive) setNote(`Console 요청을 열지 못함: ${err instanceof Error ? err.message : String(err)}`); }
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectRequest?.nonce]);
 
   const pickDevice = (id: string): void => { setDevice(id); const d = devices.find((x) => x.id === id); onDeviceChange(id, d ? deviceLabel(d) : undefined); };
   const changeApp = (v: string): void => { setApp(v); onAppChange(v); };

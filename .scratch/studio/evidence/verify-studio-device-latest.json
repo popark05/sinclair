@@ -1,7 +1,7 @@
 {
   "skill": "verify-studio",
   "mode": "device",
-  "at": "2026-11-14T10:38:17.021Z",
+  "at": "2026-11-14T10:54:48.565Z",
   "ok": true,
   "checks": [
     {
@@ -11,7 +11,7 @@
     {
       "name": "기기 화면 스냅샷을 그림",
       "ok": true,
-      "detail": "1080×2400, 기동 2853ms"
+      "detail": "1080×2400, 기동 2778ms"
     },
     {
       "name": "현재 앱 버튼이 앞 화면 앱을 채우고 버튼 옆에 결과",
@@ -21,6 +21,11 @@
     {
       "name": "설정 대화상자로 control-plane·테스트 폴더 저장",
       "ok": true
+    },
+    {
+      "name": "Console 열기 요청 → Studio 가 목표를 채우고 처리(ack)",
+      "ok": true,
+      "detail": "목표 채움 · 남은 요청 0"
     },
     {
       "name": "화면 클릭 → 그 자리 노드 하이라이트",
@@ -42,7 +47,7 @@
     {
       "name": "세션 성공(턴 타임라인 + 결과)",
       "ok": true,
-      "detail": "성공 — 검색창에 \"플로렌스 게랭 데뷔작\"을 입력해 검색했고, 검색어가 표시된 상태로 검색 결과 목록(results)이 열렸다. · 4턴 · 모델 4회 · 입력 4,113 토큰 | 턴: 1. tap @e9 / 2. type @e8 / 3. submit @e8 / 4. done"
+      "detail": "성공 — 검색창에 \"플로렌스 게랭 데뷔작\"을 입력하고 제출했습니다. 화면에 검색어가 표시되고 검색 결과 목록(results)이 열려 있습니다. · 4턴 · 모델 4회 · 입력 4,183 토큰 | 턴: 1. tap @e9 / 2. type @e8 / 3. submit @e8 / 4. done"
     },
     {
       "name": "지금 화면 판정 = 참",
@@ -81,7 +86,7 @@
     {
       "name": "Cycle 로 실행: 테스트 폴더에 쓰고 Cycle 등록",
       "ok": true,
-      "detail": "Cycle studio-20261114103734-48e0 등록 — <tmp>/studio-tests/Studio 검증 2026-11-14-10-37-32 · Cycle/Studio 검증 2026-11-14-10-37-32 · Cycle.sinclair.ts"
+      "detail": "Cycle studio-20261114105405-d7d5 등록 — <tmp>/studio-tests/Studio 검증 2026-11-14-10-54-04 · Cycle/Studio 검증 2026-11-14-10-54-04 · Cycle.sinclair.ts"
     },
     {
       "name": "Cycle 타깃은 고른 기기(deviceId)",
@@ -99,7 +104,7 @@
     {
       "name": "데몬이 내보낸 두 테스트를 Cycle 로 돌려 verified(둘 다 통과)",
       "ok": true,
-      "detail": "Cycle verify-studio-1794652672870 verdict=verified · 자연어=passed, 결정적=passed"
+      "detail": "Cycle verify-studio-1794653664402 verdict=verified · 자연어=passed, 결정적=passed"
     },
     {
       "name": "자연어 act 는 Studio 가 저장한 녹화로 재생(모델 0회)",

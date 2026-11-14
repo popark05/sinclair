@@ -128,6 +128,13 @@ describe('SessionPanel', () => {
     expect(screen.getByText(/Run 이 이 기기를 쓰는 중/)).toBeTruthy();
   });
 
+  it('열기 요청(studio-console 06): goalRequest 로 목표를 채우고 어디서 왔는지 보인다(실행은 하지 않음)', async () => {
+    const { rerenderWith } = setupWith({});
+    rerenderWith({ goalRequest: { goal: '로그인한다', label: 'Console · 로그인 @smoke', nonce: 1 } });
+    expect(((await screen.findByRole('textbox', { name: '목표' })) as HTMLTextAreaElement).value).toBe('로그인한다');
+    expect(screen.getByText(/Console 에서 열림 · Console · 로그인 @smoke/)).toBeTruthy();
+  });
+
   it('실행 중에는 중지 버튼', async () => {
     const { calls } = setup();
     fireEvent.change(await screen.findByRole('textbox', { name: '목표' }), { target: { value: '오래' } });

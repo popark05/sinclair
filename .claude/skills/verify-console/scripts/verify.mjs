@@ -68,7 +68,7 @@ try {
     { name: 'cycles', path: '/console/', expect: ['verify-1.0', '끝남'] },
     // 셀 클래스로 판정한다(머리말·범례의 '실패'·'통과' 글자는 매트릭스가 비어도 늘 있다)
     { name: 'cycle', path: `/console/cycles/${cycleId}`, expect: ['class="cell cell-failed"><a', 'class="cell cell-passed"><a', 'verify-node', '…fake'] },
-    { name: 'case', path: `/console/cycles/${cycleId}/cases/${encodeURIComponent(failing)}/android`, expect: ['시도 1', 'not-found', 'locator', '→ 실패', '이 테스트의 이력', 'alt="시도 1 의 마지막 화면"', '.screen-tree.json</a>', 'href="/console/issues#', '같은 원인의 Issue'] },
+    { name: 'case', path: `/console/cycles/${cycleId}/cases/${encodeURIComponent(failing)}/android`, expect: ['시도 1', 'not-found', 'locator', '→ 실패', '이 테스트의 이력', 'alt="시도 1 의 마지막 화면"', '.screen-tree.json</a>', 'href="/console/issues#', '같은 원인의 Issue', '>Studio 에서 열기</button>'] },
     // 원시 시리얼은 화면에 없다. 끊긴 노드에만 지우기 버튼(온라인 노드는 바로 앞에 다시 보고해 TTL 안에 둔다)
     { name: 'fleet', path: '/console/fleet', before: reportNode, expect: ['verify-node', '온라인', '…1234', '쓸 수 있음', 'verify-gone', '끊김', '>지우기</button>'], absent: ['FAKE00001234'] },
     // 케이스 상세의 링크처럼 #<id> 로 열면 그 행이 강조된다
