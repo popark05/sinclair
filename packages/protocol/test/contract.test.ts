@@ -83,6 +83,13 @@ describe('디바이스 RPC 파라미터 계약', () => {
   });
 });
 
+describe('DeviceInfo.inUse 계약', () => {
+  it('기기를 소유한 노드가 Run 이 그 기기를 쓰는 중이면 inUse: true — Studio 가 화면 갱신을 늦추고 세션을 막는다(같은 기기 줄 경합으로 재생 act 7초 → 100초+)', () => {
+    const d: DeviceInfo = { id: 'D', platform: 'android', model: 'M', osVersion: '14', state: 'device', inUse: true };
+    expect(d.inUse).toBe(true);
+  });
+});
+
 describe('device.apps.foreground 계약', () => {
   it('파라미터는 deviceId, 결과는 앞 화면 앱의 패키지(모르면 null) — 화면 트리에 resource-id 가 없는 앱(지도 등)도 알 수 있게 기기에 직접 묻는다', () => {
     expect(DEVICE_RPC_METHODS).toContain('device.apps.foreground');

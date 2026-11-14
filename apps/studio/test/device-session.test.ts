@@ -49,6 +49,11 @@ describe('현재 앱', () => {
     const c = await open({ ...fakeBackend('OWN0000002', 'Pixel 7'), foregroundApp: async () => 'com.google.android.apps.maps', dumpUi: async () => ({ ref: '@e0', role: 'root' }) } as unknown as DeviceBackend);
     expect(await c.foregroundApp('OWN0000002')).toBe('com.google.android.apps.maps');
   });
+  it('기기 목록에 inUse(Run 이 쓰는 중)를 싣는다', async () => {
+    const c = await open({ ...fakeBackend('OWN0000002', 'Pixel 7'), listDevices: async () => [{ id: 'OWN0000002', platform: 'android', model: 'Pixel 7', osVersion: '13', state: 'device', inUse: true }] } as unknown as DeviceBackend);
+    expect(await c.listDevices()).toEqual([expect.objectContaining({ id: 'OWN0000002', inUse: true })]);
+  });
+
   it('기기가 모르면(구버전 데몬 포함) 화면 트리의 resource-id 패키지로', async () => {
     const c = await open({ ...fakeBackend('OWN0000002', 'Pixel 7'), dumpUi: async () => ({ ref: '@e0', role: 'root', children: [{ ref: '@e1', role: 'button', testId: 'com.google.android.youtube:id/search' }] }) } as unknown as DeviceBackend);
     expect(await c.foregroundApp('OWN0000002')).toBe('com.google.android.youtube');

@@ -79,6 +79,17 @@ describe('device.io.button 파라미터', () => {
   });
 });
 
+describe('inUse(Run 이 쓰는 기기)', () => {
+  it('createDeviceServer 의 inUse 가 참인 기기는 devices.list·device.info 에 inUse: true, 아니면 필드 없음', async () => {
+    const using = new Set<string>();
+    const d = createDeviceServer([new FakeBackend()], { inUse: (id) => using.has(id) });
+    expect((await d.handle(req('devices.list', {}))).result).toEqual([expect.not.objectContaining({ inUse: expect.anything() })]);
+    using.add('FAKE1');
+    expect((await d.handle(req('devices.list', {}))).result).toEqual([expect.objectContaining({ id: 'FAKE1', inUse: true })]);
+    expect((await d.handle(req('device.info', { deviceId: 'FAKE1' }))).result).toMatchObject({ inUse: true });
+  });
+});
+
 describe('device.apps.foreground', () => {
   it('백엔드가 알면 { appId }, 모르면(구현 없음·undefined) { appId: null }', async () => {
     const b = new FakeBackend();

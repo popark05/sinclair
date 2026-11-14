@@ -121,6 +121,13 @@ describe('SessionPanel', () => {
     expect(screen.getByText(/비밀값 SIMPLE_PIN 의 값을 넣어/)).toBeTruthy();
   });
 
+  it('Run 이 이 기기를 쓰는 중이면(deviceInUse) 실행·판정을 막고 이유를 보인다', async () => {
+    setupWith({}, { deviceInUse: true });
+    fireEvent.change(await screen.findByRole('textbox', { name: '목표' }), { target: { value: '로그인' } });
+    expect(screen.getByRole('button', { name: '실행' }).hasAttribute('disabled') || screen.getByRole('button', { name: '실행' }).getAttribute('aria-disabled') === 'true').toBe(true);
+    expect(screen.getByText(/Run 이 이 기기를 쓰는 중/)).toBeTruthy();
+  });
+
   it('실행 중에는 중지 버튼', async () => {
     const { calls } = setup();
     fireEvent.change(await screen.findByRole('textbox', { name: '목표' }), { target: { value: '오래' } });
