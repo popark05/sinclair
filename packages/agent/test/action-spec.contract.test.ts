@@ -3,8 +3,8 @@ import { describe, it, expect } from 'vitest';
 import { ACTIONS, toolSchemas, checkToolCall } from '../src/index.ts';
 
 describe('action spec', () => {
-  it('툴 여섯(tap·type·submit·scroll·back·done) 모두 설명·인자 스키마·실행을 가진다', () => {
-    expect(Object.keys(ACTIONS).sort()).toEqual(['back', 'done', 'scroll', 'submit', 'tap', 'type']);
+  it('툴 여덟(tap·type·submit·scroll·back·enter_secret·blocked·done) 모두 설명·인자 스키마·실행을 가진다', () => {
+    expect(Object.keys(ACTIONS).sort()).toEqual(['back', 'blocked', 'done', 'enter_secret', 'scroll', 'submit', 'tap', 'type']);
     for (const [name, a] of Object.entries(ACTIONS)) {
       expect(a.description, name).toMatch(/\S/);
       expect(typeof a.run, name).toBe('function');
@@ -24,6 +24,13 @@ describe('action spec', () => {
     expect(schemas.find((s) => s.name === 'back')!.input_schema).toMatchObject({ required: [], properties: {} });
     // 입력 확정(키보드의 검색·완료·Enter): 실행 키가 화면이 아니라 키보드에만 있는 앱(YouTube 검색 등)을 위해
     expect(schemas.find((s) => s.name === 'submit')!.input_schema).toEqual({ type: 'object', additionalProperties: false, required: ['ref'], properties: { ref: { type: 'string', description: expect.any(String) } } });
+  });
+
+  it('enter_secret(ref, name)·blocked(reason, secret) 스키마(agent-secrets 01): 값이 아니라 이름만 받는다', () => {
+    const schemas = toolSchemas();
+    expect(schemas.find((s) => s.name === 'enter_secret')!.input_schema).toEqual({ type: 'object', additionalProperties: false, required: ['ref', 'name'], properties: { ref: { type: 'string', description: expect.any(String) }, name: { type: 'string', description: expect.stringMatching(/자리표시/) } } });
+    expect(schemas.find((s) => s.name === 'blocked')!.input_schema).toEqual({ type: 'object', additionalProperties: false, required: ['reason', 'secret'], properties: { reason: { type: 'string', description: expect.any(String) }, secret: { type: 'string', description: expect.any(String) } } });
+    expect(ACTIONS.blocked.description).toMatch(/지어내지/);
   });
 
   it('submit 은 그 입력란에서 Enter 를 누른다(엔진 press)', async () => {

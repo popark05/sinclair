@@ -26,6 +26,15 @@ describe('parseCacheEntry', () => {
     expect(bad((e) => { (e.actions[0]!.target as Record<string, unknown>).role = ''; })).toEqual([expect.stringMatching(/target\.role/)]);
   });
 
+  it('enter_secret(agent-secrets 01): 대상과 글자가 있고, 글자는 비밀값 자리표시 하나뿐이다(실제 값이 녹화에 들어가지 않게)', () => {
+    const withAction = (a: Record<string, unknown>) => parseCacheEntry({ ...structuredClone(SAMPLE_ENTRY), actions: [a] });
+    const target = { role: 'button', label: '1' };
+    expect(withAction({ tool: 'enter_secret', target, text: '{{secret:SIMPLE_PIN}}', summary: 'enter_secret' })).toMatchObject({ ok: true });
+    expect(withAction({ tool: 'enter_secret', target, text: '1234', summary: 'enter_secret' })).toMatchObject({ ok: false, errors: [expect.stringMatching(/actions\[0\]\.text.*자리표시/)] });
+    expect(withAction({ tool: 'enter_secret', target, text: 'pin {{secret:SIMPLE_PIN}}', summary: 'enter_secret' })).toMatchObject({ ok: false });
+    expect(withAction({ tool: 'enter_secret', text: '{{secret:SIMPLE_PIN}}', summary: 'enter_secret' })).toMatchObject({ ok: false, errors: [expect.stringMatching(/actions\[0\]\.target/)] });
+  });
+
   it('상한: 액션 수·글자 길이·anchor 수를 넘으면 거부한다', () => {
     const many = { ...structuredClone(SAMPLE_ENTRY), actions: Array.from({ length: CACHE_LIMITS.actions + 1 }, () => ({ tool: 'back', summary: 'back' })) };
     expect(parseCacheEntry(many)).toMatchObject({ ok: false, errors: [expect.stringMatching(/actions/)] });
