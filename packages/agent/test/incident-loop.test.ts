@@ -80,6 +80,31 @@ describe('Incident 복구 · 루프', () => {
   });
 });
 
+// 진척 없음(Studio 실기 2026-11-14): 지도 앱에서 높이 13px 카드 손잡이를 17번 스크롤 — 성공했지만 화면이 그대로인 같은 호출의 반복
+describe('Incident · 같은 호출이 화면을 바꾸지 않음', () => {
+  const scroll: ToolCall = { name: 'scroll', input: { ref: '@a2', direction: 'down' } };
+
+  it('두 번 연달아 화면이 그대로면 모델에게 알리고, 네 번이면 act 를 멈춘다', async () => {
+    const engine = new FakeEngine({ root: APP });
+    const exec = scriptedExecutor([scroll, scroll, scroll, scroll, scroll, done]);
+    const r = await runAct(engine, '목록에서 찾기', { executor: exec });
+    expect(exec.requests[1]!.incident ?? '').not.toMatch(/화면을 바꾸지/);
+    expect(exec.requests[2]!.incident).toMatch(/같은 호출\(scroll @a2\).*두 번 연달아 화면을 바꾸지 않음/);
+    expect(r).toMatchObject({ ok: false, reason: expect.stringMatching(/Incident: 같은 호출\(scroll @a2\)이 네 번 연달아 화면을 바꾸지 않음/) });
+    expect(exec.requests).toHaveLength(4);
+  });
+
+  it('대상이 다르거나 화면이 바뀌면 세지 않는다', async () => {
+    let n = 0;
+    const engine = new FakeEngine({ root: APP, onTap: () => (++n % 2 === 0 ? { ...APP, children: [...(APP.children ?? []), { ref: `@x${n}`, role: 'text', text: `새 글 ${'가나다라'[n % 4]}` }] } : undefined) });
+    const other: ToolCall = { name: 'scroll', input: { ref: '@r', direction: 'down' } };
+    const exec = scriptedExecutor([scroll, other, scroll, other, pay, pay, pay, pay, done]);
+    const r = await runAct(engine, '찾기', { executor: exec });
+    expect(r.ok).toBe(true);
+    expect(exec.requests.map((q) => q.incident ?? '').join('|')).not.toMatch(/화면을 바꾸지/);
+  });
+});
+
 describe('Incident 복구 · 리뷰 반영', () => {
   const chrome = (field: string): SemanticNode => ({ ref: '@r', role: 'root', children: [{ ref: '@u', role: 'textbox', testId: 'com.android.chrome:id/url_bar', name: 'accounts.example.com' }, { ref: '@f', role: 'textbox', testId: 'com.android.chrome:id/field', placeholder: field }, { ref: '@n', role: 'button', testId: 'com.android.chrome:id/next', name: '다음' }] });
 
