@@ -60,9 +60,9 @@ Verdict 세부(2026-11-07, control-plane-ingest 티켓 05, `apps/control-plane/s
 
 ## 프런트엔드
 
-- **Studio** (Electron): Device 패널(라이브 스트림, 입력 전달), Inspector(트리 + locator 후보 생성), Agent Session(턴 타임라인, 지시 주입), Recording 편집·코드 내보내기, Test Editor(Monaco), Network(EverMock 연동), Trace Viewer.
+- **Studio** (Electron): Device 패널(라이브 스트림, 입력 전달), Inspector(트리 + locator 후보 생성), Agent Session(턴 타임라인, 지시 주입), Recording 편집·코드 내보내기, Test Editor(Monaco), Network(EverMock 연동), Trace Viewer. 첫 묶음(2026-11-14 결정, `.scratch/studio/spec.md`): 기기 + Inspector + 에이전트 세션 + 코드 내보내기(자연어·결정적 둘 다). UI 는 astryx 디자인 시스템(`ide` 템플릿, neutral 테마, 규칙 `apps/studio/AGENTS.md`), 기기 왼쪽 고정·가운데 탭·오른쪽 Inspector·아래 로그. 기기·러너·에이전트는 Electron 밖 plain Node 작업 프로세스(ADR 0005), 라이브 화면은 스냅샷 폴링부터.
 - **Console** (웹): Cycle 매트릭스 히트맵, Verdict, 실패 상세·공유 링크, Issue 분류, 안정성 이력, 플릿 상태, 비용·캐시 적중률. React + Vite 정적 앱(`apps/console`, `base: /console/`)을 control-plane 이 `--console-dir` 로 같은 출처에서 서빙한다(인증 없음 — 신뢰망 안에서만). control-plane HTTP API 만 쓰고 응답 타입은 control-plane 에서 type 으로만 가져온다. 목록은 `GET /cycles/summary`(console 01), 매트릭스는 `GET /cycles/:id`(Run 행에 이벤트의 agentId·deviceId), 케이스 상세는 그 타깃 Run 들의 `GET /runs/:id`, 모델 사용은 `GET /cycles/:id/usage`(대체된 Run 포함), 안정성 이력은 `GET /tests/history`(최근 N Cycle), 플릿은 `GET /fleet`. 경로: `/console/`, `/console/cycles/:id`, `/console/cycles/:id/cases/:test/:target`(공유 링크), `/console/fleet`, `/console/runs/:id`(→ 그 Cycle), `/console/tests[?testId=]`. 기기 id 는 화면에서도 끝 4자리. 진행 중 Cycle 5초·플릿 10초 새로 고침. 설치본은 `resources/console` 을 동봉하고 control-plane 이 기본으로 서빙(`--console-dir none` 으로 끔). 검증은 `verify-console` 스킬(헤드리스 Chrome). 후속(2026-11-10): 아티팩트 업로드(`PUT/GET /artifacts/:runId/:key` — 신고된 키만, runner-agent 가 기본으로 올림, 케이스 상세에 스크린샷), 모델별 비용(`StepUsage.byModel`, 사용량 `byModel`), Issue(`GET /issues`·`PUT /issues/:id` — 실패를 errorCode + 정규화한 실패 지시 서명으로 묶고 사람이 분류·메모·티켓, SQLite 스키마 4 의 `issues` 에 분류만 저장, `/console/issues`).
-- 둘은 `packages/ui`를 공유.
+- 둘은 `packages/ui`를 공유. (Studio 는 astryx, Console 은 손으로 쓴 CSS — 공유 컴포넌트는 Studio 를 먼저 만들며 정하고, Console 을 astryx 로 옮길지는 그때 결정)
 
 ## 네트워크 모드
 
