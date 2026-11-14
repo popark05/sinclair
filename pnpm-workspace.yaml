@@ -3,6 +3,8 @@ packages:
   - apps/*
 allowBuilds:
   esbuild: true
+  # Studio: postinstall 이 Electron 바이너리를 받는다
+  electron: true
   # astryx 의 postinstall 은 "astryx init 을 실행하라" 안내만 출력한다(2026-11-14 확인) — 실행하지 않는다
   '@astryxdesign/core': false
   '@astryxdesign/cli': false
