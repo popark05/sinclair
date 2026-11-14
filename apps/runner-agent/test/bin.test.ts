@@ -18,7 +18,8 @@ function spawnBin(bin: string, args: string[]) {
   return { child, exited, output: () => out };
 }
 
-describe('sinclair-agent bin', { timeout: 30_000 }, () => {
+// 실제 bin 두 개(control-plane·agent)를 띄운다: 평소 7초, 전체 스위트 병렬 부하에서 30초를 넘긴 적이 있어 60초
+describe('sinclair-agent bin', { timeout: 60_000 }, () => {
   it('run --engine fake 가 Run 을 등록·실행·보고하고 0 으로 끝난다', async () => {
     const cp = spawnBin(CP_BIN, ['--port', '0', '--store', 'memory']);
     const port = await new Promise<number>((resolve, reject) => {

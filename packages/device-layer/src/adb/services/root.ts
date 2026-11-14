@@ -7,6 +7,7 @@
  */
 
 import { StreamReader } from '../protocol/stream-io.ts';
+import { AdbConnectionClosedException } from '../errors.ts';
 import { SUCCESS, failure, type RootResult } from '../results.ts';
 import type { AdbOpener } from './opener.ts';
 import { shell } from './shell.ts';
@@ -41,12 +42,18 @@ async function restartAdbd(
 ): Promise<RootResult> {
   const stream = await adb.open(service);
   let response: string;
+  let droppedEarly = false;
   try {
     response = (await new StreamReader(stream).readUntil(0x0a)).toString('utf-8');
+  } catch (err) {
+    // 응답을 읽기 전에 연결이 끊김: adbd 가 응답보다 먼저 재시작한 것(dadb 도 첫 오류를 재시작으로 본다). 거부는 연결을 끊지 않고 응답한다
+    if (!(err instanceof AdbConnectionClosedException)) throw err;
+    response = '응답 전에 연결이 끊김(adbd 재시작으로 봄)\n';
+    droppedEarly = true;
   } finally {
-    await stream.close();
+    await stream.close().catch(() => {});
   }
-  if (!isSuccess(response)) return failure(response.trim());
+  if (!droppedEarly && !isSuccess(response)) return failure(response.trim());
 
   const expected = asRoot ? '1' : '0';
   const deadline = Date.now() + (options.timeoutMs ?? 15_000);
