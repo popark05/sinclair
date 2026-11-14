@@ -57,6 +57,12 @@ describe('runAct', () => {
     expect(seen).toEqual([[0, 'tap', 'rejected'], [1, 'type', 'ok'], [2, 'type', 'ok'], [3, 'tap', 'ok'], [4, 'done', 'ok']]);
   });
 
+  it('onTurn 의 세 번째 인자는 그 턴에 모델이 본 화면 트리(대상 ref 를 그 화면에서 풀 수 있게)', async () => {
+    const seen: Array<[number, string | undefined]> = [];
+    await runAct(login(), '로그인', { executor: scriptedExecutor(script), onTurn: (t, i, observed) => seen.push([i, observed?.children?.find((c) => c.ref === (t.call?.input as { ref?: string } | undefined)?.ref)?.role]) });
+    expect(seen.slice(0, 3)).toEqual([[0, 'textbox'], [1, 'textbox'], [2, 'button']]);
+  });
+
   it('signal 을 abort 하면 곧바로 멈추고 사유는 중지됨(시간 한도가 아니다)', async () => {
     const ac = new AbortController();
     const slow: StepExecutor = { next: (_r, sig) => new Promise((_, rej) => sig.addEventListener('abort', () => rej(new Error('aborted')), { once: true })) };

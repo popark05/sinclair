@@ -22,7 +22,7 @@ describe('cacheKey', () => {
     const base = { testId: 't', engine: 'mobile', app: 'com.a', instruction: '로그인', callIndex: 0 };
     const k = cacheKey(base);
     vexpect(CACHE_KEY.test(k)).toBe(true);
-    vexpect(CACHE_POLICY).toBe('exact/2'); // 이름 없는 대상의 자식 글자 라벨·끝 anchor 과반(2026-11-14 실기기) — 옛 녹화는 다시 녹화
+    vexpect(CACHE_POLICY).toBe('exact/3'); // exact/3: 입력창은 이름만 라벨(담긴 글자는 정체가 아니다, 2026-11-14 실기기)
     vexpect(cacheKey({ ...base, instruction: ' 로그인\r\n' })).toBe(k);
     vexpect(cacheKey({ ...base, instruction: '로그인'.normalize('NFD') })).toBe(k);
     for (const diff of [{ testId: 'u' }, { app: 'com.b' }, { callIndex: 1 }, { engine: 'fake' }, { instruction: '로그인 해' }]) vexpect(cacheKey({ ...base, ...diff })).not.toBe(k);

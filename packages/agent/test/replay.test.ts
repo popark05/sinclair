@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { FakeEngine, HOME_SCREEN, LOGIN_SCREEN } from '@sinclair/protocol/testing';
 import { CACHE_SCHEMA, type CacheEntry, type SemanticNode } from '@sinclair/protocol';
-import { replayRecording, runAct, renderLedger, scriptedExecutor, SecretBox, secretPlaceholder } from '../src/index.ts';
+import { replayRecording, runAct, renderLedger, scriptedExecutor, SecretBox, secretPlaceholder, exactMatches, cacheTargetOf } from '../src/index.ts';
 
 const P = secretPlaceholder('QA_PASSWORD');
 const VALUE = 'Tr0ub4dor&3';
@@ -102,5 +102,15 @@ describe('runAct · 이어받기(recording-cache 03)', () => {
     expect(r.ok).toBe(true);
     for (const req of exec.requests) expect(req.handOff).toMatch(/1\/2.*type textbox \[아이디\].*찾지 못함.*다시 하지/s);
     expect(renderLedger(exec.requests[0]!).text).toMatch(/^목표: 로그인\n\n↪ .*type textbox/);
+  });
+});
+
+describe('입력창 라벨(실기기 YouTube: 검색창에 직전 검색어가 남아 있음)', () => {
+  it('입력창은 담긴 글자가 달라도 같은 대상이다(이름만 라벨) — 녹화는 빈 칸, 재생 때는 직전 검색어', async () => {
+    const box = (text?: string): SemanticNode => ({ ref: '@b0', role: 'root', children: [{ ref: '@b1', role: 'textbox', testId: 'com.app:id/search', placeholder: '검색', ...(text ? { text, value: text } : {}) }] });
+    const e: CacheEntry = { schema: CACHE_SCHEMA, createdAt: 'x', recordedBy: {}, start: {}, actions: [{ tool: 'type', target: cacheTargetOf(box().children![0]!), text: 'qa', summary: 'type' }], end: { anchors: [] } };
+    expect(e.actions[0]!.target).toEqual({ role: 'textbox', testId: 'com.app:id/search', placeholder: '검색' });
+    expect(exactMatches(e.actions[0]!.target!, box('플로렌스 게랭'))).toHaveLength(1);
+    expect(cacheTargetOf(box('플로렌스 게랭').children![0]!)).toEqual({ role: 'textbox', testId: 'com.app:id/search', placeholder: '검색' });
   });
 });
