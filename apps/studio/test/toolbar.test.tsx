@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // 툴바(studio 02): 연결 방식(데몬·직접·없음), 기기 선택(모델·끝 4자리·상태), 앱 id(현재 앱 채우기).
+import './jsdom-polyfills.ts';
 import { describe, it, expect, afterEach } from 'vitest';
-import { render, screen, cleanup, act } from '@testing-library/react';
+import { render, screen, cleanup, act, fireEvent } from '@testing-library/react';
 import { Toolbar } from '../src/renderer/src/Toolbar.tsx';
 import type { StudioApi } from '../src/shared/studio-ipc.ts';
 
@@ -43,6 +44,18 @@ describe('Toolbar', () => {
     expect(status.textContent).toMatch(/앱을 알 수 없음/);
     await act(async () => { screen.getByRole('button', { name: '새로 고침' }).click(); });
     expect(status.textContent).toMatch(/기기 2대/);
+  });
+
+  it('설정(studio-console 03): control-plane 주소·테스트 폴더를 읽어 보여 주고 저장한다', async () => {
+    const saved: unknown[] = [];
+    render(<Toolbar api={api({ getSettings: async () => ({ controlPlane: 'http://127.0.0.1:4780', testsDir: '/Users/qa/Sinclair/tests' }), setSettings: async (s: unknown) => { saved.push(s); return s; } } as never)} onDeviceChange={() => {}} onAppChange={() => {}} />);
+    await act(async () => { (await screen.findByRole('button', { name: '설정' })).click(); });
+    const cp = await screen.findByRole('textbox', { name: 'control-plane 주소' }) as HTMLInputElement;
+    expect(cp.value).toBe('http://127.0.0.1:4780');
+    expect((screen.getByRole('textbox', { name: '테스트 폴더' }) as HTMLInputElement).value).toBe('/Users/qa/Sinclair/tests');
+    fireEvent.change(cp, { target: { value: 'http://10.0.0.5:4780' } });
+    await act(async () => { screen.getByRole('button', { name: '설정 저장' }).click(); });
+    expect(saved).toEqual([{ controlPlane: 'http://10.0.0.5:4780', testsDir: '/Users/qa/Sinclair/tests' }]);
   });
 
   it('연결이 없으면 사유를 보인다', async () => {

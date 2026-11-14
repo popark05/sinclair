@@ -7,6 +7,8 @@ import { TextInput } from '@astryxdesign/core/TextInput';
 import { Button } from '@astryxdesign/core/Button';
 import { Stack } from '@astryxdesign/core/Layout';
 import { Text } from '@astryxdesign/core/Text';
+import { Dialog, DialogHeader } from '@astryxdesign/core/Dialog';
+import type { StudioSettings } from '../../shared/settings.ts';
 import type { ConnectionInfo, StudioApi, StudioDevice } from '../../shared/studio-ipc.ts';
 
 const MODE: Record<ConnectionInfo['mode'], string> = { daemon: '데몬', own: '직접', none: '연결 없음' };
@@ -22,6 +24,19 @@ export function Toolbar({ api, onDeviceChange, onAppChange }: { api: StudioApi; 
   const [problem, setProblem] = useState('');
   /** 버튼 바로 옆 상태(사유·결과). 툴바 끝은 눈에 잘 띄지 않아 누른 버튼 옆에 보인다 */
   const [note, setNote] = useState('');
+  // 설정(studio-console 03): control-plane 주소·테스트 폴더 — 메인 프로세스가 저장한다
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [draft, setDraft] = useState<StudioSettings>({ controlPlane: '', testsDir: '' });
+  const [settingsProblem, setSettingsProblem] = useState('');
+  const openSettings = async (): Promise<void> => {
+    setSettingsProblem('');
+    try { setDraft(await api.getSettings()); } catch (err) { setSettingsProblem(err instanceof Error ? err.message : String(err)); }
+    setSettingsOpen(true);
+  };
+  const saveSettings = async (): Promise<void> => {
+    try { setDraft(await api.setSettings({ controlPlane: draft.controlPlane.trim(), testsDir: draft.testsDir.trim() })); setSettingsOpen(false); setNote('설정 저장함'); }
+    catch (err) { setSettingsProblem(err instanceof Error ? err.message : String(err)); }
+  };
 
   /** manual: 새로 고침 버튼(결과를 버튼 옆에). 처음 불러올 때는 조용히 */
   const load = async (manual = false): Promise<void> => {
@@ -66,6 +81,16 @@ export function Toolbar({ api, onDeviceChange, onAppChange }: { api: StudioApi; 
           <TextInput label="앱 id" isLabelHidden size="sm" placeholder="com.example.app" value={app} onChange={(v) => changeApp(v)} />
           <Button label="현재 앱" size="sm" variant="secondary" isDisabled={!device} onClick={() => void fillForeground()} />
           <Button label="새로 고침" size="sm" variant="ghost" onClick={() => void load(true)} />
+          <Button label="설정" size="sm" variant="ghost" onClick={() => void openSettings()} />
+          <Dialog isOpen={settingsOpen} onOpenChange={setSettingsOpen} width={520} aria-label="Studio 설정">
+            <DialogHeader title="설정" onOpenChange={setSettingsOpen} />
+            <Stack direction="vertical" gap={3} style={{ padding: 'var(--spacing-4)' }}>
+              <TextInput label="control-plane 주소" size="sm" value={draft.controlPlane} onChange={(v) => setDraft((d) => ({ ...d, controlPlane: v }))} />
+              <TextInput label="테스트 폴더" size="sm" description="Cycle 로 실행할 때 내보낸 테스트를 두는 곳(같은 머신의 데몬이 읽는다)" value={draft.testsDir} onChange={(v) => setDraft((d) => ({ ...d, testsDir: v }))} />
+              {settingsProblem ? <Text type="supporting" color="secondary">{settingsProblem}</Text> : null}
+              <Button label="설정 저장" size="sm" variant="primary" onClick={() => void saveSettings()} />
+            </Stack>
+          </Dialog>
           <Stack as="output" aria-label="툴바 상태" role="status"><Text type="supporting" color="secondary" maxLines={1}>{note}</Text></Stack>
         </Stack>
       }

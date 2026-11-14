@@ -1,6 +1,6 @@
 // 코드로 내보내기(studio 06): 끝난 세션을 *.sinclair.ts 로. 자연어(act + assert — 녹화 캐시에 저장하면 첫 실행부터 모델 없이 재생)
 // 또는 결정적(녹화 액션을 그 화면에서 하나로 정해진 locator 로). 미리보기·복사·파일 저장(메인의 저장 대화상자).
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Stack } from '@astryxdesign/core/Layout';
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { TextInput } from '@astryxdesign/core/TextInput';
@@ -11,14 +11,14 @@ import type { StudioApi } from '../../shared/studio-ipc.ts';
 import { exportTest } from '../../shared/export.ts';
 import type { SessionRecord } from './SessionPanel.tsx';
 
-/** 기본 control-plane(로컬 개발 서버). 바꿀 수 있다 */
-export const DEFAULT_CONTROL_PLANE = 'http://127.0.0.1:4780';
 const defaultName = (goal: string): string => (goal.length > 60 ? `${goal.slice(0, 60)}…` : goal) || 'Studio 세션';
 
 export function ExportPanel({ api, record, appId }: { api: StudioApi; record: SessionRecord; appId?: string }) {
   const [style, setStyle] = useState<'natural' | 'deterministic'>('natural');
   const [name, setName] = useState(() => defaultName(record.goal));
-  const [controlPlane, setControlPlane] = useState(DEFAULT_CONTROL_PLANE);
+  // control-plane 주소는 Studio 설정(툴바 '설정')에서
+  const [controlPlane, setControlPlane] = useState('');
+  useEffect(() => { void Promise.resolve().then(() => api.getSettings()).then((s) => setControlPlane(s.controlPlane), () => {}); }, [api]);
   const [status, setStatus] = useState('');
   // 앱: 툴바에서 고른 앱, 없으면 세션이 시작된 화면의 앱
   const app = appId || record.result?.startApp || '';
@@ -46,9 +46,10 @@ export function ExportPanel({ api, record, appId }: { api: StudioApi; record: Se
         <Button label="파일로 저장" size="sm" variant="secondary" onClick={() => void run('저장', async () => { const p = await api.saveTestFile(name.trim() || 'studio-test', code); return p ? `저장함: ${p}` : '저장 취소'; })} />
         {style === 'natural' && recording ? (
           <>
-            <TextInput label="control-plane 주소" isLabelHidden size="sm" value={controlPlane} onChange={(v) => setControlPlane(v)} />
             <Button label="녹화 캐시에 저장" size="sm" variant="secondary" onClick={() => void run('녹화 저장', async () => {
-              await api.saveRecording({ controlPlane: controlPlane.trim(), testId: name.trim() || 'Studio 세션', goal: record.goal, app, recording });
+              const cp = controlPlane || (await api.getSettings()).controlPlane; // 설정을 아직 못 읽었으면 지금
+              if (!cp) throw new Error('control-plane 주소가 없음 — 툴바의 설정에서 넣으세요');
+              await api.saveRecording({ controlPlane: cp, testId: name.trim() || 'Studio 세션', goal: record.goal, app, recording });
               return '녹화 캐시에 저장함 — 이 테스트의 첫 실행부터 모델 없이 재생된다';
             })} />
           </>

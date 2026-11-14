@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 // 렌더러(studio 01): astryx ide 틀 위의 4영역(기기·세션 탭·Inspector·로그 드로어)과 작업 프로세스 상태.
+import './jsdom-polyfills.ts';
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import { Workspace } from '../src/renderer/src/Workspace.tsx';

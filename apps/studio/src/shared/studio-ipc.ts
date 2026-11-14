@@ -1,6 +1,7 @@
 // Studio IPC 계약(studio 01, ADR 0005): 렌더러 ↔ 메인(preload 채널)과 메인 ↔ 작업 프로세스(Node IPC) 메시지의 단일 정의.
 // 모두 구조화 복제 가능한 평범한 데이터만. 작업 프로세스에서 온 메시지는 parseFromWorker 를 지나야 쓴다.
 import type { CacheAction, CacheTarget, SemanticNode } from '@sinclair/protocol';
+import type { StudioSettings } from './settings.ts';
 import { EXPECT_MATCHERS, isExpectMatcher, parseLocatorQuery, type ExpectMatcher, type JudgeQuery } from './expect-judge.ts';
 
 /** 렌더러 ↔ 메인 채널(ipcMain.handle / webContents.send) */
@@ -13,6 +14,9 @@ export const STUDIO_CHANNELS = {
   event: 'studio:event',
   /** 내보낸 테스트를 파일로(메인의 저장 대화상자 — 작업 프로세스를 거치지 않는다) */
   saveTestFile: 'studio:save-test-file',
+  /** Studio 설정 읽기·쓰기(메인 프로세스, studio-console 03) */
+  getSettings: 'studio:get-settings',
+  setSettings: 'studio:set-settings',
 } as const;
 
 /** 내보낸 코드 상한(파일 저장 요청 검사) */
@@ -173,6 +177,9 @@ export function parseStudioRequest(v: unknown): StudioRequest | undefined {
 
 /** preload 가 렌더러에 window.sinclair 로 노출하는 API */
 export interface StudioApi {
+  /** Studio 설정(control-plane 주소·테스트 폴더) */
+  getSettings(): Promise<StudioSettings>;
+  setSettings(s: StudioSettings): Promise<StudioSettings>;
   getWorkerStatus(): Promise<WorkerStatus>;
   /** 상태가 바뀔 때마다. 돌려준 함수로 구독 해제 */
   onWorkerStatus(cb: (s: WorkerStatus) => void): () => void;

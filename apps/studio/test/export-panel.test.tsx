@@ -20,6 +20,7 @@ function setup(rec: SessionRecord = record) {
   const api = {
     saveTestFile: async (name: string, content: string) => { calls.push(['file', name, content.length > 0]); return '/tmp/x.sinclair.ts'; },
     saveRecording: async (input: unknown) => { calls.push(['rec', input]); return { key: 'k'.repeat(64) }; },
+    getSettings: async () => ({ controlPlane: 'http://10.0.0.5:4780', testsDir: '/tmp/tests' }),
   } as unknown as StudioApi;
   render(<ExportPanel api={api} record={rec} appId="com.google.android.youtube" />);
   return { calls };
@@ -50,7 +51,7 @@ describe('ExportPanel', () => {
     const { calls } = setup();
     fireEvent.change(screen.getByRole('textbox', { name: '테스트 이름' }), { target: { value: 'YouTube 검색' } });
     await act(async () => { screen.getByRole('button', { name: '녹화 캐시에 저장' }).click(); });
-    expect(calls).toEqual([['rec', { controlPlane: 'http://127.0.0.1:4780', testId: 'YouTube 검색', goal: 'YouTube 에서 검색한다', app: 'com.google.android.youtube', recording: record.result!.recording }]]);
+    expect(calls).toEqual([['rec', { controlPlane: 'http://10.0.0.5:4780', testId: 'YouTube 검색', goal: 'YouTube 에서 검색한다', app: 'com.google.android.youtube', recording: record.result!.recording }]]);
     expect(await screen.findByText(/녹화 캐시에 저장함/)).toBeTruthy();
   });
 

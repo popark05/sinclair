@@ -4,6 +4,8 @@ import { writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { MAX_EXPORT_BYTES, parseStudioRequest, STUDIO_CHANNELS } from '../shared/studio-ipc.ts';
 import { createWorkerHost, resolveWorkerNode } from './worker-host.ts';
+import { createSettingsStore } from './settings-store.ts';
+import * as os from 'node:os';
 
 let win: BrowserWindow | undefined;
 const worker = createWorkerHost({
@@ -13,6 +15,10 @@ const worker = createWorkerHost({
   onEvent: (e) => win?.webContents.send(STUDIO_CHANNELS.event, e),
 });
 
+// 설정(studio-console 03): userData/settings.json — 렌더러는 검증된 값만 쓸 수 있다
+const settings = createSettingsStore(path.join(app.getPath('userData'), 'settings.json'), os.homedir());
+ipcMain.handle(STUDIO_CHANNELS.getSettings, () => settings.get());
+ipcMain.handle(STUDIO_CHANNELS.setSettings, (_e, raw: unknown) => settings.set(raw));
 ipcMain.handle(STUDIO_CHANNELS.workerStatus, () => worker.status());
 ipcMain.handle(STUDIO_CHANNELS.ping, () => worker.ping());
 // 렌더러는 믿지 않는다: 닫힌 요청 집합만 작업 프로세스로
