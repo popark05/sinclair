@@ -40,9 +40,11 @@ export interface DevicePanelProps {
   onSelectNode?: (ref: string) => void;
   /** 세션 중: 화면을 턴마다만 갱신한다는 표시 */
   paused?: boolean;
+  /** 데몬의 Run 이 이 기기를 쓰는 중 */
+  inUse?: boolean;
 }
 
-export function DevicePanel({ api, deviceId, deviceLabel, snapshot, onInput, error, selectedRef, onSelectNode, paused }: DevicePanelProps) {
+export function DevicePanel({ api, deviceId, deviceLabel, snapshot, onInput, error, selectedRef, onSelectNode, paused, inUse }: DevicePanelProps) {
   const img = useRef<HTMLImageElement>(null);
   const down = useRef<{ p: Point; at: number }>(undefined);
   const buffer = useRef('');
@@ -126,6 +128,7 @@ export function DevicePanel({ api, deviceId, deviceLabel, snapshot, onInput, err
       <Stack direction="vertical" gap={1}>
         <Heading level={2} maxLines={1}>기기</Heading>
         {deviceLabel ? <Text type="supporting" color="secondary" maxLines={1}>{deviceLabel}</Text> : null}
+        {inUse ? <Text type="supporting" color="secondary" maxLines={2}>Run 실행 중 — 화면은 10초마다만 갱신(기기를 Run 에 양보)</Text> : null}
         {paused ? <Text type="supporting" color="secondary" maxLines={2}>세션 중 — 화면은 에이전트 턴마다 갱신(기기를 에이전트에게 양보)</Text> : null}
       </Stack>
       {snapshot ? (

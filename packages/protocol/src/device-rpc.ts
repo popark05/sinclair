@@ -84,6 +84,8 @@ export interface DeviceInfo {
   caTrusted?: boolean;
   /** 온디바이스 헬퍼 상태(Android). 연결 판정 뒤 온보딩이 끝나면 채워진다 */
   helper?: HelperInfo;
+  /** 기기를 소유한 노드에서 Run 이 이 기기를 쓰는 중. 같은 기기에 붙은 Studio 는 화면 갱신을 늦추고 세션을 막는다(기기 호출은 기기마다 한 줄이라 경합한다) */
+  inUse?: boolean;
 }
 
 /** `device.io.*` 의 좌표 */

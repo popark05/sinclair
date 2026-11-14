@@ -1,11 +1,14 @@
 // 백엔드들을 디스패처에 연결한다. 메서드 파라미터 검증은 여기서 한다.
-import { DEVICE_BUTTONS, type DeviceButton, type Point, type ScreenshotResult } from '@sinclair/protocol';
+import { DEVICE_BUTTONS, type DeviceButton, type DeviceInfo, type Point, type ScreenshotResult } from '@sinclair/protocol';
 import type { DeviceBackend } from './backend.ts';
 import { RpcDispatcher, RpcError, RPC_ERRORS } from './rpc.ts';
 
 export const SERVER_VERSION = '0.0.0';
 
-export function createDeviceServer(backends: DeviceBackend[]): RpcDispatcher {
+/** inUse: 그 기기를 Run 이 쓰는 중인가(기기를 소유한 데몬이 안다). devices.list·device.info 에 실린다 */
+export interface DeviceServerOptions { inUse?: (deviceId: string) => boolean }
+
+export function createDeviceServer(backends: DeviceBackend[], opts: DeviceServerOptions = {}): RpcDispatcher {
   const d = new RpcDispatcher();
 
   const find = async (deviceId: string): Promise<DeviceBackend> => {
@@ -29,8 +32,9 @@ export function createDeviceServer(backends: DeviceBackend[]): RpcDispatcher {
   const point = (p: Record<string, unknown>, prefix = ''): Point => ({ x: num(p, prefix ? `${prefix}X` : 'x'), y: num(p, prefix ? `${prefix}Y` : 'y') });
 
   d.register('server.info', async () => ({ version: SERVER_VERSION, platforms: backends.map((b) => b.platform) }));
-  d.register('devices.list', async () => (await Promise.all(backends.map((b) => b.listDevices()))).flat());
-  d.register('device.info', async (p) => (await find(str(p, 'deviceId'))).info(str(p, 'deviceId')));
+  const mark = (info: DeviceInfo): DeviceInfo => (opts.inUse?.(info.id) ? { ...info, inUse: true } : info);
+  d.register('devices.list', async () => (await Promise.all(backends.map((b) => b.listDevices()))).flat().map(mark));
+  d.register('device.info', async (p) => mark(await (await find(str(p, 'deviceId'))).info(str(p, 'deviceId'))));
   d.register('device.screenshot', async (p) => {
     const id = str(p, 'deviceId');
     const result: ScreenshotResult = { format: 'png', base64: Buffer.from(await (await find(id)).screenshot(id)).toString('base64') };

@@ -26,8 +26,29 @@ export function useWindowActivity(): WindowActivity {
   return activity;
 }
 
-/** 창 상태 → 폴링 간격(undefined 면 멈춤) */
-export const snapshotIntervalFor = (a: WindowActivity): number | undefined => (a === 'active' ? SNAPSHOT_INTERVAL_MS : a === 'visible' ? SNAPSHOT_BACKGROUND_INTERVAL_MS : undefined);
+/** Run 이 기기를 쓰는 중일 때: 스냅샷(실기 약 2초)이 Run 의 화면 읽기와 기기 줄을 다투지 않게 드물게 */
+export const SNAPSHOT_IN_USE_INTERVAL_MS = 10_000;
+/** 기기가 Run 에 쓰이는지 묻는 간격(devices.list — 기기 줄을 쓰지 않는다). Run 이 시작되자마자 양보해야 재생(Run 앞부분)과 겹치지 않는다 — 5초였을 때 재생 act 13~15초 */
+export const DEVICE_IN_USE_POLL_MS = 1_500;
+
+/** 창 상태(와 Run 사용 여부) → 폴링 간격(undefined 면 멈춤) */
+export const snapshotIntervalFor = (a: WindowActivity, inUse = false): number | undefined =>
+  a === 'hidden' ? undefined : inUse ? SNAPSHOT_IN_USE_INTERVAL_MS : a === 'active' ? SNAPSHOT_INTERVAL_MS : SNAPSHOT_BACKGROUND_INTERVAL_MS;
+
+/** 그 기기를 데몬의 Run 이 쓰는 중인가(기기 목록을 주기적으로 물어) */
+export function useDeviceInUse(api: StudioApi, deviceId: string): boolean {
+  const [inUse, setInUse] = useState(false);
+  useEffect(() => {
+    setInUse(false);
+    if (!deviceId) return;
+    let alive = true;
+    const check = (): void => { void api.listDevices().then((list) => { if (alive) setInUse(!!list.find((d) => d.id === deviceId)?.inUse); }, () => {}); };
+    check();
+    const timer = setInterval(check, DEVICE_IN_USE_POLL_MS);
+    return () => { alive = false; clearInterval(timer); };
+  }, [api, deviceId]);
+  return inUse;
+}
 
 /**
  * paused: 주기 폴링을 멈춘다(refresh 는 된다). 에이전트 세션 중에는 기기를 세션에 양보한다 — 디바이스 RPC 는 기기마다 한 줄이라

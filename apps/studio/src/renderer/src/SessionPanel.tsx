@@ -47,9 +47,11 @@ export interface SessionPanelProps {
   onTurn?: () => void;
   /** 요소 판정 대상(고른 노드). 없으면 요소 판정 줄 대신 안내 */
   target?: JudgeTarget;
+  /** 데몬의 Run 이 이 기기를 쓰는 중: 세션·판정을 막는다(같은 기기를 두 쪽이 조작하게 되고 줄 경합으로 둘 다 느려진다) */
+  deviceInUse?: boolean;
 }
 
-export function SessionPanel({ api, deviceId, appId, onRecord, onBusyChange, onTurn, target }: SessionPanelProps) {
+export function SessionPanel({ api, deviceId, appId, onRecord, onBusyChange, onTurn, target, deviceInUse }: SessionPanelProps) {
   const [matcher, setMatcher] = useState<ExpectMatcher>('visible');
   const [expected, setExpected] = useState('');
   // 대상이 바뀌면 값 칸을 그 노드의 글자·값으로 채운다(글자·값 검사의 출발점)
@@ -87,7 +89,7 @@ export function SessionPanel({ api, deviceId, appId, onRecord, onBusyChange, onT
   useEffect(() => { onBusyChange?.(running); }, [running, onBusyChange]);
   const canRestart = !!appId && APP_ID.test(appId);
   const restartApp = canRestart && fresh ? appId : undefined;
-  const canRun = !!deviceId && !!status?.ready && !!goal.trim() && !running;
+  const canRun = !!deviceId && !!status?.ready && !!goal.trim() && !running && !deviceInUse;
   const addSecret = (): void => {
     const name = secretName.trim();
     if (!SECRET_NAME_RE.test(name)) { setProblem('비밀값 이름은 대문자로 시작하는 대문자·숫자·_ (예: SIMPLE_PIN)'); return; }
@@ -131,7 +133,7 @@ export function SessionPanel({ api, deviceId, appId, onRecord, onBusyChange, onT
     } catch (err) { setProblem(err instanceof Error ? err.message : String(err)); }
   };
 
-  const why = !deviceId ? '기기를 고르세요' : status && !status.ready ? status.reason : undefined;
+  const why = !deviceId ? '기기를 고르세요' : deviceInUse ? 'Run 이 이 기기를 쓰는 중 — 끝난 뒤 실행하세요' : status && !status.ready ? status.reason : undefined;
   return (
     <Stack as="section" aria-label="세션" direction="vertical" gap={3} style={styles.panel}>
       <TextArea label="목표" value={goal} onChange={(v) => setGoal(v)} rows={2} placeholder='예: YouTube 앱에서 "florence guerin 영화" 를 검색해 결과 목록을 연다' />
@@ -171,7 +173,7 @@ export function SessionPanel({ api, deviceId, appId, onRecord, onBusyChange, onT
         <StackItem size="fill">
           <TextInput label="판정 문장" isLabelHidden size="sm" width="100%" placeholder="지금 화면에서 참이어야 할 문장 — 예: 검색 결과 목록이 열려 있다" value={statement} onChange={(v) => setStatement(v)} />
         </StackItem>
-        <Button label="판정" size="sm" variant="secondary" isDisabled={!deviceId || !status?.ready || running || !statement.trim()} onClick={() => void judge()} />
+        <Button label="판정" size="sm" variant="secondary" isDisabled={!deviceId || !status?.ready || running || !!deviceInUse || !statement.trim()} onClick={() => void judge()} />
       </Stack>
       {target ? (
         <Stack as="section" aria-label="요소 판정" direction="vertical" gap={1}>
@@ -179,7 +181,7 @@ export function SessionPanel({ api, deviceId, appId, onRecord, onBusyChange, onT
           <Stack direction="horizontal" gap={2}>
             <Selector label="검사 종류" isLabelHidden size="sm" variant="secondary" options={Object.entries(EXPECT_MATCHERS).map(([value, m]) => ({ value, label: m.label }))} value={matcher} onChange={(v) => { if (v) setMatcher(v as ExpectMatcher); }} />
             {needsValue ? <StackItem size="fill"><TextInput label="판정 값" isLabelHidden size="sm" width="100%" placeholder="기대하는 글자·값" value={expected} onChange={(v) => setExpected(v)} /></StackItem> : null}
-            <Button label="요소 판정" size="sm" variant="secondary" isDisabled={!deviceId || running} onClick={() => void judgeElement()} />
+            <Button label="요소 판정" size="sm" variant="secondary" isDisabled={!deviceId || running || !!deviceInUse} onClick={() => void judgeElement()} />
           </Stack>
         </Stack>
       ) : <Text type="supporting" color="secondary">Inspector 나 기기 화면에서 노드를 고르면 요소 판정(모델 없이 보인다·글자·값·체크 검사)을 더할 수 있음</Text>}

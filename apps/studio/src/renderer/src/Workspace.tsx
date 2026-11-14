@@ -11,7 +11,7 @@ import { AppShell } from '@astryxdesign/core/AppShell';
 import type { StudioApi, WorkerStatus } from '../../shared/studio-ipc.ts';
 import { Toolbar } from './Toolbar.tsx';
 import { DevicePanel } from './DevicePanel.tsx';
-import { snapshotIntervalFor, useSnapshot, useWindowActivity } from './useSnapshot.ts';
+import { snapshotIntervalFor, useDeviceInUse, useSnapshot, useWindowActivity } from './useSnapshot.ts';
 import { Inspector } from './Inspector.tsx';
 import { SessionPanel, type JudgeTarget } from './SessionPanel.tsx';
 import { findNode, locatorCandidates } from '../../shared/locators.ts';
@@ -55,7 +55,9 @@ export function Workspace({ api }: { api: StudioApi }) {
   const [sessionBusy, setSessionBusy] = useState(false);
   // 보지 않는 Studio 는 기기를 양보한다: 포커스 0.5초, 보이기만 3초, 가려지면 멈춤(돌아오면 곧바로 한 번)
   const activity = useWindowActivity();
-  const interval = snapshotIntervalFor(activity);
+  // 데몬의 Run 이 이 기기를 쓰는 중이면 화면을 10초마다만 받고 세션을 막는다(같은 기기 줄 경합)
+  const deviceInUse = useDeviceInUse(api, deviceId);
+  const interval = snapshotIntervalFor(activity, deviceInUse);
   const screen = useSnapshot(api, deviceId, { paused: sessionBusy || interval === undefined, ...(interval ? { intervalMs: interval } : {}) });
   const refreshScreen = screen.refresh;
   const onTurn = useCallback(() => refreshScreen(), [refreshScreen]);
@@ -91,7 +93,7 @@ export function Workspace({ api }: { api: StudioApi }) {
               <>
                 {!startPanel.isCollapsed && (
                   <LayoutPanel width={startPanel.size} hasDivider={false} padding={0}>
-                    <DevicePanel api={api} deviceId={deviceId} deviceLabel={deviceLabel} {...(screen.snapshot ? { snapshot: screen.snapshot } : {})} {...(screen.error ? { error: screen.error } : {})} onInput={screen.refresh} {...(selectedRef ? { selectedRef } : {})} onSelectNode={setSelectedRef} paused={sessionBusy} />
+                    <DevicePanel api={api} deviceId={deviceId} deviceLabel={deviceLabel} {...(screen.snapshot ? { snapshot: screen.snapshot } : {})} {...(screen.error ? { error: screen.error } : {})} onInput={screen.refresh} {...(selectedRef ? { selectedRef } : {})} onSelectNode={setSelectedRef} paused={sessionBusy} inUse={deviceInUse} />
                   </LayoutPanel>
                 )}
                 <ResizeHandle direction="horizontal" hasDivider isAlwaysVisible={false} resizable={startPanel.props} label="기기 패널 크기 조절" />
@@ -108,7 +110,7 @@ export function Workspace({ api }: { api: StudioApi }) {
                           <Tab label="세션" value="session" />
                         </TabList>
                         <StackItem size="fill" style={styles.editorArea}>
-                          <SessionPanel api={api} deviceId={deviceId} appId={appId} onBusyChange={setSessionBusy} onTurn={onTurn} {...(target ? { target } : {})} />
+                          <SessionPanel api={api} deviceId={deviceId} appId={appId} onBusyChange={setSessionBusy} onTurn={onTurn} deviceInUse={deviceInUse} {...(target ? { target } : {})} />
                         </StackItem>
                         <ResizeHandle direction="vertical" hasDivider isReversed isAlwaysVisible={false} resizable={bottomPanel.props} label="로그 드로어 크기 조절" />
                         {!bottomPanel.isCollapsed && (

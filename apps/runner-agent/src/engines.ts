@@ -77,7 +77,8 @@ export async function openAndroidNode(args: Pick<RunArgs, 'helperApk' | 'helperC
     onHelperStep: (serial, text) => { if (/(?<!이미 )설치됨|활성화됨/.test(text)) needsWarmup.add(serial); log(`헬퍼 온보딩(…${serial.slice(-4)}): ${text}`); },
   });
   // 같은 프로세스 엔진과 워커용 HTTP 가 같은 디스패처를 쓴다: 기기별 호출 직렬화(rpc.ts)가 둘 사이에도 지켜진다
-  const dispatcher = createDeviceServer([backend]);
+  // Run 이 쓰는 기기를 devices.list 에 알린다: 같은 기기에 붙은 Studio 가 화면 갱신을 늦추고 세션을 막는다
+  const dispatcher = createDeviceServer([backend], { inUse: (id) => inUse.has(id) });
   let rpcServer: ReturnType<typeof serveHttp> | undefined;
   /** 화면 아래(80%)에서 위(30%)로 스와이프. 화면 크기는 UI 트리 루트의 크기로 안다(모르면 1080×2400 기준) */
   const swipeUp = async (id: string): Promise<void> => {

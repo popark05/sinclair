@@ -35,7 +35,7 @@ const noDevice = async (): Promise<never> => { throw new Error('기기 연결이
 const withTimeout = <T>(p: Promise<T>, ms: number): Promise<T> => Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`${ms}ms 안에 응답 없음`)), ms))]);
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-const toStudioDevice = (d: DeviceInfo): StudioDevice => ({ id: d.id, model: d.model, osVersion: d.osVersion, state: d.state, ...(d.stateDetail ? { stateDetail: d.stateDetail } : {}), ...(d.helper ? { helper: d.helper.state } : {}) });
+const toStudioDevice = (d: DeviceInfo): StudioDevice => ({ id: d.id, model: d.model, osVersion: d.osVersion, state: d.state, ...(d.stateDetail ? { stateDetail: d.stateDetail } : {}), ...(d.helper ? { helper: d.helper.state } : {}), ...(d.inUse ? { inUse: true } : {}) });
 
 function over(rpc: DeviceRpc, connection: ConnectionInfo, close: () => Promise<void>): DeviceConnection {
   return {

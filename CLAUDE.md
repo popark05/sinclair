@@ -91,6 +91,8 @@ Plan(`intent/`) → Design(`specs/`, `/architect`로 타입 먼저) → Build(`t
 
 - **Studio 개발 모드에서 화면만 새 코드이고 메인·작업 프로세스는 옛 코드일 수 있다.** `electron-vite dev` 는 렌더러만 HMR 이라, 새 화면이 보낸 비밀값을 옛 메인의 닫힌 요청 검사가 조용히 버려 세션에 비밀값이 없었다(실기, 2026-11-14). `dev` 는 `--watch`(메인·preload·작업 프로세스 번들 변경 시 재빌드·재시작). 작업 프로세스가 런타임에 읽는 워크스페이스 패키지(agent·runner 등)를 바꿨으면 Studio 를 다시 띄운다.
 
+- **같은 기기에 Studio 와 데몬 Run 이 붙으면 기기 줄을 다툰다.** 디바이스 RPC 는 기기마다 한 줄이라 Studio 스냅샷(실기 약 2초)이 Run 의 화면 읽기를 밀어내 재생 act 가 7초 → 100초+ 가 됐고, 느린 스냅샷 실패마다 헬퍼를 다시 온보딩해 더 나빠졌다(2026-11-14). 데몬이 `devices.list` 에 `inUse` 를 싣고 Studio 는 그 동안 10초마다만 받고 세션·판정을 막는다. 헬퍼는 최근 성공이 있으면 ping 생략, 요청 실패 시 ping 이 되면 온보딩 없이 재시도, 스냅샷 기한 15초.
+
 - **Electron 메인 ↔ plain Node 자식의 IPC 는 `serialization: 'json'`.** 둘의 V8 버전이 달라 `'advanced'`(V8 직렬화) 메시지를 풀지 못한다("Unable to deserialize cloned data") — 같은 Node 로 도는 테스트에서는 드러나지 않는다(Studio 작업 프로세스, 2026-11-14).
 
 ## 참고 프로젝트에서 가져올 것 (2026-11-07 분석 요약)
