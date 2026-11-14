@@ -12,6 +12,8 @@ export interface TargetSelector {
   model?: string | string[];
   /** OS 버전 범위(양 끝 포함). 점으로 나눈 숫자로 비교한다 */
   osVersion?: { min?: string; max?: string };
+  /** 그 기기(시리얼)만 — Studio 에서 고른 기기에서 돌릴 때(studio-console 02) */
+  deviceId?: string;
 }
 
 export type CycleTargetInput = string | TargetSelector;
@@ -46,7 +48,8 @@ export function parseCycleTargets(input: unknown): CycleTargetsParse {
     if (typeof t === 'string') {
       if (!t) errors.push(`${at}: 빈 이름`); else id = t;
     } else if (isRecord(t)) {
-      for (const k of Object.keys(t)) if (!['id', 'platform', 'model', 'osVersion'].includes(k)) errors.push(`${at}.${k}: 모르는 필드`);
+      for (const k of Object.keys(t)) if (!['id', 'platform', 'model', 'osVersion', 'deviceId'].includes(k)) errors.push(`${at}.${k}: 모르는 필드`);
+      if (t.deviceId !== undefined && !nonEmpty(t.deviceId)) errors.push(`${at}.deviceId: 비어 있지 않은 문자열(기기 시리얼)이어야 함`);
       if (!nonEmpty(t.id)) errors.push(`${at}.id: 비어 있지 않은 문자열이어야 함`); else id = t.id;
       if (!(DEVICE_PLATFORMS as readonly unknown[]).includes(t.platform)) errors.push(`${at}.platform: ${DEVICE_PLATFORMS.join('|')} 중 하나여야 함`);
       if (t.model !== undefined && !nonEmpty(t.model) && !(Array.isArray(t.model) && t.model.length > 0 && t.model.every(nonEmpty))) errors.push(`${at}.model: 비어 있지 않은 문자열 또는 그 배열이어야 함`);
@@ -75,8 +78,9 @@ export function parseCycleTargets(input: unknown): CycleTargetsParse {
 }
 
 /** 기기가 조건에 맞는지. OS 조건이 있는데 기기의 OS 버전을 숫자로 읽을 수 없으면 맞지 않는다(코드네임 미리보기 빌드 등) */
-export function matchesTarget(d: Pick<NodeDevice, 'platform' | 'model' | 'osVersion'>, s: TargetSelector): boolean {
+export function matchesTarget(d: Pick<NodeDevice, 'id' | 'platform' | 'model' | 'osVersion'>, s: TargetSelector): boolean {
   if (d.platform !== s.platform) return false;
+  if (s.deviceId !== undefined && d.id !== s.deviceId) return false;
   if (s.model !== undefined && !(Array.isArray(s.model) ? s.model.includes(d.model) : s.model === d.model)) return false;
   if (s.osVersion) {
     if (!VERSION.test(d.osVersion)) return false;
