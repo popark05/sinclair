@@ -50,6 +50,18 @@ describe('ExportPanel', () => {
     expect(await screen.findByText(/x\.sinclair\.ts/)).toBeTruthy();
   });
 
+  it('녹화 키의 앱은 러너와 같은 값(세션 시작 화면의 앱, 모르면 빈 값) — 툴바 앱 id 가 아니다. iOS 는 화면 트리에 패키지가 없어 러너는 빈 값인데 Studio 가 번들 id 로 저장해 재생되지 않았다(실기)', async () => {
+    const ios: SessionRecord = { ...record, result: { ...record.result!, startApp: undefined } as SessionRecord['result'] };
+    delete (ios.result as { startApp?: string }).startApp;
+    const calls: unknown[] = [];
+    const api = { saveRecording: async (input: unknown) => { calls.push(input); return { key: 'k'.repeat(64) }; }, getSettings: async () => ({ controlPlane: 'http://10.0.0.5:4780', testsDir: '/tmp/tests' }) } as unknown as StudioApi;
+    render(<ExportPanel api={api} record={ios} appId="com.apple.Preferences" deviceId="00008020-000B289011E2002E" deviceLabel="iPhone11,6 (…002E)" />);
+    await act(async () => { screen.getByRole('button', { name: '녹화 캐시에 저장' }).click(); });
+    expect(calls).toEqual([expect.objectContaining({ app: '' })]);
+    // 내보낸 코드의 app.restart 는 툴바 앱 id 그대로
+    expect(screen.getByRole('region', { name: '내보낼 코드' }).textContent).toMatch(/app\.restart\('com\.apple\.Preferences'\)/);
+  });
+
   it('녹화 캐시에 저장: 테스트 이름·목표·시작 앱·녹화를 control-plane 으로', async () => {
     const { calls } = setup();
     fireEvent.change(screen.getByRole('textbox', { name: '테스트 이름' }), { target: { value: 'YouTube 검색' } });
