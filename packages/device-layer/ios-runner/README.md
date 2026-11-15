@@ -12,7 +12,7 @@ Xcode 와 XcodeGen(`brew install xcodegen`)이 필요합니다. `.xcodeproj` 는
 
 ```bash
 ./build.sh --simulator                                      # 시뮬레이터(서명 없음)
-./build.sh --team <TEAM_ID> --bundle-prefix dev.sinclair.<이름>   # 실기기: Xcode → Settings → Accounts 에 Apple ID 로그인, 개인 팀도 됨
+./build.sh --team <TEAM_ID> --device <UDID> --bundle-prefix dev.sinclair.<이름>   # 실기기: Xcode 에 Apple ID 로그인(개인 팀은 --device 필수, 기기를 팀에 등록)
 ```
 
 마지막 줄에 `.xctestrun` 경로가 나옵니다. 데몬·Studio 는 `SINCLAIR_IOS_XCTESTRUN` 으로 그 경로를 받아 `xcodebuild test-without-building` 으로 러너를 띄웁니다(토큰·포트는 `TEST_RUNNER_SINCLAIR_*` 환경변수).

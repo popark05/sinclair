@@ -32,7 +32,8 @@ await check('버튼 탭 → push 화면', async () => {
   let t = await c.dump();
   const close = nodes(t).find((n) => n.role === 'button' && /^(닫기|Close|취소|Cancel)$/.test(n.name ?? '') && n.rect);
   if (close) { await c.tap(center(close)); await settle(); t = await c.dump(); }
-  const target = nodes(t).find((n) => n.role === 'button' && /^(일반|General)$/.test(n.name ?? '') && n.rect);
+  // iOS 26 은 버튼, iOS 17 은 목록 셀(group)에 이름이 있다
+  const target = nodes(t).find((n) => (n.role === 'button' || n.role === 'group') && /^(일반|General)$/.test(n.name ?? '') && n.rect);
   if (!target) throw new Error("'일반' 버튼이 없음(설정 앱 목록 화면이 아님)");
   await c.tap(center(target));
   await settle();
@@ -50,8 +51,15 @@ await check('뒤로(왼쪽 가장자리 스와이프)', async () => {
   return '바뀜';
 });
 await check('입력칸 탭 → 입력 → 값', async () => {
-  const t = await c.dump();
-  const box = nodes(t).find((n) => n.role === 'textbox' && n.rect && n.rect.width > 0);
+  let box = nodes(await c.dump()).find((n) => n.role === 'textbox' && n.rect && n.rect.width > 0);
+  if (!box) {
+    // iOS 17 설정 앱은 검색창이 목록을 아래로 당겨야 나온다
+    const p = await c.ping();
+    const w = p.screen.width * p.scale, h = p.screen.height * p.scale;
+    await c.swipe({ x: w / 2, y: h * 0.3 }, { x: w / 2, y: h * 0.6 }, 400);
+    await settle();
+    box = nodes(await c.dump()).find((n) => n.role === 'textbox' && n.rect && n.rect.width > 0);
+  }
   if (!box) throw new Error('입력칸이 없음');
   await c.tap(center(box));
   await settle();
