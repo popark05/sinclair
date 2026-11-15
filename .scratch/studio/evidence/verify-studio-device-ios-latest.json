@@ -1,7 +1,7 @@
 {
   "skill": "verify-studio",
   "mode": "device",
-  "at": "2026-11-15T03:37:35.695Z",
+  "at": "2026-11-15T04:19:11.217Z",
   "ok": true,
   "checks": [
     {
@@ -11,7 +11,7 @@
     {
       "name": "기기 화면 스냅샷을 그림",
       "ok": true,
-      "detail": "1242×2688, 기동 4193ms"
+      "detail": "1242×2688, 기동 3920ms"
     },
     {
       "name": "현재 앱 버튼이 앞 화면 앱을 채우고 버튼 옆에 결과",
@@ -47,7 +47,7 @@
     {
       "name": "세션 성공(턴 타임라인 + 결과)",
       "ok": true,
-      "detail": "성공 — 일반 > 키보드 화면이 열림. 제목 \"키보드\", 뒤로 버튼 \"일반\", 키보드/텍스트 대치/한 손 키보드 항목이 보임. · 3턴 · 모델 3회 · 입력 8,602 토큰 | 턴: 1. tap @e71 / 2. tap @e65 / 3. done"
+      "detail": "성공 — 일반 > 키보드 설정 화면이 열렸다. 상단 제목이 \"키보드\"이고 \"일반\" 뒤로가기 버튼이 보이며, 키보드·텍스트 대치·한 손 키보드 항목이 있다. · 3턴 · 모델 3회 · 입력 8,659 토큰 | 턴: 1. tap @e71 / 2. tap @e65 / 3. done"
     },
     {
       "name": "지금 화면 판정 = 참",
@@ -57,7 +57,7 @@
     {
       "name": "요소 판정 = 통과(고른 노드 · 보인다, 모델 없음)",
       "ok": true,
-      "detail": "통과 · expect(screen.getByRole('group', { name: '텍스트 대치', exact: true })).toBeVisible()"
+      "detail": "통과 · expect(screen.getByRole('button', { name: '텍스트 대치', exact: true })).toBeVisible()"
     },
     {
       "name": "처음부터 시작한 세션이라 내보내기 경고 없음",
@@ -76,17 +76,17 @@
     {
       "name": "결정적 내보내기에 요소 판정이 expect 코드로",
       "ok": true,
-      "detail": "expect(screen.getByRole('group', { name: '텍스트 대치', exact: true })).toBeVisible()"
+      "detail": "expect(screen.getByRole('button', { name: '텍스트 대치', exact: true })).toBeVisible()"
     },
     {
       "name": "결정적 내보내기(app.restart + locator 코드, 이름 바꿈)",
       "ok": true,
-      "detail": "await screen.getByRole('group', { name: '일반', exact: true }).tap(); | await screen.getByRole('group', { name: '키보드', exact: true }).tap(); | await expect(screen.getByRole('group', { name: '텍스트 대치', ex"
+      "detail": "await screen.getByRole('button', { name: '일반', exact: true }).tap(); | await screen.getByRole('button', { name: '키보드', exact: true }).tap(); | await expect(screen.getByRole('button', { name: '텍스트 대치',"
     },
     {
       "name": "Cycle 로 실행: 테스트 폴더에 쓰고 Cycle 등록",
       "ok": true,
-      "detail": "Cycle studio-20261115033617-25b7 등록 — <tmp>/studio-tests/Studio 검증 2026-11-15-03-36-16 · Cycle/Studio 검증 2026-11-15-03-36-16 · Cycle.sinclair.ts"
+      "detail": "Cycle studio-20261115041757-aa8c 등록 — <tmp>/studio-tests/Studio 검증 2026-11-15-04-17-56 · Cycle/Studio 검증 2026-11-15-04-17-56 · Cycle.sinclair.ts"
     },
     {
       "name": "Cycle 타깃은 고른 기기(deviceId)",
@@ -104,7 +104,7 @@
     {
       "name": "데몬이 내보낸 두 테스트를 Cycle 로 돌려 verified(둘 다 통과)",
       "ok": true,
-      "detail": "Cycle verify-studio-1794713809209 verdict=verified · 자연어=passed, 결정적=passed"
+      "detail": "Cycle verify-studio-1794716304903 verdict=verified · 자연어=passed, 결정적=passed"
     },
     {
       "name": "자연어 act 는 Studio 가 저장한 녹화로 재생(모델 0회)",
