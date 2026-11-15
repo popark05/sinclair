@@ -61,29 +61,32 @@ export function useSnapshot(api: StudioApi, deviceId: string, opts: { paused?: b
   const [error, setError] = useState<string>();
   const inFlight = useRef(false);
   const again = useRef(false);
-  const alive = useRef(true);
+  // 지금 고른 기기. 응답은 그 요청을 보낸 기기가 아직 지금 기기일 때만 쓴다 — 바꾸기 직전에 보낸 이전 기기의 스냅샷(실기 약 2초)이 늦게 와 새 기기 화면으로 붙지 않게
+  const current = useRef(deviceId);
+  current.current = deviceId;
+  const latest = useRef<() => Promise<void>>(async () => {});
 
   const fetchOnce = useCallback(async (): Promise<void> => {
     if (!deviceId) return;
-    if (inFlight.current) { again.current = true; return; } // 진행 중이면 끝난 뒤 한 번 더
+    if (inFlight.current) { again.current = true; return; } // 진행 중이면 끝난 뒤 한 번 더(그때의 기기로)
     inFlight.current = true;
+    const id = deviceId;
     try {
-      const s = await api.snapshot(deviceId);
-      if (alive.current) { setSnapshot(s); setError(undefined); }
+      const s = await api.snapshot(id);
+      if (current.current === id) { setSnapshot(s); setError(undefined); }
     } catch (err) {
-      if (alive.current) setError(err instanceof Error ? err.message : String(err));
+      if (current.current === id) setError(err instanceof Error ? err.message : String(err));
     } finally {
       inFlight.current = false;
-      if (again.current && alive.current) { again.current = false; void fetchOnce(); }
+      if (again.current) { again.current = false; void latest.current(); }
     }
   }, [api, deviceId]);
+  latest.current = fetchOnce;
 
   // 기기가 바뀌면 화면을 비운다
   useEffect(() => {
-    alive.current = true;
     setSnapshot(undefined);
     setError(undefined);
-    return () => { alive.current = false; };
   }, [deviceId]);
   useEffect(() => {
     if (!deviceId || paused) return;
