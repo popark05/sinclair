@@ -94,6 +94,7 @@ export function Toolbar({ api, onDeviceChange, onAppChange, selectRequest }: { a
         setDevices(list);
         const d = list.find((x) => x.id === selectRequest.deviceId);
         if (!d) { setNote(`Console 의 요청 기기 …${selectRequest.deviceId.slice(-4)} 가 연결돼 있지 않음`); return; }
+        if (!selectRequest.app) clearAppIfPlatformChanged(device, d, list);
         setDevice(d.id);
         onDeviceChange(d.id, deviceLabel(d));
         if (selectRequest.app) { setApp(selectRequest.app); onAppChange(selectRequest.app); }
@@ -104,12 +105,19 @@ export function Toolbar({ api, onDeviceChange, onAppChange, selectRequest }: { a
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectRequest?.nonce]);
 
-  const pickDevice = (id: string): void => { setDevice(id); const d = devices.find((x) => x.id === id); onDeviceChange(id, d ? deviceLabel(d) : undefined); };
   const changeApp = (v: string): void => { setApp(v); onAppChange(v); };
+  /** 앱 id 는 플랫폼마다 다르다(iOS 번들 id ≠ Android 패키지): 플랫폼이 다른 기기로 바꾸면 비운다 */
+  const clearAppIfPlatformChanged = (fromId: string, to: StudioDevice | undefined, list: StudioDevice[]): void => {
+    const from = list.find((x) => x.id === fromId);
+    if (!app || !from?.platform || !to?.platform || from.platform === to.platform) return;
+    changeApp('');
+    setNote(`기기 플랫폼이 바뀌어(${from.platform} → ${to.platform}) 앱 id 를 비움`);
+  };
+  const pickDevice = (id: string): void => { const d = devices.find((x) => x.id === id); clearAppIfPlatformChanged(device, d, devices); setDevice(id); onDeviceChange(id, d ? deviceLabel(d) : undefined); };
   const fillForeground = async (): Promise<void> => {
     if (!device) return;
     setNote('현재 앱 확인 중…');
-    try { const a = await api.foregroundApp(device); if (a) { changeApp(a); setNote(`현재 앱: ${a}`); } else setNote('지금 화면의 앱을 알 수 없음 — 앱 id 를 직접 넣으세요'); } catch (err) { setNote(`현재 앱 실패: ${err instanceof Error ? err.message : String(err)}`); }
+    try { const a = await api.foregroundApp(device); if (a) { changeApp(a); setNote(`현재 앱: ${a}`); } else setNote('지금 화면의 앱을 알 수 없음(홈 화면이면 앱을 먼저 연다) — 앱 id 를 직접 넣어도 됨'); } catch (err) { setNote(`현재 앱 실패: ${err instanceof Error ? err.message : String(err)}`); }
   };
 
   return (

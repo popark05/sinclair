@@ -103,6 +103,7 @@ Plan(`intent/`) → Design(`specs/`, `/architect`로 타입 먼저) → Build(`t
 - **녹화 키의 '앱' 은 러너와 같은 방법으로 얻는다.** 러너는 act 시작 화면 트리에서 앱을 알아내는데(appPackageOf — iOS 트리엔 패키지가 없어 빈 값), Studio 가 툴바 앱 id 로 저장해 iPhone 에서 Studio 녹화가 재생되지 않았다(2026-11-15). 키 필드를 한쪽에서 바꾸면 Studio save-recording·runner 를 함께 본다.
 - **iOS 홈 버튼 직후 springboard 스냅샷이 20초 넘게 붙잡힐 수 있다.** 호스트는 기한에 포기해도 러너는 계속 그 일을 해 다음 요청(앱 실행)이 60초 밀렸다(실기 iOS 17). 러너가 홈 뒤 1초 기다린다. XCUITest 의 잠잠해짐 대기를 끄면(waitForQuiescence 바꿔치기) 오히려 홈 스냅샷이 매번 매달렸다 — 하지 않는다.
 - **Studio 에서 기기를 바꾼 직후 이전 기기의 늦은 스냅샷이 새 기기 화면으로 붙었다**(그 위 클릭은 다른 기기 좌표). 응답은 요청한 기기가 지금 기기일 때만 쓴다(useSnapshot). 같은 이유로 'Cycle 로 실행' 타깃 플랫폼도 고른 기기의 것이어야 한다(예전엔 늘 android).
+- **Android 홈 화면 런처를 앱으로 쓰지 않는다.** 홈에서 Studio '현재 앱' 이 `com.sec.android.app.launcher` 를 앱 id 로 채워, 세션·내보내기가 `app.restart(런처)` 로 시작하고 Cycle 은 monkey 실행 실패(device-error)로 끝났다(실기 SM-N981N, 2026-11-15). iOS 러너는 springboard 를 앱 없음으로 돌려주는데 Android 기기는 런처를 그대로 알린다 — Studio 가 `isLauncherPackage` 로 거른다. 앱 id 는 플랫폼마다 달라 툴바는 플랫폼이 다른 기기로 바꾸면 앱 id 를 비운다.
 - **XCUITest 러너의 화면 크기는 `UIScreen.main.bounds` 가 아니다.** 런치 스크린 없는 테스트 러너 앱은 호환 모드라 320x480 이 나온다 — springboard 프레임을 쓴다.
 
 ## 참고 프로젝트에서 가져올 것 (2026-11-07 분석 요약)

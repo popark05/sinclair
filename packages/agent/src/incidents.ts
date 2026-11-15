@@ -92,6 +92,9 @@ export function detectIncident(root: SemanticNode, ctx: IncidentContext): Incide
 }
 
 /** act 시작 때의 앱 패키지: 권한 창·런처·시스템 창이면 모른다고 본다 */
+/** 홈 화면 런처 패키지인가(앱이 아니다 — iOS 러너가 springboard 를 앱 없음으로 돌려주는 것과 같게) */
+export const isLauncherPackage = (pkg: string): boolean => LAUNCHERS.has(pkg);
+
 export function appPackageOf(root: SemanticNode): string | undefined {
   const p = packageOf(root);
   return p && !PERMISSION_PACKAGES.has(p) && !LAUNCHERS.has(p) ? p : undefined;

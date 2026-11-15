@@ -2,7 +2,7 @@
 // 없으면 직접 Android 백엔드와 디바이스 서버를 연다. 둘 다 안 되면 none 과 사유.
 import { readDeviceRpc } from '@sinclair/device-layer';
 import { rpcOverHttp, type DeviceRpc } from '@sinclair/engine-mobile';
-import { appPackageOf } from '@sinclair/agent';
+import { appPackageOf, isLauncherPackage } from '@sinclair/agent';
 import type { DeviceInfo, SemanticNode } from '@sinclair/protocol';
 import type { ConnectionInfo, StudioDevice, StudioKey, StudioSnapshot } from '../shared/studio-ipc.ts';
 import type { ForegroundAppResult, SnapshotResult } from '@sinclair/protocol';
@@ -35,16 +35,18 @@ const noDevice = async (): Promise<never> => { throw new Error('기기 연결이
 const withTimeout = <T>(p: Promise<T>, ms: number): Promise<T> => Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`${ms}ms 안에 응답 없음`)), ms))]);
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-const toStudioDevice = (d: DeviceInfo): StudioDevice => ({ id: d.id, model: d.model, osVersion: d.osVersion, state: d.state, ...(d.stateDetail ? { stateDetail: d.stateDetail } : {}), ...(d.helper ? { helper: d.helper.state } : {}), ...(d.inUse ? { inUse: true } : {}) });
+const toStudioDevice = (d: DeviceInfo): StudioDevice => ({ id: d.id, platform: d.platform, model: d.model, osVersion: d.osVersion, state: d.state, ...(d.stateDetail ? { stateDetail: d.stateDetail } : {}), ...(d.helper ? { helper: d.helper.state } : {}), ...(d.inUse ? { inUse: true } : {}) });
 
 function over(rpc: DeviceRpc, connection: ConnectionInfo, close: () => Promise<void>): DeviceConnection {
   return {
     connection, rpc, close,
     listDevices: async () => ((await rpc.call('devices.list', {})) as DeviceInfo[]).map(toStudioDevice),
-    // 기기에 직접 묻고(화면 트리에 resource-id 가 없는 앱도), 모르거나 구버전 데몬(메서드 없음)이면 화면 트리의 resource-id 패키지로
+    // 기기에 직접 묻고(화면 트리에 resource-id 가 없는 앱도), 모르거나 구버전 데몬(메서드 없음)이면 화면 트리의 resource-id 패키지로.
+    // 홈 화면 런처는 앱이 아니다: 앱 id 로 채우면 세션·내보내기가 app.restart(런처)로 시작하고 Cycle 은 실행 실패(실기 SM-N981N)
     foregroundApp: async (deviceId) => {
-      const asked = await (rpc.call('device.apps.foreground', { deviceId }) as Promise<ForegroundAppResult>).catch(() => undefined);
-      return asked?.appId ?? appPackageOf((await rpc.call('device.dump.ui', { deviceId })) as SemanticNode) ?? null;
+      const asked = (await (rpc.call('device.apps.foreground', { deviceId }) as Promise<ForegroundAppResult>).catch(() => undefined))?.appId;
+      if (asked) return isLauncherPackage(asked) ? null : asked;
+      return appPackageOf((await rpc.call('device.dump.ui', { deviceId })) as SemanticNode) ?? null;
     },
     snapshot: async (deviceId) => {
       const s = (await rpc.call('device.snapshot', { deviceId })) as SnapshotResult;

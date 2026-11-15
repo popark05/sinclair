@@ -100,7 +100,7 @@ export interface StudioSnapshot { png: string; root: SemanticNode; capturedAt: s
 export interface ConnectionInfo { mode: 'daemon' | 'own' | 'none'; detail: string }
 
 /** 툴바에 보이는 기기(protocol DeviceInfo 에서 화면에 필요한 것만) */
-export interface StudioDevice { id: string; model: string; osVersion: string; state: string; stateDetail?: string; helper?: string; /** 데몬에서 Run 이 이 기기를 쓰는 중 */ inUse?: boolean }
+export interface StudioDevice { id: string; /** 앱 id 는 플랫폼마다 다르다(번들 id·패키지) — 툴바가 플랫폼이 바뀌면 비운다 */ platform?: 'android' | 'ios'; model: string; osVersion: string; state: string; stateDetail?: string; helper?: string; /** 데몬에서 Run 이 이 기기를 쓰는 중 */ inUse?: boolean }
 
 /** 요청별 응답 타입 */
 export interface StudioResponses { connection: ConnectionInfo; devices: StudioDevice[]; 'foreground-app': string | null; snapshot: StudioSnapshot; tap: null; swipe: null; text: null; key: null; button: null;
