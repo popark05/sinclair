@@ -5,8 +5,22 @@ import { RpcError, RPC_ERRORS } from './rpc.ts';
 
 export type RoutedBackend = Omit<DeviceBackend, 'platform'> & { readonly platform: DeviceBackend['platform']; readonly backends: readonly DeviceBackend[]; platformOf(deviceId: string): Promise<DeviceBackend['platform']> };
 
-export function routeBackends(backends: readonly DeviceBackend[]): RoutedBackend {
-  const list = async (b: DeviceBackend): Promise<DeviceInfo[]> => b.listDevices().catch(() => []);
+export interface RouteBackendsOptions {
+  /** 백엔드 하나의 목록 기한(기본 15초). 넘기면 이번 목록에서 그 백엔드 기기를 뺀다 — 한 플랫폼이 멈춰도 목록 전체가 멈추지 않게 */
+  listTimeoutMs?: number;
+  /** 기한을 넘긴 백엔드(진단 로그용) */
+  onListTimeout?: (platform: DeviceBackend['platform']) => void;
+}
+
+const LIST_TIMEOUT_MS = 15_000;
+
+export function routeBackends(backends: readonly DeviceBackend[], opts: RouteBackendsOptions = {}): RoutedBackend {
+  const limit = opts.listTimeoutMs ?? LIST_TIMEOUT_MS;
+  const list = (b: DeviceBackend): Promise<DeviceInfo[]> => {
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<DeviceInfo[]>((resolve) => { timer = setTimeout(() => { opts.onListTimeout?.(b.platform); resolve([]); }, limit); timer.unref?.(); });
+    return Promise.race([b.listDevices().catch(() => []), late]).finally(() => clearTimeout(timer));
+  };
   const owner = async (id: string): Promise<DeviceBackend> => {
     for (const b of backends) if ((await list(b)).some((d) => d.id === id)) return b;
     throw new RpcError(RPC_ERRORS.deviceNotFound, `기기를 찾을 수 없음: ${id}`);

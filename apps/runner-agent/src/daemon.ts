@@ -40,6 +40,8 @@ export interface DaemonDeps extends RunOnceDeps {
   onWorkerSpawn?: (runId: string, pid: number) => void;
   /** 테스트용: Fleet 에 보고할 기기 목록. 없으면 fake 엔진은 가짜 기기 하나, mobile 은 데몬이 소유한 디바이스 백엔드의 목록 */
   inventory?: () => Promise<NodeDevice[]>;
+  /** 인벤토리 읽기 기한(기본 45초). 넘기면 그 읽기를 실패로 남기고 보고·클레임을 이어 간다 */
+  inventoryTimeoutMs?: number;
   /** 디바이스 RPC 발견 파일(Studio 가 읽는다). 기본 OS 데이터 디렉터리/sinclair/device-rpc.json */
   discoveryFile?: string;
 }
@@ -90,6 +92,7 @@ export async function reportNode(controlPlane: string, agentId: string, devices:
 const MIN_REPORT_MS = 1_000;
 const DEFAULT_REPORT_MS = 20_000;
 const REPORT_TIMEOUT_MS = 10_000;
+const INVENTORY_TIMEOUT_MS = 45_000;
 
 export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promise<DaemonSummary> {
   const log = deps.log ?? ((line: string) => console.log(line));
@@ -156,9 +159,13 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
   let lastDevices: NodeDevice[] = [];
   let readSeq = 0;
   let appliedSeq = 0;
+  // 기한: 기기 목록이 답하지 않으면 그 읽기를 실패로 — 기다리면 보고 사슬과 클레임이 영영 멈춘다(실기 2026-11-15)
+  const inventoryLimit = deps.inventoryTimeoutMs ?? INVENTORY_TIMEOUT_MS;
   const inventory = async (opts: { tryUnlock?: boolean } = {}): Promise<NodeDevice[]> => {
     const seq = ++readSeq;
-    const devices = await readInventory(opts);
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`인벤토리가 ${inventoryLimit}ms 안에 끝나지 않음(기기 목록·잠금 확인이 답하지 않음)`)), inventoryLimit); timer.unref?.(); });
+    const devices = await Promise.race([readInventory(opts), late]).finally(() => clearTimeout(timer));
     if (seq > appliedSeq) { appliedSeq = seq; lastDevices = devices; }
     return devices;
   };

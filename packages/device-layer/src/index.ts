@@ -9,6 +9,6 @@ export { createIosBackend, noLauncher, type IosRunnerLauncher, type IosBackendOp
 export { xcodebuildLauncher, xcodebuildArgs } from './ios/xcodebuild-launcher.ts';
 export { createUsbmuxClient, readLockdownValues, forwardPort, type UsbmuxClient, type UsbmuxDevice } from './ios/usbmux.ts';
 export { IosRunnerClient, IOS_RUNNER_PORT } from './ios/runner-client.ts';
-export { routeBackends, type RoutedBackend } from './route-backends.ts';
+export { routeBackends, type RoutedBackend, type RouteBackendsOptions } from './route-backends.ts';
 export { resolveXctestrun, iosLauncherFromEnv, REPO_IOS_RUNNER_PRODUCTS } from './ios/xctestrun.ts';
 export { devicectlAppInstalled, type DevicectlOptions } from './ios/devicectl.ts';

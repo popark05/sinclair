@@ -218,12 +218,16 @@ describe('runDaemon · Fleet 보고', () => {
     const srv = await serveControlPlane(createMemoryEventStore(), { leaseTtlMs: 3_000 }); // 보고 간격 1초
     url = `http://127.0.0.1:${srv.port}`;
     try {
+      // 보고가 잘 되다가(TTL 을 알고) 어느 읽기에서 영영 답하지 않는다 — 실기 상황
       let calls = 0;
-      const inventory = async () => { if (++calls === 1) return new Promise<never>(() => {}); return [dev('SER-A')]; };
+      let stuckAt = 0;
+      const inventory = async () => { if (++calls === 3) { stuckAt = Date.now(); return new Promise<never>(() => {}); } return [dev('SER-A')]; };
       const aborter = new AbortController();
       const p = runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'node-h', pollMs: 50 }, deps({ signal: aborter.signal, inventory, inventoryTimeoutMs: 200 }));
-      await until(async () => (await fleet()).nodes[0]?.devices.length === 1, 6_000);
-      expect((await fleet()).nodes[0]).toMatchObject({ agentId: 'node-h', devices: [{ id: 'SER-A', state: 'idle' }] });
+      await until(() => stuckAt > 0, 6_000);
+      // 멈춘 읽기 뒤에도 보고가 이어진다(보고 시각이 그 뒤로 갱신)
+      await until(async () => Date.parse((await fleet()).nodes[0]?.reportedAt ?? '0') > stuckAt + 200, 6_000);
+      expect(Date.parse((await fleet()).nodes[0]!.reportedAt)).toBeGreaterThan(stuckAt + 200);
       expect(logs.some((l) => /인벤토리가 200ms 안에 끝나지 않음/.test(l))).toBe(true);
       aborter.abort();
       await p;

@@ -78,7 +78,7 @@ export async function openAndroidNode(args: Pick<RunArgs, 'helperApk' | 'helperC
   });
   // iOS(ios-backend 05): macOS 에서만(usbmuxd·Xcode). 러너 빌드는 SINCLAIR_IOS_XCTESTRUN 또는 리포 빌드 산출물, 없으면 iPhone 이 '러너 빌드 없음' 사유로 보인다
   const ios = process.platform === 'darwin' ? openIos(log) : undefined;
-  const backend = routeBackends([android, ...(ios ? [ios] : [])]);
+  const backend = routeBackends([android, ...(ios ? [ios] : [])], { onListTimeout: (p) => log(`${p === 'ios' ? 'iOS' : 'Android'} 기기 목록이 기한 안에 답하지 않음(이번 목록에서 뺌)`) });
   // 같은 프로세스 엔진과 워커용 HTTP 가 같은 디스패처를 쓴다: 기기별 호출 직렬화(rpc.ts)가 둘 사이에도 지켜진다
   // Run 이 쓰는 기기를 devices.list 에 알린다: 같은 기기에 붙은 Studio 가 화면 갱신을 늦추고 세션을 막는다
   const dispatcher = createDeviceServer([...backend.backends], { inUse: (id) => inUse.has(id) });
