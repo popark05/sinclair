@@ -31,4 +31,16 @@ describe('routeBackends', () => {
     expect((await r.listDevices()).map((d) => d.id)).toEqual(['ANDROID1']);
     await expect(r.tap('NOPE', { x: 0, y: 0 })).rejects.toThrow(/기기를 찾을 수 없음/);
   });
+
+  it('목록이 답하지 않는 백엔드는 기한 뒤 빼고(onListTimeout) 나머지 기기는 보인다 — 한 플랫폼이 멈춰도 데몬의 목록이 멈추지 않게', async () => {
+    const stuck = new FakeBackend(['X']);
+    stuck.listDevices = () => new Promise(() => {});
+    const slow: string[] = [];
+    const r = routeBackends([new FakeBackend(['ANDROID1']), Object.assign(stuck, { platform: 'ios' as const })], { listTimeoutMs: 100, onListTimeout: (p) => slow.push(p) });
+    const t = Date.now();
+    expect((await r.listDevices()).map((d) => d.id)).toEqual(['ANDROID1']);
+    expect(Date.now() - t).toBeLessThan(1_000);
+    expect(slow).toEqual(['ios']);
+  });
 });
+

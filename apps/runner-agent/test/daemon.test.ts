@@ -213,6 +213,23 @@ describe('runDaemon · Fleet 보고', () => {
     } finally { await srv.close(); cp = undefined; }
   }, 15_000);
 
+  it('인벤토리 읽기가 멈춰도(기기 목록이 답하지 않음) 기한 뒤 실패로 남기고 다음 보고를 이어 간다 — 실기에서 한 번 멈춘 목록에 보고 사슬이 영영 끊겼다', async () => {
+    await cp!.close();
+    const srv = await serveControlPlane(createMemoryEventStore(), { leaseTtlMs: 3_000 }); // 보고 간격 1초
+    url = `http://127.0.0.1:${srv.port}`;
+    try {
+      let calls = 0;
+      const inventory = async () => { if (++calls === 1) return new Promise<never>(() => {}); return [dev('SER-A')]; };
+      const aborter = new AbortController();
+      const p = runDaemon({ controlPlane: url, targets: ['android'], tests: fixtures, engine: 'fake', spool, helperCache: path.join(spool, 'helper-cache'), agent: 'node-h', pollMs: 50 }, deps({ signal: aborter.signal, inventory, inventoryTimeoutMs: 200 }));
+      await until(async () => (await fleet()).nodes[0]?.devices.length === 1, 6_000);
+      expect((await fleet()).nodes[0]).toMatchObject({ agentId: 'node-h', devices: [{ id: 'SER-A', state: 'idle' }] });
+      expect(logs.some((l) => /인벤토리가 200ms 안에 끝나지 않음/.test(l))).toBe(true);
+      aborter.abort();
+      await p;
+    } finally { await srv.close(); cp = undefined; }
+  }, 15_000);
+
   it('데몬이 멈출 때 진행 중이던 보고가 끝나기를 기다리고, 멈춘 뒤에는 보고를 보내지 않는다(닫히는 백엔드의 덜 채운 보고가 덮어쓰지 않게)', async () => {
     await cp!.close();
     const srv = await serveControlPlane(createMemoryEventStore(), { leaseTtlMs: 3_000 }); // 보고 간격 1초
