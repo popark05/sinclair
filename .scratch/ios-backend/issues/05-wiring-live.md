@@ -18,6 +18,6 @@
 ## 남은 것
 
 - ~~iOS 앱 상태 복원~~ → 06 에서 해결.
-- iOS 목록 행(Cell)은 group 역할이라 `getByRole('button')` 에 안 걸린다.
-- Studio 화면에서 iPhone 세션(실기 UI 확인), 앞 화면 앱은 러너가 띄운 앱만 안다.
-- 무료 팀 서명 7일 만료.
+- ~~iOS 목록 행(Cell)은 group~~ → 이름 있는 셀은 button(2026-11-15).
+- ~~Studio 화면에서 iPhone 세션~~ → verify-studio --platform ios 23/23. ~~앞 화면 앱은 러너가 띄운 앱만~~ → devicectl 설치 목록을 후보로(사람이 연 앱도, 실기 75ms).
+- ~~무료 팀 서명 7일 만료~~ → 데몬이 만료일을 알리고 만료되면 다시 빌드 안내로 실패(자동 재빌드는 하지 않음).

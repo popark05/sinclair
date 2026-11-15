@@ -7,7 +7,7 @@ import { toSemanticTree, type IosElement } from './ios-tree.ts';
 export interface IosRunnerPing { ok: boolean; version: string; iosVersion: string; model: string; screen: { width: number; height: number }; scale: number }
 export const IOS_RUNNER_PORT = 22087;
 // XCUITest 는 동작마다 앱이 잠잠해지길 기다려 느리다: 앱 실행은 수십 초(첫 실행·스플래시), 입력·트리는 십수 초까지
-const TIMEOUT_MS: Record<string, number> = { '/snapshot': 20_000, '/dump': 20_000, '/action': 30_000, '/app': 60_000 };
+const TIMEOUT_MS: Record<string, number> = { '/snapshot': 20_000, '/dump': 20_000, '/action': 30_000, '/app': 60_000, '/app/foreground': 15_000 };
 const round2 = (v: number): number => Math.round(v * 100) / 100;
 
 export class IosRunnerClient {
@@ -45,7 +45,11 @@ export class IosRunnerClient {
   /** 하드웨어 버튼: home·volume_up·volume_down(XCUIDevice.Button) */
   async button(name: 'home' | 'volume_up' | 'volume_down'): Promise<void> { await this.request('POST', '/action', { action: 'button', button: name }); }
   async app(action: 'launch' | 'terminate' | 'activate', bundleId: string): Promise<void> { await this.request('POST', '/app', { action, bundleId }); }
-  async foreground(): Promise<string | null> { return ((await this.request('GET', '/app/foreground')) as { bundleId: string | null }).bundleId; }
+  /** 앞 화면 앱. candidates(설치 앱 목록)를 주면 러너가 띄우지 않은 앱(사람이 연 앱)도 그중에서 찾는다 */
+  async foreground(candidates?: readonly string[]): Promise<string | null> {
+    const r = candidates?.length ? await this.request('POST', '/app/foreground', { candidates }) : await this.request('GET', '/app/foreground');
+    return (r as { bundleId: string | null }).bundleId;
+  }
 
   private request(method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
     const payload = body === undefined ? undefined : Buffer.from(JSON.stringify(body), 'utf8');

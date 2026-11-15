@@ -26,4 +26,15 @@ describe('devicectlAppInstalled', () => {
     const installed = devicectlAppInstalled({ run: async () => { throw new Error('xcrun 없음'); } });
     expect(await installed('U1', 'com.x')).toBeUndefined();
   });
+
+  it('목록(devicectlApps.list)과 설치 확인이 같은 캐시를 쓴다', async () => {
+    const { devicectlApps } = await import('../../src/ios/devicectl.ts');
+    const calls: string[][] = [];
+    const apps = devicectlApps({ run: okRunner(['com.apple.Preferences', 'com.apple.calculator'], calls), ttlMs: 60_000 });
+    expect(await apps.list('U1')).toEqual(['com.apple.Preferences', 'com.apple.calculator']);
+    expect(await apps.installed('U1', 'com.apple.calculator')).toBe(true);
+    expect(await apps.list('U1')).toHaveLength(2);
+    expect(calls).toHaveLength(1);
+  });
 });
+

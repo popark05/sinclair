@@ -21,6 +21,8 @@ export interface IosBackendOptions {
   onStep?: (udid: string, text: string) => void;
   /** 앱 설치 여부(true·false·모름 undefined). false 인 앱은 러너에 보내지 않는다 — 설치되지 않은 앱의 activate 는 러너를 1분 넘게 붙잡는다. 기본: 확인 안 함(앱은 devicectlAppInstalled 를 넘긴다) */
   appInstalled?: (udid: string, bundleId: string) => Promise<boolean | undefined>;
+  /** 설치 앱 목록(앞 화면 앱 후보). 있으면 러너가 띄우지 않은 앱(사람이 연 앱)도 앞 화면 앱으로 안다 — 기기 안에서는 앱 목록을 알 수 없다 */
+  installedApps?: (udid: string) => Promise<string[] | undefined>;
 }
 
 const KEYS: Record<string, string> = {
@@ -175,7 +177,10 @@ export function createIosBackend(opts: IosBackendOptions = {}): DeviceBackend & 
       await (await runner(udid)).app('terminate', appId);
     },
     async openUrl() { throw new RpcError(RPC_ERRORS.invalidParams, 'iOS 의 URL 열기는 아직 지원하지 않음'); },
-    async foregroundApp(udid) { return (await (await runner(udid)).foreground()) ?? undefined; },
+    async foregroundApp(udid) {
+      const candidates = await opts.installedApps?.(udid).catch(() => undefined);
+      return (await (await runner(udid)).foreground(candidates)) ?? undefined;
+    },
     async close() { for (const udid of tracked.keys()) await drop(udid); },
   };
 }

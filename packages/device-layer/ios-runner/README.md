@@ -32,7 +32,9 @@ node --experimental-transform-types packages/device-layer/scripts/ios-runner-che
 
 - 설치되지 않은 앱을 activate 하면 XCUITest 가 1분 넘게 붙잡아 그동안 모든 요청이 밀립니다. 기기 안에서는 설치 여부를 알 수 없어(샌드박스) 호스트가 `xcrun devicectl device info apps` 로 먼저 거릅니다(`devicectlAppInstalled`).
 - 앱은 백그라운드로 갈 때 화면 상태를 저장해 다음 실행에 복원합니다(실기 iOS 17). `terminate` 는 앞 화면이 아니면 먼저 앞으로 가져와 앞 화면인 채로 종료해, terminate → launch 가 처음 화면이 되게 합니다(그래서 백그라운드 앱의 종료는 잠깐 앱을 띄웁니다).
-- 앞 화면 앱은 공개 API 로 물을 수 없어, 이 러너가 띄우거나 활성화한 앱 중 앞에 있는 것으로 셉니다(없으면 홈 = `null`).
+- 앞 화면 앱은 공개 API 로 물을 수 없어, 이 러너가 띄운 앱과 호스트가 준 후보(`POST /app/foreground` — devicectl 설치 목록) 중 앞에 있는 것으로 셉니다(없으면 홈 = `null`).
+- 무료 팀 서명은 7일입니다. 데몬이 기동 때 만료일을 알리고, 만료되면 xcodebuild 를 띄우지 않고 다시 빌드하라고 실패합니다.
+- 이름 있는 셀(목록 행)은 `button` 역할입니다(Android 의 클릭 가능한 행과 같게).
 - `launch` 는 이미 떠 있으면 앞으로만 가져옵니다. 처음부터 시작하려면 호스트가 terminate 뒤 launch 합니다.
 - XCUITest 는 동작마다 앱이 잠잠해지길 기다려 Android 보다 느립니다(앱 실행 수 초, 입력 수 초).
 - 볼륨 버튼은 실기기에서만, 전원 버튼과 방향키는 지원하지 않습니다.

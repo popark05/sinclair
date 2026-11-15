@@ -16,8 +16,8 @@ const xcrun = (args: string[]): Promise<void> => new Promise((resolve, reject) =
   execFile('xcrun', args, { timeout: 20_000 }, (err) => (err ? reject(err) : resolve()));
 });
 
-/** (udid, bundleId) → 설치됨 true · 없음 false · 모름 undefined(devicectl 실패) */
-export function devicectlAppInstalled(opts: DevicectlOptions = {}): (udid: string, bundleId: string) => Promise<boolean | undefined> {
+/** 설치 앱 목록(list)과 설치 확인(installed)을 같은 캐시로. list 는 못 읽으면 undefined, installed 는 true·false·모름 undefined */
+export function devicectlApps(opts: DevicectlOptions = {}): { list(udid: string): Promise<string[] | undefined>; installed(udid: string, bundleId: string): Promise<boolean | undefined> } {
   const run = opts.run ?? xcrun;
   const ttl = opts.ttlMs ?? 30_000;
   const cache = new Map<string, { at: number; ids: Set<string> }>();
@@ -32,11 +32,19 @@ export function devicectlAppInstalled(opts: DevicectlOptions = {}): (udid: strin
       return ids;
     } catch { return undefined; } finally { rmSync(dir, { recursive: true, force: true }); }
   };
-  return async (udid, bundleId) => {
-    const c = cache.get(udid);
-    if (c && Date.now() - c.at < ttl && c.ids.has(bundleId)) return true;
-    // 캐시에 없으면(막 깐 앱일 수 있다) 새로 읽는다
-    const ids = await read(udid);
-    return ids ? ids.has(bundleId) : undefined;
+  const fresh = (udid: string): Set<string> | undefined => { const c = cache.get(udid); return c && Date.now() - c.at < ttl ? c.ids : undefined; };
+  return {
+    async list(udid) { const ids = fresh(udid) ?? (await read(udid)); return ids ? [...ids] : undefined; },
+    async installed(udid, bundleId) {
+      if (fresh(udid)?.has(bundleId)) return true;
+      // 캐시에 없으면(막 깐 앱일 수 있다) 새로 읽는다
+      const ids = await read(udid);
+      return ids ? ids.has(bundleId) : undefined;
+    },
   };
+}
+
+/** (udid, bundleId) → 설치됨 true · 없음 false · 모름 undefined(devicectl 실패) */
+export function devicectlAppInstalled(opts: DevicectlOptions = {}): (udid: string, bundleId: string) => Promise<boolean | undefined> {
+  return devicectlApps(opts).installed;
 }

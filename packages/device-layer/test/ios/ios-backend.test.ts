@@ -13,7 +13,7 @@ const UDID = '00008020-000B289011E2002E';
 
 /** 기기 안 러너 흉내: 실행기가 띄워야(토큰을 받아야) 답한다 */
 function fakeRunner() {
-  const state = { token: '' as string, actions: [] as unknown[], apps: [] as unknown[], foreground: 'com.apple.springboard' };
+  const state = { token: '' as string, actions: [] as unknown[], apps: [] as unknown[], foreground: 'com.apple.springboard', candidates: [] as string[], userApp: 'com.apple.calculator' };
   const tree = { type: 'Application', frame: { x: 0, y: 0, width: 414, height: 896 }, enabled: true, selected: false, children: [{ type: 'Button', label: '설정', identifier: 'settings', frame: { x: 10, y: 10, width: 100, height: 44 }, enabled: true, selected: false, children: [] }] };
   const server = http.createServer((req, res) => {
     let raw = '';
@@ -25,7 +25,10 @@ function fakeRunner() {
       if (req.url === '/ping') return send(200, { ok: true, version: '0.1.0', iosVersion: '17.6.1', model: 'iPhone11,6', screen: { width: 414, height: 896 }, scale: 3 });
       if (req.url?.startsWith('/dump')) return send(200, { root: tree });
       if (req.url === '/snapshot') return send(200, { root: tree, screenshot: Buffer.from('PNG!').toString('base64') });
-      if (req.url === '/app/foreground') return send(200, { bundleId: state.foreground });
+      if (req.url === '/app/foreground') {
+        if (req.method === 'POST') { state.candidates = (body as { candidates: string[] }).candidates; return send(200, { bundleId: state.candidates.includes(state.userApp) ? state.userApp : null }); }
+        return send(200, { bundleId: state.foreground });
+      }
       if (req.url === '/action') { state.actions.push(body); return send(200, { ok: true }); }
       if (req.url === '/app') { state.apps.push(body); return send(200, { ok: true }); }
       return send(404, {});
@@ -137,6 +140,17 @@ describe('createIosBackend', () => {
     await backend.launchApp(UDID, 'com.apple.Preferences');
     await backend.launchApp(UDID, 'com.unknown.app');
     expect(runner.state.apps).toEqual([{ action: 'launch', bundleId: 'com.apple.Preferences' }, { action: 'launch', bundleId: 'com.unknown.app' }]);
+  });
+
+  it('앞 화면 앱: 설치 앱 목록(installedApps)을 후보로 러너에 넘겨, 러너가 띄우지 않은 앱(사람이 연 앱)도 안다', async () => {
+    const runner = fakeRunner();
+    const fake = await startFakeUsbmuxd([{ deviceId: 1, udid: UDID, connection: 'USB', ports: { 62078: fakeLockdownd({ ProductType: 'iPhone11,6', ProductVersion: '17.6.1' }), 22087: runner.handler } }]);
+    cleanups.push(() => fake.close());
+    const launcher: IosRunnerLauncher = { async start(_u, token) { runner.state.token = token; return { stop: async () => {} }; } };
+    const backend = createIosBackend({ usbmux: createUsbmuxClient({ socketPath: fake.socketPath }), launcher, readyTimeoutMs: 2_000, installedApps: async () => ['com.apple.Preferences', 'com.apple.calculator'] });
+    cleanups.push(() => backend.close());
+    expect(await backend.foregroundApp(UDID)).toBe('com.apple.calculator');
+    expect(runner.state.candidates).toEqual(['com.apple.Preferences', 'com.apple.calculator']);
   });
 });
 

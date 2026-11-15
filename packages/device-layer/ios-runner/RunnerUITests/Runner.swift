@@ -55,6 +55,14 @@ final class Runner {
     case ("GET", "/app/foreground"):
       let id = foregroundId()
       return .json(["bundleId": id == springboard ? NSNull() : (id as Any)])
+    // 후보(호스트가 devicectl 로 받은 설치 앱 목록) 중에서도 찾는다 — 사람이 연 앱. 앱 하나의 state 는 수 ms 라 목록 전체도 1초 안쪽
+    case ("POST", "/app/foreground"):
+      let b = try body(r)
+      var id = foregroundId()
+      if id == springboard, let candidates = b["candidates"] as? [String] {
+        for c in candidates where c != springboard && !known.contains(c) && app(c).state == .runningForeground { remember(c); id = c; break }
+      }
+      return .json(["bundleId": id == springboard ? NSNull() : (id as Any)])
     case ("POST", "/action"): try action(try body(r)); return .json(["ok": true])
     case ("POST", "/app"): try appAction(try body(r)); return .json(["ok": true])
     default: return .json(["error": "모르는 경로: \(r.method) \(r.path)"], status: 404)

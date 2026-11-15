@@ -4,7 +4,7 @@ import type { Engine, NodeDevice } from '@sinclair/protocol';
 // testing/index 는 vitest 계약 스위트를 끌어오므로(vitest 밖에서 import 불가) 파일 단위 export 를 쓴다
 import { FakeEngine } from '@sinclair/protocol/testing/fake-engine';
 import { HOME_SCREEN, LOGIN_SCREEN } from '@sinclair/protocol/testing/login-scenario';
-import { createAndroidBackend, createDeviceServer, createIosBackend, devicectlAppInstalled, iosLauncherFromEnv, REBUILD_HINT, routeBackends, serveHttp, type DeviceBackend, type ScreenState } from '@sinclair/device-layer';
+import { createAndroidBackend, createDeviceServer, createIosBackend, devicectlApps, iosLauncherFromEnv, REBUILD_HINT, routeBackends, serveHttp, type DeviceBackend, type ScreenState } from '@sinclair/device-layer';
 import { createMobileEngine, rpcOverDispatcher } from '@sinclair/engine-mobile';
 import type { RunArgs } from './args.ts';
 import { resolveHelperApk } from './helper-apk.ts';
@@ -219,7 +219,8 @@ function openIos(log: (line: string) => void): DeviceBackend & { close(): Promis
     log(`iOS 러너 빌드: ${xctestrun}${expiresAt ? ` (서명 만료 ${expiresAt.toISOString().slice(0, 16).replace('T', ' ')}Z, ${left! > 0 ? `${left!.toFixed(1)}일 남음` : '만료됨'})` : ''}`);
     if (left !== undefined && left < 1) log(`경고: iOS 러너 서명이 ${left > 0 ? '하루 안에 만료됨' : '만료됨'} — ${REBUILD_HINT}`);
   }
-  return createIosBackend({ launcher, appInstalled: devicectlAppInstalled(), onStep: (udid, text) => log(`iOS 러너(…${udid.slice(-4)}): ${text}`) });
+  const apps = devicectlApps();
+  return createIosBackend({ launcher, appInstalled: apps.installed, installedApps: apps.list, onStep: (udid, text) => log(`iOS 러너(…${udid.slice(-4)}): ${text}`) });
 }
 
 /** 그 기기 플랫폼의 세션 앱으로: iOS 기기는 iosApp(없으면 앱 없음), Android 기기는 app */
