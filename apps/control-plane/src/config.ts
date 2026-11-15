@@ -19,6 +19,8 @@ export interface ControlPlaneConfig {
   consoleDir?: string;
   /** 아티팩트(실패 스크린샷·화면 트리) 디렉터리. 없으면 메모리(메모리 저장소일 때) */
   artifactsDir?: string;
+  /** Studio 업데이트 배포 디렉터리(zip + latest-mac.json) */
+  studioReleasesDir?: string;
 }
 
 export class ConfigError extends Error {}
@@ -35,6 +37,7 @@ const OPTIONS = [
   { name: 'db', env: 'SINCLAIR_CP_DB', help: 'SQLite 파일 (기본 OS 데이터 디렉터리/sinclair/control-plane.db)' },
   { name: 'console-dir', env: 'SINCLAIR_CP_CONSOLE_DIR', help: 'Console(웹 대시보드) 빌드 디렉터리. /console 에서 서빙 (기본: 설치본이면 동봉한 resources/console, 리포에서는 없음 = API 만; none 이면 끔)' },
   { name: 'artifacts-dir', env: 'SINCLAIR_CP_ARTIFACTS_DIR', help: '아티팩트(실패 스크린샷·화면 트리) 디렉터리 (기본: sqlite 면 데이터 디렉터리/artifacts, memory 면 메모리). 스크린샷은 화면 그대로라 개인정보가 보일 수 있다' },
+  { name: 'studio-releases-dir', env: 'SINCLAIR_CP_STUDIO_RELEASES_DIR', help: 'Studio 업데이트 배포 디렉터리: pnpm dist:studio 의 Sinclair-Studio-*.zip 과 latest-mac.json 을 둔다. Studio 가 여기서 새 버전을 받는다(기본 없음 = 배포 안 함)' },
   { name: 'lease-ttl-ms', env: 'SINCLAIR_CP_LEASE_TTL_MS', help: `클레임 lease 수명 ms (기본 ${DEFAULT_LEASE_TTL_MS}). 버려진 Run 판정 유예도 같은 값` },
   { name: 'node-retention-ms', env: 'SINCLAIR_CP_NODE_RETENTION_MS', help: `보고가 끊긴 노드를 플릿에 남겨 두는 기간 ms (기본 ${DEFAULT_NODE_RETENTION_MS} = 7일, lease 수명 이상)` },
 ] as const;
@@ -101,5 +104,7 @@ export function parseConfig(argv: string[], env: NodeJS.ProcessEnv, platform: No
   // 직접 준 디렉터리가 Console 빌드가 아니면 조용히 404 만 내지 말고 기동 때 알린다
   if (consoleDir && !existsSync(path.join(consoleDir, 'index.html'))) throw new ConfigError(`console-dir 에 index.html 이 없음: ${consoleDir} (pnpm --filter @sinclair/console build 의 산출물 apps/console/dist 를 준다)`);
   const artifactsDir = resolve('artifacts-dir', store === 'sqlite' ? path.join(defaultDataDir(env, platform), 'artifacts') : '');
-  return { host, port, store: store as ControlPlaneConfig['store'], db, leaseTtlMs, nodeRetentionMs, ...(consoleDir ? { consoleDir: path.resolve(consoleDir) } : {}), ...(artifactsDir ? { artifactsDir: path.resolve(artifactsDir) } : {}) };
+  const studioReleasesDir = resolve('studio-releases-dir', '');
+  if (studioReleasesDir && !existsSync(studioReleasesDir)) throw new ConfigError(`studio-releases-dir 가 없음: ${studioReleasesDir}`);
+  return { host, port, store: store as ControlPlaneConfig['store'], db, leaseTtlMs, nodeRetentionMs, ...(studioReleasesDir ? { studioReleasesDir: path.resolve(studioReleasesDir) } : {}), ...(consoleDir ? { consoleDir: path.resolve(consoleDir) } : {}), ...(artifactsDir ? { artifactsDir: path.resolve(artifactsDir) } : {}) };
 }

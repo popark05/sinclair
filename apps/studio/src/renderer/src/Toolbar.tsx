@@ -10,6 +10,21 @@ import { Text } from '@astryxdesign/core/Text';
 import { Dialog, DialogHeader } from '@astryxdesign/core/Dialog';
 import type { StudioSettings } from '../../shared/settings.ts';
 import type { ConnectionInfo, StudioApi, StudioDevice } from '../../shared/studio-ipc.ts';
+import type { UpdateStatus } from '../../shared/update.ts';
+
+const mb = (n: number): string => `${(n / 1024 / 1024).toFixed(1)} MB`;
+/** 설정 대화상자의 업데이트 한 줄(studio-update 03) */
+export function updateLine(u: UpdateStatus): string {
+  switch (u.state) {
+    case 'idle': return u.note ? `최신 확인 못 함: ${u.note}` : u.checkedAt ? `최신 버전 · ${new Date(u.checkedAt).toLocaleTimeString('ko-KR', { hour12: false })} 확인` : '';
+    case 'checking': return '업데이트 확인 중…';
+    case 'available': return `새 버전 ${u.version} (${mb(u.size)})`;
+    case 'downloading': return `${u.version} 받는 중 ${Math.floor((u.received / u.size) * 100)}%`;
+    case 'installing': return `${u.version} 적용 — 다시 시작합니다`;
+    case 'error': return `업데이트 실패: ${u.error}`;
+    case 'unsupported': return `자동 업데이트 없음: ${u.reason}`;
+  }
+}
 
 const MODE: Record<ConnectionInfo['mode'], string> = { daemon: '데몬', own: '직접', none: '연결 없음' };
 const STATE: Record<string, string> = { device: '연결됨', unauthorized: 'USB 디버깅 미승인', offline: '오프라인' };
@@ -31,6 +46,14 @@ export function Toolbar({ api, onDeviceChange, onAppChange, selectRequest }: { a
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draft, setDraft] = useState<StudioSettings>({ controlPlane: '', testsDir: '' });
   const [settingsProblem, setSettingsProblem] = useState('');
+  // 자동 업데이트(studio-update 03): 메인이 주기적으로 확인하고 상태를 밀어 보낸다. 설치는 사람이 누른다
+  const [update, setUpdate] = useState<UpdateStatus>();
+  useEffect(() => {
+    void api.getUpdateStatus?.().then(setUpdate, () => {});
+    return api.onUpdateStatus?.(setUpdate);
+  }, [api]);
+  const checkUpdate = async (): Promise<void> => { try { setUpdate(await api.checkUpdate!()); } catch (err) { setNote(`업데이트 확인 실패: ${err instanceof Error ? err.message : String(err)}`); } };
+  const installUpdate = async (): Promise<void> => { try { setUpdate(await api.installUpdate!()); } catch (err) { setNote(`업데이트 실패: ${err instanceof Error ? err.message : String(err)}`); } };
   const openSettings = async (): Promise<void> => {
     setSettingsProblem('');
     try { setDraft(await api.getSettings()); } catch (err) { setSettingsProblem(err instanceof Error ? err.message : String(err)); }
@@ -112,6 +135,13 @@ export function Toolbar({ api, onDeviceChange, onAppChange, selectRequest }: { a
               <TextInput label="테스트 폴더" size="sm" description="Cycle 로 실행할 때 내보낸 테스트를 두는 곳(같은 머신의 데몬이 읽는다)" value={draft.testsDir} onChange={(v) => setDraft((d) => ({ ...d, testsDir: v }))} />
               {settingsProblem ? <Text type="supporting" color="secondary">{settingsProblem}</Text> : null}
               <Button label="설정 저장" size="sm" variant="primary" onClick={() => void saveSettings()} />
+              {update ? (
+                <Stack direction="horizontal" gap={2} aria-label="Studio 버전">
+                  <Text type="supporting">버전 {update.current}</Text>
+                  <Text type="supporting" color="secondary" maxLines={2}>{updateLine(update)}</Text>
+                  {update.state !== 'unsupported' ? <Button label="업데이트 확인" size="sm" variant="ghost" isDisabled={update.state === 'checking' || update.state === 'downloading' || update.state === 'installing'} onClick={() => void checkUpdate()} /> : null}
+                </Stack>
+              ) : null}
             </Stack>
           </Dialog>
           <Stack as="output" aria-label="툴바 상태" role="status"><Text type="supporting" color="secondary" maxLines={1}>{note}</Text></Stack>
@@ -119,6 +149,9 @@ export function Toolbar({ api, onDeviceChange, onAppChange, selectRequest }: { a
       }
       endContent={
         <Stack direction="horizontal" gap={2}>
+          {update?.state === 'available' ? <Button label={`업데이트 ${update.version}`} size="sm" variant="primary" onClick={() => void installUpdate()} /> : null}
+          {update && (update.state === 'downloading' || update.state === 'installing' || (update.state === 'error' && update.version)) ? <Stack as="output" aria-label="업데이트 상태" role="status"><Text type="supporting" color="secondary" maxLines={1}>{updateLine(update)}</Text></Stack> : null}
+          {update?.state === 'error' && update.version ? <Button label="다시 시도" size="sm" variant="ghost" onClick={() => void checkUpdate()} /> : null}
           {conn ? <Text type="supporting" color={conn.mode === 'none' ? 'secondary' : 'primary'} maxLines={1}>{MODE[conn.mode]}</Text> : null}
           {conn?.mode === 'none' || problem ? <Text type="supporting" color="secondary" maxLines={1}>{problem || conn?.detail}</Text> : null}
         </Stack>

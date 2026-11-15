@@ -5,8 +5,11 @@ export const URL_SCHEME: string;
 export function builderConfig(i: { version: string; appDir: string; outDir: string; resDir: string; electronVersion: string; arch: string }): {
   appId: string; productName: string; electronVersion: string; npmRebuild: boolean; asar: boolean; files: string[];
   directories: { app: string; output: string }; extraResources: Array<{ from: string; to: string; filter: string[] }>;
-  protocols: Array<{ name: string; schemes: string[] }>; artifactName: string; mac: { identity: null; target: string[]; category: string };
+  protocols: Array<{ name: string; schemes: string[] }>; artifactName: string; mac: { identity: null; target: string[]; category: string; icon: string };
 };
 export function distStudio(o?: { targets?: string[]; outDir?: string; dirOnly?: boolean; log?: (l: string) => void }): Promise<{ outputs: string[]; appDirs: string[] }>;
 export function studioCliLauncher(app: string): string;
 export const STUDIO_CLI_BINS: Record<string, string>;
+export const RELEASE_MANIFEST: string;
+export function releaseManifest(i: { version: string; zips: Array<{ arch: string; path: string }>; releasedAt?: string }): { product: string; version: string; releasedAt: string; files: Array<{ arch: string; name: string; sha256: string; size: number }> };
+export const STUDIO_ICON: string;

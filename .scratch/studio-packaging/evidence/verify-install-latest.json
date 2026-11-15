@@ -1,11 +1,16 @@
 {
-  "at": "2026-11-15T06:49:27.238Z",
+  "at": "2026-11-15T08:08:08.552Z",
   "arch": "x64",
   "checks": [
     {
       "name": "LaunchServices 가 sinclair:// 처리기로 이 설치본을 고름(Info.plist CFBundleURLSchemes)",
       "ok": true,
       "detail": "<설치본>/Sinclair Studio.app"
+    },
+    {
+      "name": "앱 아이콘: Info.plist CFBundleIconFile 이 Sinclair 아이콘(Electron 기본 아님)",
+      "ok": true,
+      "detail": "icon.icns"
     },
     {
       "name": "CLI: PATH 의 심링크 sinclair-agent --help(시스템 node 없음)",
@@ -30,7 +35,7 @@
     {
       "name": "작업 프로세스가 동봉 Node 로 준비됨(PATH 에 node 없음)",
       "ok": true,
-      "detail": "준비됨 · Node v24.13.0 · pid …, 기동 1521ms"
+      "detail": "준비됨 · Node v24.13.0 · pid …, 기동 1396ms"
     },
     {
       "name": "env 파일의 ANTHROPIC_API_KEY·BASE_URL 이 작업 프로세스에 닿음(가짜 API 가 그 키로 받음)",
@@ -50,14 +55,34 @@
     {
       "name": "링크로 열기 요청의 목표가 채워지고 \"Console 에서 열림\"(폴링 차례 전에)",
       "ok": true,
-      "detail": "224ms"
+      "detail": "236ms"
     },
     {
       "name": "콜드 스타트: 꺼진 Studio 를 링크가 띄우고 그 요청을 받음(ack)",
       "ok": true,
-      "detail": "3260ms, 프로세스 1"
+      "detail": "3335ms, 프로세스 1"
+    },
+    {
+      "name": "업데이트 배포: 동봉 CLI control-plane --studio-releases-dir 가 최신 버전을 알림",
+      "ok": true,
+      "detail": "{\"version\":\"99.0.0\",\"releasedAt\":\"2026-11-15T08:07:51.678Z\",\"arch\":\"x64\",\"name\":\"Sinclair-Studio-99.0.0-mac-x64.zip\",\"sh"
+    },
+    {
+      "name": "Studio 가 기동 뒤 스스로 새 버전을 확인해 툴바에 \"업데이트 99.0.0\"",
+      "ok": true,
+      "detail": "5038ms, 현재 0.1.0"
+    },
+    {
+      "name": "누르면 받아(sha256) 같은 자리의 앱을 99.0.0 으로 바꾸고 다시 띄움",
+      "ok": true,
+      "detail": "5556ms, Info.plist 0.1.0 → 99.0.0, 새 프로세스 1, 교체함: <tmp>/Sinclair Studio.app"
+    },
+    {
+      "name": "교체 뒤에도 PATH 에 건 CLI 링크가 그대로 동작",
+      "ok": true,
+      "detail": "종료 0"
     }
   ],
-  "passed": 11,
-  "total": 11
+  "passed": 16,
+  "total": 16
 }

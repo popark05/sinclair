@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Sinclair Studio 아이콘(studio-update 01): macOS 그리드(824 본체, 100 여백). 휴대폰 화면 위 검증 체크와 에이전트 반짝임 -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3B2F9E"/>
+      <stop offset="0.55" stop-color="#2E5BD8"/>
+      <stop offset="1" stop-color="#17A3B8"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.08"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#0B1440" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  <g filter="url(#shadow)">
+    <rect x="352" y="218" width="320" height="588" rx="64" fill="url(#screen)" stroke="#FFFFFF" stroke-width="28"/>
+    <rect x="468" y="254" width="88" height="16" rx="8" fill="#FFFFFF" opacity="0.85"/>
+    <path d="M420 528 L490 600 L612 456" fill="none" stroke="#FFFFFF" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <path d="M772 236 C780 290 794 304 848 312 C794 320 780 334 772 388 C764 334 750 320 696 312 C750 304 764 290 772 236 Z" fill="#FFE38A"/>
+  <path d="M290 650 C294 676 301 683 327 687 C301 691 294 698 290 724 C286 698 279 691 253 687 C279 683 286 676 290 650 Z" fill="#FFFFFF" opacity="0.8"/>
+</svg>

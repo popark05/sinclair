@@ -1,0 +1,125 @@
+{
+  "skill": "verify-studio",
+  "mode": "fake",
+  "at": "2026-11-15T08:08:42.227Z",
+  "ok": true,
+  "checks": [
+    {
+      "name": "작업 프로세스가 발견 파일로 디바이스 RPC 에 붙음(툴바 \"데몬\")",
+      "ok": true
+    },
+    {
+      "name": "기기 화면 스냅샷을 그림",
+      "ok": true,
+      "detail": "1080×2400, 기동 2123ms"
+    },
+    {
+      "name": "현재 앱 버튼이 앞 화면 앱을 채우고 버튼 옆에 결과",
+      "ok": true,
+      "detail": "현재 앱: com.verify.app"
+    },
+    {
+      "name": "설정 대화상자로 control-plane·테스트 폴더 저장",
+      "ok": true
+    },
+    {
+      "name": "Console 열기 요청 → Studio 가 목표를 채우고 처리(ack)",
+      "ok": true,
+      "detail": "목표 채움 · 남은 요청 0"
+    },
+    {
+      "name": "화면 클릭 → 그 자리 노드 하이라이트",
+      "ok": true
+    },
+    {
+      "name": "화면 클릭이 기기 픽셀 좌표 탭으로 감(여백·배율 변환)",
+      "ok": true,
+      "detail": "tap 538,600"
+    },
+    {
+      "name": "고른 입력칸의 locator 후보(testId 우선)",
+      "ok": true,
+      "detail": "screen.getByTestId('com.verify.app:id/username')"
+    },
+    {
+      "name": "트리 검색 → 노드 선택 → 역할+이름 locator",
+      "ok": true,
+      "detail": "screen.getByRole('button', { name: '로그인', exact: true })"
+    },
+    {
+      "name": "에이전트 준비 점검(count_tokens) 통과",
+      "ok": true,
+      "detail": "모델 claude-sonnet-5-5"
+    },
+    {
+      "name": "\"앱 처음부터 시작\" 이 기본으로 켜짐(툴바 앱 id)",
+      "ok": true
+    },
+    {
+      "name": "세션 성공(턴 타임라인 + 결과)",
+      "ok": true,
+      "detail": "성공 — \"환영합니다\" 화면이 보인다 · 3턴 · 모델 3회 · 입력 300 토큰 | 턴: 1. type @e2 / 2. tap @e4 / 3. done"
+    },
+    {
+      "name": "지금 화면 판정 = 참",
+      "ok": true,
+      "detail": "참 · 환영 화면이 보인다"
+    },
+    {
+      "name": "요소 판정 = 통과(고른 노드 · 보인다, 모델 없음)",
+      "ok": true,
+      "detail": "통과 · expect(screen.getByTestId('com.verify.app:id/welcome')).toBeVisible()"
+    },
+    {
+      "name": "처음부터 시작한 세션이라 내보내기 경고 없음",
+      "ok": true
+    },
+    {
+      "name": "자연어 내보내기(app.restart + act + assert), 복사 = 클립보드",
+      "ok": true,
+      "detail": "10줄"
+    },
+    {
+      "name": "녹화 캐시에 저장(control-plane PUT /cache)",
+      "ok": true,
+      "detail": "녹화 캐시에 저장함 — 이 테스트의 첫 실행부터 모델 없이 재생된다"
+    },
+    {
+      "name": "결정적 내보내기에 요소 판정이 expect 코드로",
+      "ok": true,
+      "detail": "expect(screen.getByTestId('com.verify.app:id/welcome')).toBeVisible()"
+    },
+    {
+      "name": "결정적 내보내기(app.restart + locator 코드, 이름 바꿈)",
+      "ok": true,
+      "detail": "await screen.getByTestId('com.verify.app:id/username').type('qa'); | await screen.getByRole('button', { name: '로그인', exact: true }).tap(); | await expect(screen.getByTestId('com.verify.app:id/welcome'"
+    },
+    {
+      "name": "Cycle 로 실행: 테스트 폴더에 쓰고 Cycle 등록",
+      "ok": true,
+      "detail": "Cycle studio-20261115080835-52c9 등록 — <tmp>/studio-tests/Studio 검증 2026-11-15-08-08-34 · Cycle/Studio 검증 2026-11-15-08-08-34 · Cycle.sinclair.ts"
+    },
+    {
+      "name": "Cycle 타깃은 고른 기기(deviceId)",
+      "ok": true
+    },
+    {
+      "name": "Console 링크(/console/cycles/<id>)가 열린다",
+      "ok": true
+    },
+    {
+      "name": "Cycle 상태 표시(데몬 없음 → 대기 중)",
+      "ok": true
+    },
+    {
+      "name": "내보낸 두 테스트가 같은 기기에서 통과",
+      "ok": true,
+      "detail": "Studio 검증 2026-11-15-08-08-34=passed, Studio 검증 2026-11-15-08-08-34 · 결정적=passed"
+    },
+    {
+      "name": "자연어 act 는 Studio 가 저장한 녹화로 재생(act 모델 0회)",
+      "ok": true,
+      "detail": "act 스텝 cache=replayed · act 모델 호출 0"
+    }
+  ]
+}

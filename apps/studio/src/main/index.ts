@@ -1,6 +1,7 @@
 // Studio 메인 프로세스: 창 하나와 작업 프로세스 하나(ADR 0005). 기기·러너·에이전트는 작업 프로세스가 맡고, 메인은 중계만 한다.
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { app, BrowserWindow, dialog, ipcMain, net, shell } from 'electron';
+import { execFile, spawn } from 'node:child_process';
+import { existsSync, openSync, readdirSync, readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { MAX_EXPORT_BYTES, parseStudioRequest, STUDIO_CHANNELS } from '../shared/studio-ipc.ts';
@@ -11,6 +12,7 @@ import { createSettingsStore } from './settings-store.ts';
 import { isConsoleUrl } from '../shared/console-link.ts';
 import { parseStudioLink, STUDIO_URL_SCHEME } from '../shared/studio-link.ts';
 import * as os from 'node:os';
+import { appBundleOf, createUpdater, UPDATE_CHECK_INTERVAL_MS, UPDATE_FIRST_CHECK_MS } from './updater.ts';
 
 let win: BrowserWindow | undefined;
 // 작업 프로세스(studio-packaging 01): 리포는 시스템 node + TS 원본, 설치본은 동봉 Node + 단일 번들. 환경은 ~/.config/sinclair/env 의 허용한 이름 위에 프로세스 환경
@@ -32,6 +34,26 @@ if (process.env.SINCLAIR_STUDIO_USER_DATA) app.setPath('userData', process.env.S
 // 설정(studio-console 03): userData/settings.json — 렌더러는 검증된 값만 쓸 수 있다
 const settings = createSettingsStore(path.join(app.getPath('userData'), 'settings.json'), os.homedir());
 ipcMain.handle(STUDIO_CHANNELS.getSettings, () => settings.get());
+
+// 자동 업데이트(studio-update 03): 설정의 control-plane 배포를 확인하고, 사람이 누르면 받아 바꿔 끼운 뒤 다시 띄운다. 맥 설치본에서만
+const appBundle = app.isPackaged && process.platform === 'darwin' ? appBundleOf(process.execPath) : undefined;
+const relaunchEnv = Object.fromEntries(['SINCLAIR_STUDIO_USER_DATA', 'SINCLAIR_ENV_FILE'].filter((k) => process.env[k]).map((k) => [k, process.env[k]!]));
+const updater = createUpdater({
+  current: app.getVersion(), arch: process.arch,
+  ...(appBundle ? { app: appBundle } : {}), unsupportedReason: app.isPackaged ? '맥 설치본(.app)에서만 업데이트한다' : '개발 모드',
+  bundleId: 'dev.sinclair.studio', workDir: path.join(app.getPath('userData'), 'updates'), pid: process.pid,
+  controlPlane: async () => (await settings.get()).controlPlane,
+  // 사내망 CA: Electron net 은 시스템 인증서 저장소를 쓴다(Node fetch 는 NODE_EXTRA_CA_CERTS 없이 사내 CA 를 모른다)
+  fetch: (u, init) => net.fetch(u, init),
+  run: (cmd, args) => new Promise((res, rej) => { execFile(cmd, args, { encoding: 'utf8' }, (err, out, errOut) => (err ? rej(new Error(`${cmd} 실패: ${(errOut || err.message).trim()}`)) : res(out))); }),
+  spawnDetached: (script, log) => { const fd = openSync(log, 'w'); spawn('/bin/sh', [script], { detached: true, stdio: ['ignore', fd, fd] }).unref(); },
+  quit: () => app.quit(),
+  ...(Object.keys(relaunchEnv).length ? { relaunchEnv } : {}),
+  onChange: (s) => win?.webContents.send(STUDIO_CHANNELS.updateStatusChanged, s),
+});
+ipcMain.handle(STUDIO_CHANNELS.updateStatus, () => updater.status());
+ipcMain.handle(STUDIO_CHANNELS.updateCheck, () => updater.check(true));
+ipcMain.handle(STUDIO_CHANNELS.updateInstall, () => updater.install());
 ipcMain.handle(STUDIO_CHANNELS.setSettings, (_e, raw: unknown) => settings.set(raw));
 ipcMain.handle(STUDIO_CHANNELS.workerStatus, () => worker.status());
 ipcMain.handle(STUDIO_CHANNELS.ping, () => worker.ping());
@@ -114,7 +136,10 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  // 설치본은 Info.plist 의 icon.icns, 개발 모드는 Dock 에 같은 그림(apps/studio/build/icon.png)
+  if (!app.isPackaged && process.platform === 'darwin') { const icon = path.join(import.meta.dirname, '../../build/icon.png'); if (existsSync(icon)) app.dock?.setIcon(icon); }
   createWindow();
+  setTimeout(() => { void updater.check(); setInterval(() => { void updater.check(); }, UPDATE_CHECK_INTERVAL_MS).unref(); }, UPDATE_FIRST_CHECK_MS).unref();
   if (pendingLink) deliverLink(`${STUDIO_URL_SCHEME}://open?request=${pendingLink}`);
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });

@@ -2,6 +2,7 @@
 // 모두 구조화 복제 가능한 평범한 데이터만. 작업 프로세스에서 온 메시지는 parseFromWorker 를 지나야 쓴다.
 import type { CacheAction, CacheTarget, SemanticNode } from '@sinclair/protocol';
 import type { StudioSettings } from './settings.ts';
+import type { UpdateStatus } from './update.ts';
 
 /** Console 이 남긴 열기 요청(control-plane /studio/open-requests) */
 export interface OpenRequestView { id: string; deviceId: string; goal?: string; app?: string; from?: { cycleId?: string; testId?: string; targetId?: string }; createdAt: string }
@@ -24,6 +25,11 @@ export const STUDIO_CHANNELS = {
   openConsole: 'studio:open-console',
   /** 메인 → 렌더러: sinclair://open?request=<id> 가 열렸다(studio-packaging 03) */
   openLink: 'studio:open-link',
+  /** 자동 업데이트(studio-update 03): 상태 읽기·바뀜 푸시·확인·설치(사람이 누른다) */
+  updateStatus: 'studio:update-status',
+  updateStatusChanged: 'studio:update-status-changed',
+  updateCheck: 'studio:update-check',
+  updateInstall: 'studio:update-install',
 } as const;
 
 /** 내보낸 코드 상한(파일 저장 요청 검사) */
@@ -209,6 +215,12 @@ export interface StudioApi {
   /** sinclair://open 링크가 열릴 때마다(요청 id). 선택 — 없으면 폴링만. 돌려준 함수로 구독 해제(studio-packaging 03) */
   onOpenLink?(cb: (requestId: string) => void): () => void;
   getSettings(): Promise<StudioSettings>;
+  /** 자동 업데이트(studio-update 03). 선택 — 없으면 툴바에 업데이트 표시가 없다 */
+  getUpdateStatus?(): Promise<UpdateStatus>;
+  onUpdateStatus?(cb: (s: UpdateStatus) => void): () => void;
+  checkUpdate?(): Promise<UpdateStatus>;
+  /** 받아 검사한 뒤 Studio 를 끝내고 새 버전으로 다시 띄운다 */
+  installUpdate?(): Promise<UpdateStatus>;
   setSettings(s: StudioSettings): Promise<StudioSettings>;
   getWorkerStatus(): Promise<WorkerStatus>;
   /** 상태가 바뀔 때마다. 돌려준 함수로 구독 해제 */

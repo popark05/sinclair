@@ -3,6 +3,7 @@
 //   - ~/.config/sinclair/env 형식 파일(SINCLAIR_ENV_FILE, 임시)의 ANTHROPIC_* 가 작업 프로세스까지 닿음(가짜 Claude API 가 그 키로 count_tokens 를 받음)
 //   - 데몬이 떠 있으면 발견 파일로 기기 목록이 보임(없으면 건너뜀)
 //   - 동봉 CLI: PATH 에 건 심링크로 control-plane(동봉 Console)·에이전트 FakeEngine run(리포 밖 테스트 폴더)
+//   - 앱 아이콘, 자동 업데이트: 동봉 CLI control-plane 이 버전만 올린 같은 빌드를 배포 → 설치본이 알리고 누르면 바꿔 끼워 다시 뜸
 //   - URL 스킴: macOS `open sinclair://open?request=<id>` 가 실행 중인 Studio 의 open-url 로 닿고, 열기 요청의 기기·목표가 채워짐(폴링 차례 전에)
 // 화면에 개인정보가 보일 수 있어 스크린샷을 남기지 않는다. 증거: .scratch/studio-packaging/evidence/verify-install-latest.json
 // 사용: node --experimental-transform-types --no-warnings .claude/skills/verify-studio/scripts/verify-install.ts [--no-build] [--control-plane http://127.0.0.1:4780]
@@ -41,13 +42,26 @@ async function main(): Promise<void> {
   const app = path.join(tmp, 'Sinclair Studio.app');
   execFileSync('ditto', [built, app]);
   // LaunchServices 에 이 복사본만 등록(설치와 같은 효과) — 리포의 빌드 산출물이 등록돼 있으면 open 이 그쪽을 새로 띄운다(검증 중 실제로 그랬다). 끝나면 지운다
-  for (const other of ['mac', 'mac-arm64'].map((d) => path.join(repo, 'release/studio', d, 'Sinclair Studio.app'))) if (fs.existsSync(other)) { try { execFileSync(LSREGISTER, ['-u', other], { stdio: 'ignore' }); } catch { /* 등록돼 있지 않음 */ } }
-  execFileSync(LSREGISTER, ['-f', app]);
-  const handler = execFileSync('osascript', ['-l', 'JavaScript', '-e', 'ObjC.import("AppKit"); var u=$.NSWorkspace.sharedWorkspace.URLForApplicationToOpenURL($.NSURL.URLWithString("sinclair://open")); u.isNil() ? "" : u.path.js'], { encoding: 'utf8' }).trim();
+  // 방금 만든 빌드는 LaunchServices 가 조금 뒤에 스스로 등록하기도 한다(빌드 직후 실행에서 처리기가 리포 빌드였다) — 우리 복사본이 처리기가 될 때까지 몇 번 다시
+  const others = ['mac', 'mac-arm64'].map((d) => path.join(repo, 'release/studio', d, 'Sinclair Studio.app')).filter((o) => fs.existsSync(o));
+  const urlHandler = (): string => execFileSync('osascript', ['-l', 'JavaScript', '-e', 'ObjC.import("AppKit"); var u=$.NSWorkspace.sharedWorkspace.URLForApplicationToOpenURL($.NSURL.URLWithString("sinclair://open")); u.isNil() ? "" : u.path.js'], { encoding: 'utf8' }).trim();
+  let handler = '';
+  for (let i = 0; i < 6; i++) {
+    for (const other of others) { try { execFileSync(LSREGISTER, ['-u', other], { stdio: 'ignore' }); } catch { /* 등록돼 있지 않음 */ } }
+    execFileSync(LSREGISTER, ['-f', app]);
+    handler = urlHandler();
+    if (fs.existsSync(handler) && fs.realpathSync(handler) === app) break;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
   check('LaunchServices 가 sinclair:// 처리기로 이 설치본을 고름(Info.plist CFBundleURLSchemes)', fs.existsSync(handler) && fs.realpathSync(handler) === app, handler.replace(tmp, '<설치본>') || '처리기 없음');
   cleanups.push(() => { try { execFileSync(LSREGISTER, ['-u', app]); } catch { /* 이미 없음 */ } });
   const nodeVersion = (await import(path.join(repo, 'scripts/dist.mjs'))).NODE_VERSION as string;
-  await cliChecks(app, nodeVersion);
+  // 아이콘(studio-update 01): Info.plist 가 가리키는 icns 가 리포의 apps/studio/build/icon.icns 와 같다
+  const iconFile = execFileSync('plutil', ['-extract', 'CFBundleIconFile', 'raw', path.join(app, 'Contents/Info.plist')], { encoding: 'utf8' }).trim();
+  const iconPath = path.join(app, 'Contents/Resources', iconFile.endsWith('.icns') ? iconFile : `${iconFile}.icns`);
+  check('앱 아이콘: Info.plist CFBundleIconFile 이 Sinclair 아이콘(Electron 기본 아님)', fs.existsSync(iconPath) && fs.readFileSync(iconPath).equals(fs.readFileSync(path.join(repo, 'apps/studio/build/icon.icns'))), iconFile);
+  const releasesDir = makeUpdateRelease(app);
+  const cliUrl = await cliChecks(app, nodeVersion, releasesDir);
 
   // 가짜 Claude API: env 파일의 키가 작업 프로세스까지 닿는지(헤더) 본다
   const seenKeys: string[] = [];
@@ -126,10 +140,69 @@ async function main(): Promise<void> {
     for (const pid of pids) { try { process.kill(Number(pid), 'SIGTERM'); } catch { /* 이미 끝남 */ } }
     await new Promise((res) => setTimeout(res, 1500));
   }
+  await studio.close().catch(() => {});
+  spawnSync('pkill', ['-f', `${app}/Contents/MacOS/Sinclair Studio`]);
+  await new Promise((res) => setTimeout(res, 1000));
+  await updateChecks(app, cliUrl, envFile);
+}
+
+const UPDATE_VERSION = '99.0.0';
+/** 업데이트 배포(studio-update 04): 같은 빌드의 Info.plist 버전만 올린 복사본을 zip 으로, dist:studio 와 같은 목록(releaseManifest) */
+function makeUpdateRelease(app: string): string {
+  const dir = path.join(tmp, 'releases');
+  const work = path.join(tmp, 'release-work');
+  fs.mkdirSync(dir); fs.mkdirSync(work);
+  const copy = path.join(work, path.basename(app));
+  execFileSync('ditto', [app, copy]);
+  execFileSync('plutil', ['-replace', 'CFBundleShortVersionString', '-string', UPDATE_VERSION, path.join(copy, 'Contents/Info.plist')]);
+  // Info.plist 를 바꾸면 ad-hoc 서명(arm64)이 깨진다 — 다시 ad-hoc 서명
+  spawnSync('codesign', ['--force', '--deep', '-s', '-', copy]);
+  const zip = path.join(dir, `Sinclair-Studio-${UPDATE_VERSION}-mac-${arch}.zip`);
+  execFileSync('ditto', ['-c', '-k', '--keepParent', copy, zip]);
+  fs.rmSync(work, { recursive: true, force: true });
+  return dir;
+}
+
+/** 자동 업데이트(studio-update 04): 설치본이 control-plane 배포에서 새 버전을 알고, 누르면 받아 바꿔 끼운 뒤 같은 자리에서 다시 뜬다 */
+async function updateChecks(app: string, cliUrl: string, envFile: string): Promise<void> {
+  const { releaseManifest } = await import(path.join(repo, 'scripts/dist-studio.mjs')) as typeof import('../../../../scripts/dist-studio.mjs');
+  const releasesDir = path.join(tmp, 'releases');
+  const zip = fs.readdirSync(releasesDir).find((f) => f.endsWith('.zip'))!;
+  fs.writeFileSync(path.join(releasesDir, 'latest-mac.json'), JSON.stringify(releaseManifest({ version: UPDATE_VERSION, zips: [{ arch, path: path.join(releasesDir, zip) }] })));
+  const latest = await fetch(`${cliUrl}/studio/releases/latest?arch=${arch}`).then((r) => r.json() as Promise<{ version?: string }>);
+  check('업데이트 배포: 동봉 CLI control-plane --studio-releases-dir 가 최신 버전을 알림', latest.version === UPDATE_VERSION, JSON.stringify(latest).slice(0, 120));
+  const userData = path.join(tmp, 'userdata-update');
+  fs.mkdirSync(userData);
+  fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ controlPlane: cliUrl, testsDir: path.join(tmp, 'tests') }));
+  const plist = path.join(app, 'Contents/Info.plist');
+  const before = execFileSync('plutil', ['-extract', 'CFBundleShortVersionString', 'raw', plist], { encoding: 'utf8' }).trim();
+  const studio = await electron.launch({ executablePath: path.join(app, 'Contents/MacOS/Sinclair Studio'), args: [], cwd: tmp, env: { HOME: os.homedir(), PATH: '/usr/bin:/bin', SINCLAIR_STUDIO_USER_DATA: userData, SINCLAIR_ENV_FILE: envFile } });
+  const win = await studio.firstWindow();
+  const t0 = Date.now();
+  const button = win.getByRole('button', { name: `업데이트 ${UPDATE_VERSION}` });
+  const shown = await button.waitFor({ timeout: 20_000 }).then(() => true, () => false);
+  check('Studio 가 기동 뒤 스스로 새 버전을 확인해 툴바에 "업데이트 99.0.0"', shown, `${Date.now() - t0}ms, 현재 ${before}`);
+  if (!shown) { await studio.close().catch(() => {}); return; }
+  const oldPid = await studio.evaluate(() => process.pid);
+  const t1 = Date.now();
+  await button.click();
+  let after = before;
+  let pids: string[] = [];
+  for (let i = 0; i < 120; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    try { after = execFileSync('plutil', ['-extract', 'CFBundleShortVersionString', 'raw', plist], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { continue; }
+    pids = spawnSync('pgrep', ['-f', `${app}/Contents/MacOS/Sinclair Studio$`], { encoding: 'utf8' }).stdout.trim().split('\n').filter(Boolean).filter((p) => Number(p) !== oldPid);
+    if (after === UPDATE_VERSION && pids.length) break;
+  }
+  cleanups.unshift(() => { spawnSync('pkill', ['-f', `${app}/Contents/MacOS/Sinclair Studio`]); });
+  const swapLog = fs.existsSync(path.join(userData, 'updates/swap.log')) ? fs.readFileSync(path.join(userData, 'updates/swap.log'), 'utf8').trim() : '로그 없음';
+  check('누르면 받아(sha256) 같은 자리의 앱을 99.0.0 으로 바꾸고 다시 띄움', after === UPDATE_VERSION && pids.length > 0 && !fs.existsSync(`${app}.updating-old`), `${Date.now() - t1}ms, Info.plist ${before} → ${after}, 새 프로세스 ${pids.length}, ${swapLog.replace(tmp, '<tmp>')}`);
+  const cliAfter = spawnSync(path.join(tmp, 'path-bin', 'sinclair-agent'), ['--help'], { cwd: tmp, env: { HOME: os.homedir(), PATH: '/usr/bin:/bin' }, encoding: 'utf8' });
+  check('교체 뒤에도 PATH 에 건 CLI 링크가 그대로 동작', cliAfter.status === 0, `종료 ${cliAfter.status}`);
 }
 
 /** 동봉 CLI(studio-packaging 05): PATH 에 건 심링크로 리포·시스템 node 없이 control-plane(동봉 Console)·에이전트 FakeEngine run 이 verified */
-async function cliChecks(app: string, nodeVersion: string): Promise<void> {
+async function cliChecks(app: string, nodeVersion: string, releasesDir: string): Promise<string> {
   const binDir = path.join(tmp, 'path-bin');
   fs.mkdirSync(binDir);
   for (const b of ['sinclair-agent', 'sinclair-control-plane']) fs.symlinkSync(path.join(app, 'Contents/Resources/cli/bin', b), path.join(binDir, b));
@@ -138,7 +211,7 @@ async function cliChecks(app: string, nodeVersion: string): Promise<void> {
   check('CLI: PATH 의 심링크 sinclair-agent --help(시스템 node 없음)', version.status === 0 && /daemon/.test(version.stdout + version.stderr), `종료 ${version.status}`);
   const port = await new Promise<number>((r) => { const s = http.createServer().listen(0, '127.0.0.1', () => { const p = (s.address() as AddressInfo).port; s.close(() => r(p)); }); });
   const { spawn } = await import('node:child_process');
-  const cp = spawn('sinclair-control-plane', ['--store', 'memory', '--port', String(port)], { cwd: tmp, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const cp = spawn('sinclair-control-plane', ['--store', 'memory', '--port', String(port), '--studio-releases-dir', releasesDir], { cwd: tmp, env, stdio: ['ignore', 'pipe', 'pipe'] });
   cleanups.push(() => { cp.kill('SIGTERM'); });
   let log = ''; cp.stdout.on('data', (d) => { log += d; }); cp.stderr.on('data', (d) => { log += d; });
   const url = `http://127.0.0.1:${port}`;
@@ -153,7 +226,7 @@ async function cliChecks(app: string, nodeVersion: string): Promise<void> {
   const run = spawnSync('sinclair-agent', ['run', '--control-plane', url, '--cycle', cycle, '--target', 'android', '--tests', tests, '--engine', 'fake', '--spool', path.join(tmp, 'cli-spool')], { cwd: tmp, env, encoding: 'utf8', timeout: 60_000 });
   const view = await (await fetch(`${url}/cycles/${cycle}`)).json() as { verdict?: string; state?: string };
   check('CLI: 리포 밖 테스트 폴더의 @sinclair/runner 를 풀어 FakeEngine run → Cycle verified', run.status === 0 && view.verdict === 'verified', `종료 ${run.status}, ${view.state}/${view.verdict}${run.status === 0 ? '' : ` ${(run.stderr || run.stdout).slice(-300)}`}`);
-  cp.kill('SIGTERM');
+  return url;
 }
 
 try { await main(); } catch (err) { check('예외 없이 끝남', false, err instanceof Error ? err.message : String(err)); }

@@ -1,6 +1,7 @@
 // preload(CJS, 샌드박스): 렌더러에 StudioApi 만 노출한다. ipcRenderer 자체는 넘기지 않는다.
 import { contextBridge, ipcRenderer } from 'electron';
 import { STUDIO_CHANNELS, type ConnectionInfo, type StudioApi, type StudioDevice, type StudioSnapshot, type WorkerStatus, type AgentStatus, type JudgeView, type StudioEvent } from '../shared/studio-ipc.ts';
+import type { UpdateStatus } from '../shared/update.ts';
 
 const api: StudioApi = {
   getWorkerStatus: () => ipcRenderer.invoke(STUDIO_CHANNELS.workerStatus) as Promise<WorkerStatus>,
@@ -35,6 +36,14 @@ const api: StudioApi = {
   },
   openConsole: (url) => ipcRenderer.invoke(STUDIO_CHANNELS.openConsole, url),
   getSettings: () => ipcRenderer.invoke(STUDIO_CHANNELS.getSettings),
+  getUpdateStatus: () => ipcRenderer.invoke(STUDIO_CHANNELS.updateStatus) as Promise<UpdateStatus>,
+  onUpdateStatus: (cb) => {
+    const listener = (_e: unknown, s: UpdateStatus) => cb(s);
+    ipcRenderer.on(STUDIO_CHANNELS.updateStatusChanged, listener);
+    return () => { ipcRenderer.removeListener(STUDIO_CHANNELS.updateStatusChanged, listener); };
+  },
+  checkUpdate: () => ipcRenderer.invoke(STUDIO_CHANNELS.updateCheck) as Promise<UpdateStatus>,
+  installUpdate: () => ipcRenderer.invoke(STUDIO_CHANNELS.updateInstall) as Promise<UpdateStatus>,
   setSettings: (settings) => ipcRenderer.invoke(STUDIO_CHANNELS.setSettings, settings),
   saveRecording: (input) => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'save-recording', ...input }) as Promise<{ key: string }>,
   saveTestFile: (suggestedName, content) => ipcRenderer.invoke(STUDIO_CHANNELS.saveTestFile, suggestedName, content) as Promise<string | null>,

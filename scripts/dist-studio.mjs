@@ -10,7 +10,7 @@
  *   cli/bin/sinclair-agent, cli/bin/sinclair-control-plane   CLI 런처(studio-packaging 05): 위 node 로 cli/dist/*.mjs, SINCLAIR_RESOURCES_DIR=Resources
  *   cli/dist/*.mjs, cli/node_modules/usb…              CLI 번들(scripts/build-bundles.mjs — zip 설치본과 같은 번들)
  *   console/                                         Console 정적 빌드(CLI control-plane 이 /console 에서 서빙)
- * URL 스킴 sinclair:// 를 Info.plist 에 등록한다(studio-packaging 03). 서명·공증 없음(identity null).
+ * URL 스킴 sinclair:// 를 Info.plist 에 등록한다(studio-packaging 03). 아이콘 apps/studio/build/icon.icns. zip 과 함께 업데이트 배포 목록 latest-mac.json(studio-update). 서명·공증 없음(identity null).
  *
  * 사용: node scripts/dist-studio.mjs [--targets mac-arm64,mac-x64] [--out release/studio] [--dir]  (--dir: dmg·zip 대신 .app 폴더만, 빠른 확인용)
  * 사내망이면 NODE_EXTRA_CA_CERTS 로 Node·Electron 다운로드가 된다.
@@ -34,7 +34,15 @@ export const STUDIO_TARGETS = { 'mac-arm64': 'arm64', 'mac-x64': 'x64' };
 export const STUDIO_APP_ID = 'dev.sinclair.studio';
 export const STUDIO_PRODUCT = 'Sinclair Studio';
 export const URL_SCHEME = 'sinclair';
+/** 앱 아이콘(scripts/build-studio-icon.mjs 가 icon.svg 에서 만들어 커밋해 둔 것) */
+export const STUDIO_ICON = path.join(studio, 'build', 'icon.icns');
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
+
+export const RELEASE_MANIFEST = 'latest-mac.json';
+/** control-plane studio-releases.ts 의 ReleaseManifest(같은 모양 — 그쪽 parseReleaseManifest 가 검사한다) */
+export function releaseManifest({ version, zips, releasedAt = new Date().toISOString() }) {
+  return { product: STUDIO_PRODUCT, version, releasedAt, files: zips.map(({ arch, path: p }) => { const buf = readFileSync(p); return { arch, name: path.basename(p), sha256: sha256(buf), size: buf.length }; }) };
+}
 
 /** electron-vite 빌드(out/) */
 function buildStudioApp(log) {
@@ -57,7 +65,7 @@ export function builderConfig({ version, appDir, outDir, resDir, electronVersion
     extraResources: [{ from: resDir, to: '.', filter: ['**/*'] }],
     protocols: [{ name: 'Sinclair Studio', schemes: [URL_SCHEME] }],
     artifactName: `Sinclair-Studio-\${version}-mac-${arch}.\${ext}`,
-    mac: { category: 'public.app-category.developer-tools', identity: null, target: ['dmg', 'zip'] },
+    mac: { category: 'public.app-category.developer-tools', identity: null, target: ['dmg', 'zip'], icon: STUDIO_ICON },
     dmg: { title: `Sinclair Studio ${version}`, contents: [{ x: 130, y: 220, type: 'file' }, { x: 410, y: 220, type: 'link', path: '/Applications' }] },
   };
 }
@@ -142,6 +150,12 @@ export async function distStudio({ targets = Object.keys(STUDIO_TARGETS), outDir
     const files = await build({ targets: Platform.MAC.createTarget(dirOnly ? ['dir'] : ['dmg', 'zip'], Arch[arch]), config, publish: 'never' });
     for (const f of files.filter((x) => /\.(dmg|zip)$/.test(x))) log(`[${target}] ${path.relative(root, f)} (${(statSync(f).size / 1024 / 1024).toFixed(1)} MB)`);
     outputs.push(...files);
+  }
+  // 업데이트 배포 목록(studio-update 02): zip 과 함께 control-plane --studio-releases-dir 에 둔다
+  if (!dirOnly) {
+    const manifest = releaseManifest({ version, zips: outputs.filter((f) => f.endsWith('.zip')).map((f) => ({ arch: STUDIO_TARGETS[targets.find((t) => f.endsWith(`-mac-${STUDIO_TARGETS[t]}.zip`))], path: f })) });
+    writeFileSync(path.join(outDir, RELEASE_MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`);
+    log(`[release] ${path.relative(root, path.join(outDir, RELEASE_MANIFEST))} — ${manifest.files.map((f) => f.arch).join(', ')}`);
   }
   return { outputs, appDirs: targets.map((t) => path.join(outDir, STUDIO_TARGETS[t] === 'x64' ? 'mac' : `mac-${STUDIO_TARGETS[t]}`, `${STUDIO_PRODUCT}.app`)) };
 }

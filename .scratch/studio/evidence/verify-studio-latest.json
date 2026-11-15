@@ -1,7 +1,7 @@
 {
   "skill": "verify-studio",
   "mode": "fake",
-  "at": "2026-11-15T02:32:50.729Z",
+  "at": "2026-11-15T08:08:42.227Z",
   "ok": true,
   "checks": [
     {
@@ -11,7 +11,7 @@
     {
       "name": "기기 화면 스냅샷을 그림",
       "ok": true,
-      "detail": "1080×2400, 기동 4744ms"
+      "detail": "1080×2400, 기동 2123ms"
     },
     {
       "name": "현재 앱 버튼이 앞 화면 앱을 채우고 버튼 옆에 결과",
@@ -97,7 +97,7 @@
     {
       "name": "Cycle 로 실행: 테스트 폴더에 쓰고 Cycle 등록",
       "ok": true,
-      "detail": "Cycle studio-20261115023244-d422 등록 — <tmp>/studio-tests/Studio 검증 2026-11-15-02-32-42 · Cycle/Studio 검증 2026-11-15-02-32-42 · Cycle.sinclair.ts"
+      "detail": "Cycle studio-20261115080835-52c9 등록 — <tmp>/studio-tests/Studio 검증 2026-11-15-08-08-34 · Cycle/Studio 검증 2026-11-15-08-08-34 · Cycle.sinclair.ts"
     },
     {
       "name": "Cycle 타깃은 고른 기기(deviceId)",
@@ -114,7 +114,7 @@
     {
       "name": "내보낸 두 테스트가 같은 기기에서 통과",
       "ok": true,
-      "detail": "Studio 검증 2026-11-15-02-32-42=passed, Studio 검증 2026-11-15-02-32-42 · 결정적=passed"
+      "detail": "Studio 검증 2026-11-15-08-08-34=passed, Studio 검증 2026-11-15-08-08-34 · 결정적=passed"
     },
     {
       "name": "자연어 act 는 Studio 가 저장한 녹화로 재생(act 모델 0회)",

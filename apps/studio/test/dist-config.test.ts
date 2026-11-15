@@ -1,6 +1,7 @@
 // Studio 설치본 설정(studio-packaging 02): URL 스킴 sinclair, 서명 없음, asar 에는 out·package.json 만, Resources 는 타깃별 원본(asar 밖).
 import { describe, it, expect } from 'vitest';
-import { builderConfig, STUDIO_TARGETS, URL_SCHEME } from '../../../scripts/dist-studio.mjs';
+import { existsSync } from 'node:fs';
+import { builderConfig, STUDIO_ICON, STUDIO_TARGETS, URL_SCHEME } from '../../../scripts/dist-studio.mjs';
 
 describe('builderConfig', () => {
   it('URL 스킴·서명 없음·파일·Resources·산출물 이름(아키텍처 포함)', () => {
@@ -8,6 +9,8 @@ describe('builderConfig', () => {
     expect(c.protocols).toEqual([{ name: 'Sinclair Studio', schemes: [URL_SCHEME] }]);
     expect(URL_SCHEME).toBe('sinclair');
     expect(c.mac.identity).toBeNull();
+    expect(c.mac.icon).toBe(STUDIO_ICON);
+    expect(STUDIO_ICON.endsWith('apps/studio/build/icon.icns') && existsSync(STUDIO_ICON)).toBe(true);
     expect(c.files).toEqual(['out/**/*', 'package.json']);
     expect(c.extraResources).toEqual([{ from: '/s/res/mac-arm64', to: '.', filter: ['**/*'] }]);
     expect(c.npmRebuild).toBe(false);

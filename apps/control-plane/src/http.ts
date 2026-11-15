@@ -21,9 +21,13 @@
 //   GET  /fleet              → FleetView(노드별 기기와 idle/untrusted/offline). 보고가 끊긴 지 보존 기간(nodeRetentionMs)이 지난 노드는 이때 지운다
 //   GET|PUT|DELETE /cache/:key → 녹화 캐시 항목(recording-cache 05): GET 200 | 404, PUT 204 | 400(키·항목 검증), DELETE 204. 노드들이 공유한다
 //   DELETE /fleet/nodes/:agentId → 204 | 404 | 409 node-online — offline 노드 기록 삭제(다시 보고하면 새로 나타난다)
+//   GET  /studio/releases/latest?arch=arm64|x64 → LatestRelease | 404 배포 없음(studio-update 02, --studio-releases-dir)
+//   GET  /studio/releases/files/:name → 목록(latest-mac.json)에 적힌 zip 바이트만
 //   GET  /health             200
 import { createOpenRequestStore, parseOpenRequest } from './studio-open.ts';
+import { createStudioReleases } from './studio-releases.ts';
 import http from 'node:http';
+import { pipeline } from 'node:stream/promises';
 import * as fs from 'node:fs/promises';
 import * as nodePath from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -62,6 +66,8 @@ export interface ControlPlaneOptions {
   /** 아티팩트 저장소(없으면 메모리) */
   artifacts?: ArtifactStore;
   maxArtifactBytes?: number;
+  /** Studio 업데이트 배포 디렉터리(zip + latest-mac.json). 없으면 /studio/releases 는 404 */
+  studioReleasesDir?: string;
 }
 
 /** Cycle 목록 한 줄(Console 의 Cycle 목록). 진행률은 판정에 들어가는 Run(대체되지 않은 것) 기준 */
@@ -175,6 +181,7 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
       json(res, 404, { error: '없음' });
     }
   };
+  const releases = opts.studioReleasesDir ? createStudioReleases(opts.studioReleasesDir) : undefined;
   const artifacts = opts.artifacts ?? createMemoryArtifactStore();
   const issues = opts.issues ?? createMemoryIssueStore();
   const recordingCache = opts.recordingCache ?? createMemoryCacheStore();
@@ -429,6 +436,22 @@ export async function serveControlPlane(store: EventStore, opts: ControlPlaneOpt
         if (!openRequests.ack(parts[2]!)) return json(res, 404, { error: '모르는 열기 요청', code: 'open-request-not-found' });
         res.writeHead(204).end();
         return;
+      }
+      // Studio 업데이트(studio-update 02)
+      if ((req.method === 'GET' || req.method === 'HEAD') && parts[0] === 'studio' && parts[1] === 'releases') {
+        if (!releases) return json(res, 404, { error: '이 control-plane 은 Studio 배포를 하지 않음(--studio-releases-dir)', code: 'no-releases' });
+        if (parts.length === 3 && parts[2] === 'latest') {
+          const r = await releases.latest(url.searchParams.get('arch') ?? '');
+          return r.ok ? json(res, 200, r.value) : json(res, r.status, { error: r.error, ...(r.status === 404 ? { code: 'no-releases' } : {}) });
+        }
+        if (parts.length === 4 && parts[2] === 'files') {
+          const f = await releases.file(parts[3]!);
+          if (!f) return json(res, 404, { error: '배포 목록에 없는 파일' });
+          res.writeHead(200, { 'content-type': 'application/zip', 'content-length': f.size, 'cache-control': 'no-cache' });
+          if (req.method === 'HEAD') { res.end(); return; }
+          await pipeline(releases.stream(f.path), res);
+          return;
+        }
       }
       if (req.method === 'GET' && url.pathname === '/fleet') {
         const nowMs = (opts.now ?? Date.now)();

@@ -43,6 +43,12 @@ Studio 와 같은 Node·헬퍼 APK 를 쓰고, 버전도 Studio 와 같습니다
 - **데몬이 없으면** Studio 가 USB 기기를 직접 엽니다. Android 는 USB 디버깅 허용, 데몬·adb 서버와 동시에 같은 기기를 잡지 않습니다.
 - **iPhone**: Xcode, Apple ID 로그인, iPhone 개발자 모드가 필요하고, `packages/device-layer/ios-runner/build.sh` 로 러너를 빌드해 `SINCLAIR_IOS_XCTESTRUN`(env 파일)에 경로를 줍니다. 무료 팀 서명은 7일마다 다시 빌드합니다.
 
+## 업데이트
+
+Studio 는 설정의 control-plane 에 새 버전이 있는지 기동 때와 4시간마다 확인합니다. 새 버전이 있으면 툴바에 `업데이트 x.y.z` 버튼이 나옵니다. 누르면 받아서 확인한 뒤 같은 자리의 앱을 바꾸고 다시 띄웁니다. 설정 대화상자에서 지금 버전을 보고 바로 확인할 수도 있습니다. `응용 프로그램` 처럼 쓸 수 있는 폴더에 둔 앱만 업데이트됩니다(디스크 이미지 안에서 띄운 앱은 업데이트하지 않습니다).
+
+**배포(운영자):** `pnpm dist:studio` 가 만든 `release/studio/` 의 `Sinclair-Studio-<v>-mac-*.zip` 과 `latest-mac.json` 을 한 폴더에 두고, control-plane 을 `--studio-releases-dir <그 폴더>`(또는 `SINCLAIR_CP_STUDIO_RELEASES_DIR`)로 띄웁니다. 새 버전은 파일만 바꿔 끼우면 되고, 재시작은 필요 없습니다. 버전은 루트 `package.json` 의 version 입니다.
+
 ## Console 에서 열기
 
 Console 케이스 상세의 'Studio 에서 열기' 는 control-plane 에 열기 요청을 남기고 `sinclair://open?request=<id>` 를 엽니다. Studio 가 떠 있으면 바로 앞으로 와서 기기·목표를 채우고, 꺼져 있으면 링크가 Studio 를 띄웁니다. 실행은 사람이 누릅니다.
