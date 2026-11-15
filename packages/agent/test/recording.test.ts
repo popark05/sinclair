@@ -33,6 +33,19 @@ describe('runAct · 녹화', () => {
     expect(parseCacheEntry({ schema: CACHE_SCHEMA, createdAt: 'x', recordedBy: {}, start: {}, ...r.recording! }).ok).toBe(true);
   });
 
+  it('화면을 바꾸지 못한 탭·스크롤은 녹화에서 뺀다 — 이어받기 녹화에 에이전트의 헛탭이 남아 다음 재생이 그 대상을 못 찾고 또 이어받았다(실기 YouTube)', async () => {
+    const script: ToolCall[] = [
+      { name: 'tap', input: { ref: '@e1' } }, // 제목 글자: 아무 일도 일어나지 않는다
+      { name: 'scroll', input: { ref: '@e0', direction: 'down' } }, // 스크롤할 것이 없다
+      { name: 'type', input: { ref: '@e2', text: 'qa' } },
+      { name: 'tap', input: { ref: '@e4' } },
+      { name: 'done', input: { summary: '환영합니다' } },
+    ];
+    const r = await runAct(login(), '아이디 qa 로 로그인', { executor: scriptedExecutor(script) });
+    expect(r.ok).toBe(true);
+    expect(r.recording!.actions.map((a) => `${a.tool} ${a.target?.label ?? a.target?.placeholder ?? ''}`)).toEqual(['type 아이디', 'tap 로그인']);
+  });
+
   it('실패한 act 는 녹화를 남기지 않는다', async () => {
     const r = await runAct(login(), '로그인', { executor: scriptedExecutor([{ name: 'tap', input: { ref: '@e5' } }]), maxTurns: 1 });
     expect(r.ok).toBe(false);
