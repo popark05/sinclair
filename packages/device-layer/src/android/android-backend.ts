@@ -235,6 +235,11 @@ export function createAndroidBackend(options: AndroidBackendOptions = {}): Andro
     // 빠르게 끝나는 연결(이미 승인된 기기)은 이번 응답에 반영하고, 승인 대기는 기다리지 않는다.
     await Promise.race([Promise.allSettled(pending), new Promise((r) => setTimeout(r, probeWaitMs))]);
 
+    // 준비 안 된 헬퍼(잠긴 채 연결돼 서버가 못 떴다 등)는 목록만 읽혀도 다시 온보딩한다(백오프 안이면 건너뜀).
+    // Fleet 은 준비 안 된 기기를 후보에서 빼 기기 호출이 오지 않으므로, 여기서 안 하면 잠금을 풀어도 영영 돌아오지 않는다. 기다리지 않는다
+    for (const entry of entries.values()) {
+      if (entry.state === 'device' && entry.helper && entry.helper.state !== 'ready' && !entry.onboarding && !entry.probe) void ensureHelper(entry);
+    }
     const devices = [...entries.entries()].map(([id, entry]) => toInfo(id, entry));
     lastList = { at: Date.now(), devices };
     return devices;
