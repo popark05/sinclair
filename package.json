@@ -17,7 +17,8 @@
     "control-plane": "node apps/control-plane/bin/sinclair-control-plane.mjs",
     "agent": "node apps/runner-agent/bin/sinclair-agent.mjs",
     "bundle": "node scripts/build-bundles.mjs",
-    "dist": "node scripts/dist.mjs"
+    "dist": "node scripts/dist.mjs",
+    "dist:studio": "node scripts/dist-studio.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

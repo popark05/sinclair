@@ -4,4 +4,4 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done — `pnpm dist:studio` → release/studio/Sinclair-Studio-0.1.0-mac-{arm64,x64}.{dmg,zip}(약 153·158MB). asar 2.8MB(out·package.json), Resources: node(v24.13.0), worker(번들 + usb 플랫폼별), helper APK, VERSION. Info.plist CFBundleURLSchemes sinclair. 리포 밖 복사본이 PATH 에 node 없이 작업 프로세스 ready(동봉 Node, 0.4초)
