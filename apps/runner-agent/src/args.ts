@@ -15,8 +15,10 @@ export interface RunArgs {
   run?: string;
   /** mobile 엔진의 기기 시리얼. 없으면 꽂힌 첫 기기 */
   device?: string;
-  /** mobile 엔진이 session.open 에서 띄울 앱 */
+  /** mobile 엔진이 session.open 에서 띄울 앱(Android 기기) */
   app?: string;
+  /** iOS 기기의 세션 앱(번들 id). Android 앱 id 를 iOS 기기에 쓰지 않는다(ios-backend 05) */
+  iosApp?: string;
   /** 실패 스냅샷 디렉터리. 없으면 스풀 옆 artifacts/(올린 뒤 지운다) */
   artifacts?: string;
   /** 실패 스냅샷을 control-plane 에 올리는가: on(기본) | off */
@@ -102,7 +104,8 @@ const OPTIONS = [
   { name: 'engine', key: 'engine', env: 'SINCLAIR_AGENT_ENGINE', required: false, help: 'fake|mobile (기본 mobile)' },
   { name: 'run', key: 'run', env: 'SINCLAIR_AGENT_RUN', required: false, help: '이미 등록된 Run id (없으면 발급)' },
   { name: 'device', key: 'device', env: 'SINCLAIR_AGENT_DEVICE', required: false, help: 'mobile: 기기 시리얼 (없으면 첫 기기)' },
-  { name: 'app', key: 'app', env: 'SINCLAIR_AGENT_APP', required: false, help: 'mobile: session.open 이 띄울 앱 id' },
+  { name: 'app', key: 'app', env: 'SINCLAIR_AGENT_APP', required: false, help: 'mobile: session.open 이 띄울 앱 id (Android 기기)' },
+  { name: 'ios-app', key: 'iosApp', env: 'SINCLAIR_AGENT_IOS_APP', required: false, help: 'mobile: iOS 기기의 session.open 앱 번들 id (없으면 iOS 기기는 세션 앱 없음 — 테스트가 app.restart(번들 id) 로 연다)' },
   { name: 'artifacts', key: 'artifacts', env: 'SINCLAIR_AGENT_ARTIFACTS', required: false, help: '실패 스냅샷 디렉터리 (기본 스풀 옆 artifacts/ — 올린 뒤 지운다)' },
   { name: 'upload-artifacts', key: 'uploadArtifacts', env: 'SINCLAIR_AGENT_UPLOAD_ARTIFACTS', required: false, help: 'on(기본)|off — 실패 스냅샷(스크린샷·화면 트리)을 control-plane 에 올린다. 스크린샷은 화면 그대로라 개인정보가 보일 수 있다' },
   { name: 'timeout', key: 'timeoutMs', env: 'SINCLAIR_AGENT_TIMEOUT', required: false, help: 'locator 액션 기한 ms (기본 10000)' },
@@ -198,7 +201,7 @@ const DAEMON_OPTIONS: readonly OptionSpec[] = [
   OPTIONS.find((o) => o.name === 'control-plane')!,
   { name: 'targets', key: 'targets', env: 'SINCLAIR_AGENT_TARGETS', required: false, help: '이 노드가 맡는 이름 타깃들, 쉼표 구분. 조건 타깃(플랫폼·모델·OS)은 기기가 맞으면 선언 없이 받는다' },
   { ...OPTIONS.find((o) => o.name === 'tests')!, help: 'Cycle 에 suite 가 없을 때 쓸 기본 테스트 디렉터리' },
-  ...OPTIONS.filter((o) => ['engine', 'device', 'app', 'artifacts', 'upload-artifacts', 'timeout', 'retries', 'cache', 'agent', 'spool', 'helper-apk', 'helper-cache'].includes(o.name)),
+  ...OPTIONS.filter((o) => ['engine', 'device', 'app', 'ios-app', 'artifacts', 'upload-artifacts', 'timeout', 'retries', 'cache', 'agent', 'spool', 'helper-apk', 'helper-cache'].includes(o.name)),
   { name: 'poll', key: 'pollMs', env: 'SINCLAIR_AGENT_POLL', required: false, help: '대기 중인 Run 이 없을 때 다시 묻는 간격 ms (기본 5000, 최소 100)' },
   { name: 'fake-devices', key: 'fakeDevices', env: 'SINCLAIR_AGENT_FAKE_DEVICES', required: false, help: '--engine fake 전용: 보고할 가짜 기기 목록 JSON 파일([{id, platform, model, osVersion, connection, helper?, locked?}]). 없으면 fake-<agent> 한 대' },
   { name: 'concurrency', key: 'concurrency', env: 'SINCLAIR_AGENT_CONCURRENCY', required: false, help: '동시에 돌리는 run 수 상한 (기본: 쓸 수 있는 기기 수, run 마다 워커 프로세스)' },

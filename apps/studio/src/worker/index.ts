@@ -2,7 +2,7 @@
 // Electron 의 Node(BoringSSL)가 아니라 순정 Node 라 TLS·사내망 CA·네이티브 모듈(node-usb) 경로가 runner-agent 와 같다.
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
-import { createAndroidBackend, createDeviceServer, defaultDiscoveryFile } from '@sinclair/device-layer';
+import { createAndroidBackend, createDeviceServer, createIosBackend, defaultDiscoveryFile, devicectlAppInstalled, iosLauncherFromEnv } from '@sinclair/device-layer';
 import { createMobileEngine, rpcOverDispatcher } from '@sinclair/engine-mobile';
 import { agentFromEnv, claudeOptionsFromEnv, probeClaude, DEFAULT_AGENT_MODEL } from '@sinclair/agent';
 import type { AgentStatus, FromWorker, StudioRequest, StudioResponses, ToWorker } from '../shared/studio-ipc.ts';
@@ -27,7 +27,9 @@ const devices = (): Promise<DeviceConnection> => (connection ??= connectDevices(
   openOwn: async () => {
     const apk = helperApk();
     const backend = createAndroidBackend({ dadb: { includeEmulators: true }, ...(apk ? { helperApkPath: apk } : {}) });
-    return { rpc: rpcOverDispatcher(createDeviceServer([backend])), close: () => backend.close() };
+    // iOS(ios-backend 05): macOS 에서만. 러너 빌드는 SINCLAIR_IOS_XCTESTRUN 또는 리포 빌드 산출물
+    const ios = process.platform === 'darwin' ? createIosBackend({ launcher: iosLauncherFromEnv(process.env).launcher, appInstalled: devicectlAppInstalled() }) : undefined;
+    return { rpc: rpcOverDispatcher(createDeviceServer([backend, ...(ios ? [ios] : [])])), close: async () => { await backend.close(); await ios?.close(); } };
   },
 }));
 

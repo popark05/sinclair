@@ -9,7 +9,7 @@ import { collectTestFiles, executeRun, EXIT, type ExitCode, type RunOnceDeps } f
 import { resumeSpool } from './spool.ts';
 import { nodeDeviceProblem, parseNodeReport, type NodeDevice } from '@sinclair/protocol';
 import * as fs from 'node:fs/promises';
-import { fakeDevice, openAndroidNode, type AndroidNode } from './engines.ts';
+import { fakeDevice, openAndroidNode, withPlatformApp, type AndroidNode } from './engines.ts';
 import { defaultDiscoveryFile, publishDeviceRpc, unpublishDeviceRpc } from '@sinclair/device-layer';
 import { runInWorker, type WorkerDevice } from './worker.ts';
 
@@ -273,9 +273,11 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
           // mobile: 데몬이 기기를 준비하고(USB 는 데몬만) 워커에는 디바이스 RPC 주소만 준다. 준비가 실패하면 같은 프로세스에서 blocked 로 보고한다(테스트는 돌지 않는다)
           let device: WorkerDevice | undefined;
           let prepError: unknown;
+          let platformArgs = fullArgs;
           if (node && leasedDevice) {
             try {
               const prep = await node.prepare(fullArgs, runLog);
+              platformArgs = withPlatformApp(fullArgs, prep.platform);
               const rpc = await node.serveRpc();
               device = { rpcPort: rpc.port, rpcToken: rpc.token, deviceId: prep.deviceId, label: prep.label };
             } catch (err) { prepError = err; }
@@ -283,9 +285,9 @@ export async function runDaemon(args: DaemonArgs, deps: DaemonDeps = {}): Promis
           try {
             code = prepError !== undefined
               ? await executeRun(fullArgs, run, files, { ...deps, log: runLog, signal: canceller.signal, createEngine: async () => { throw prepError; } })
-              : await runInWorker(deps.workerCommand!, { type: 'start', args: fullArgs, run, files, ...(device ? { device } : {}) }, { log: runLog, signal: canceller.signal, ...(deps.onWorkerSpawn ? { onSpawn: (pid: number) => deps.onWorkerSpawn!(run.runId, pid) } : {}) });
+              : await runInWorker(deps.workerCommand!, { type: 'start', args: platformArgs, run, files, ...(device ? { device } : {}) }, { log: runLog, signal: canceller.signal, ...(deps.onWorkerSpawn ? { onSpawn: (pid: number) => deps.onWorkerSpawn!(run.runId, pid) } : {}) });
           } finally {
-            if (node && leasedDevice) await node.cleanup(leasedDevice, args.app);
+            if (node && leasedDevice) await node.cleanup(leasedDevice, platformArgs.app);
           }
         }
       } catch (err) {

@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { MAX_RETRIES as RUNNER_MAX_RETRIES, CANCELLED_CODE as RUNNER_CANCELLED } from '@sinclair/runner';
 import { MAX_SUITE_RETRIES, CANCELLED_CODE as CP_CANCELLED } from '@sinclair/control-plane';
 import { parseRunArgs, parseResumeArgs, AgentConfigError, MAX_RETRIES } from '../src/index.ts';
+import type { RunArgs } from '../src/args.ts';
 
 const required = ['--control-plane', 'http://127.0.0.1:4780', '--cycle', 'c1', '--target', 'android', '--tests', './tests'];
 
@@ -49,5 +50,19 @@ describe('parseResumeArgs', () => {
     expect(parseResumeArgs([], { SINCLAIR_AGENT_SPOOL: '/e', SINCLAIR_AGENT_CONTROL_PLANE: 'http://e:2' })).toEqual({ spool: '/e', controlPlane: 'http://e:2' });
     expect(() => parseResumeArgs(['--control-plane', 'nope'], {})).toThrow(AgentConfigError);
     expect(parseResumeArgs(['--help'], {})).toEqual({ help: true });
+  });
+});
+
+describe('플랫폼별 앱(ios-backend 05)', () => {
+  it('--ios-app·SINCLAIR_AGENT_IOS_APP 는 iOS 기기의 세션 앱, --app 은 Android 기기의 것 — iOS 기기에 Android 앱 id 를 쓰지 않는다', async () => {
+    const { withPlatformApp } = await import('../src/engines.ts');
+    const a = parseRunArgs(['--control-plane', 'http://x', '--cycle', 'c', '--target', 't', '--tests', 'd', '--app', 'com.google.android.youtube', '--ios-app', 'com.apple.Preferences'], {}, 'linux') as RunArgs;
+    expect(a.iosApp).toBe('com.apple.Preferences');
+    expect((parseRunArgs(['--control-plane', 'http://x', '--cycle', 'c', '--target', 't', '--tests', 'd'], { SINCLAIR_AGENT_IOS_APP: 'com.x.ios' }, 'linux') as RunArgs).iosApp).toBe('com.x.ios');
+    expect(withPlatformApp(a, 'android').app).toBe('com.google.android.youtube');
+    expect(withPlatformApp(a, 'ios').app).toBe('com.apple.Preferences');
+    const { iosApp: _i, ...withoutIos } = a;
+    const noIos = withPlatformApp(withoutIos, 'ios');
+    expect('app' in noIos).toBe(false);
   });
 });

@@ -89,6 +89,8 @@ final class Runner {
     let a = app(id)
     switch b["action"] as? String {
     // launch 는 떠 있으면 그대로 앞으로(Android am start 와 같음). 종료 후 실행은 호스트가 terminate → launch
+    // 설치되지 않은 앱의 activate 는 XCUITest 가 1분 넘게 붙잡아 그동안 모든 요청이 밀린다. 기기 안에서는 설치 여부를 알 수 없어(샌드박스)
+    // 호스트가 devicectl 로 먼저 거른다(ios-backend.ts appInstalled)
     case "launch", "activate": a.activate(); remember(id)
     case "terminate": a.terminate(); known.removeAll { $0 == id }
     default: throw RunnerError("모르는 app action: \(b["action"] ?? "")")

@@ -4,7 +4,7 @@ import type { Engine, NodeDevice } from '@sinclair/protocol';
 // testing/index 는 vitest 계약 스위트를 끌어오므로(vitest 밖에서 import 불가) 파일 단위 export 를 쓴다
 import { FakeEngine } from '@sinclair/protocol/testing/fake-engine';
 import { HOME_SCREEN, LOGIN_SCREEN } from '@sinclair/protocol/testing/login-scenario';
-import { createAndroidBackend, createDeviceServer, serveHttp, type ScreenState } from '@sinclair/device-layer';
+import { createAndroidBackend, createDeviceServer, createIosBackend, devicectlAppInstalled, iosLauncherFromEnv, routeBackends, serveHttp, type DeviceBackend, type ScreenState } from '@sinclair/device-layer';
 import { createMobileEngine, rpcOverDispatcher } from '@sinclair/engine-mobile';
 import type { RunArgs } from './args.ts';
 import { resolveHelperApk } from './helper-apk.ts';
@@ -54,7 +54,7 @@ export interface AndroidNode {
   engineFor(args: RunArgs, log: (line: string) => void): Promise<EngineHandle>;
   /** run 하나를 위해 기기를 준비한다: 목록에서 찾기, 헬퍼 대기, 깨우기·잠금 확인, (방금 온보딩했으면) 예열. 이후 cleanup 까지 그 기기는 쓰는 중이다.
    *  워커 프로세스가 엔진을 만들 때(device-fleet 04) 데몬이 워커 전에 부른다 */
-  prepare(args: RunArgs, log: (line: string) => void): Promise<{ deviceId: string; label: string }>;
+  prepare(args: RunArgs, log: (line: string) => void): Promise<{ deviceId: string; label: string; platform: 'android' | 'ios' }>;
   /** run 뒤 정리: 앱 종료, 홈. 쓰는 중 표시를 푼다 */
   cleanup(deviceId: string, appId?: string): Promise<void>;
   /** 이 백엔드를 127.0.0.1 HTTP JSON-RPC(토큰)로 연다 — 워커는 USB 를 잡지 않고 이것으로 기기를 조작한다. 처음 부를 때 한 번 열고 close 에서 닫는다 */
@@ -72,13 +72,16 @@ export async function openAndroidNode(args: Pick<RunArgs, 'helperApk' | 'helperC
   const inUse = new Set<string>();
   const lastLocked = new Map<string, boolean>();
   let firstList = true;
-  const backend = createAndroidBackend({
+  const android = createAndroidBackend({
     dadb: { includeEmulators: false, authTimeoutMs: APPROVAL_WAIT_MS }, probeWaitMs: APPROVAL_WAIT_MS, helperApkPath: helperApk.path,
     onHelperStep: (serial, text) => { if (/(?<!이미 )설치됨|활성화됨/.test(text)) needsWarmup.add(serial); log(`헬퍼 온보딩(…${serial.slice(-4)}): ${text}`); },
   });
+  // iOS(ios-backend 05): macOS 에서만(usbmuxd·Xcode). 러너 빌드는 SINCLAIR_IOS_XCTESTRUN 또는 리포 빌드 산출물, 없으면 iPhone 이 '러너 빌드 없음' 사유로 보인다
+  const ios = process.platform === 'darwin' ? openIos(log) : undefined;
+  const backend = routeBackends([android, ...(ios ? [ios] : [])]);
   // 같은 프로세스 엔진과 워커용 HTTP 가 같은 디스패처를 쓴다: 기기별 호출 직렬화(rpc.ts)가 둘 사이에도 지켜진다
   // Run 이 쓰는 기기를 devices.list 에 알린다: 같은 기기에 붙은 Studio 가 화면 갱신을 늦추고 세션을 막는다
-  const dispatcher = createDeviceServer([backend], { inUse: (id) => inUse.has(id) });
+  const dispatcher = createDeviceServer([...backend.backends], { inUse: (id) => inUse.has(id) });
   let rpcServer: ReturnType<typeof serveHttp> | undefined;
   /** 화면 아래(80%)에서 위(30%)로 스와이프. 화면 크기는 UI 트리 루트의 크기로 안다(모르면 1080×2400 기준) */
   const swipeUp = async (id: string): Promise<void> => {
@@ -121,12 +124,21 @@ export async function openAndroidNode(args: Pick<RunArgs, 'helperApk' | 'helperC
         devices = await backend.listDevices();
       }
       const deviceId = args.device ?? devices[0]?.id;
-      if (!deviceId) throw new Error('꽂힌 Android 기기가 없음');
+      if (!deviceId) throw new Error('꽂힌 기기가 없음');
       if (!devices.some((d) => d.id === deviceId)) throw new Error(`기기 ${deviceId} 가 목록에 없음(${devices.map((d) => d.id).join(', ') || '없음'})`);
       let info = await backend.info(deviceId);
       for (let i = 0; i < PENDING_POLLS && info.helper?.state === 'pending'; i++) { await new Promise((r) => setTimeout(r, PENDING_POLL_MS)); info = await backend.info(deviceId); }
-      const label = `${info.model} (…${deviceId.slice(-4)}) Android ${info.osVersion}`;
-      log(`기기 ${label}, 헬퍼 ${info.helper?.state ?? '알 수 없음'}`);
+      const label = `${info.model} (…${deviceId.slice(-4)}) ${info.platform === 'ios' ? 'iOS' : 'Android'} ${info.osVersion}`;
+      log(`기기 ${label}, 헬퍼 ${info.helper?.state ?? (info.platform === 'ios' ? '러너 아직 안 띄움' : '알 수 없음')}`);
+      if (info.platform === 'ios') {
+        // iOS: 잠금·깨우기는 러너(xcodebuild)가 잠금 해제 상태에서만 뜨므로 그 사유로 갈린다. 러너를 띄워(수십 초) 홈에서 시작한다
+        log('iOS 러너 준비(처음이면 xcodebuild 로 띄움)');
+        await backend.dumpUi(deviceId);
+        await backend.button(deviceId, 'home').catch(() => undefined);
+        inUse.add(deviceId);
+        lastLocked.set(deviceId, false);
+        return { deviceId, label, platform: 'ios' };
+      }
       // 화면이 꺼져 있거나 잠금화면이면 트리가 비어 모든 locator 가 실패한다. 깨우고(WAKEUP) 비보안 잠금을 넘기고(MENU, 위로 스와이프) 홈으로 간다.
       // 그래도 트리가 비면 보안 잠금(PIN·패턴)이라 프로그램으로 풀 수 없다 — 테스트를 돌려 엉뚱하게 실패시키지 않고 여기서 사유를 밝히고 멈춘다
       await backend.keys(deviceId, ['KEYCODE_WAKEUP', 'KEYCODE_MENU']).catch(() => undefined);
@@ -168,7 +180,7 @@ export async function openAndroidNode(args: Pick<RunArgs, 'helperApk' | 'helperC
         await backend.button(deviceId, 'home').catch(() => undefined);
         needsWarmup.delete(deviceId);
       }
-      return { deviceId, label };
+      return { deviceId, label, platform: 'android' };
     },
     async cleanup(deviceId, appId) {
       if (appId) await backend.terminateApp(deviceId, appId).catch(() => undefined);
@@ -176,8 +188,10 @@ export async function openAndroidNode(args: Pick<RunArgs, 'helperApk' | 'helperC
       inUse.delete(deviceId);
       // 백엔드는 닫지 않는다: 노드(데몬)가 소유하고 다음 run·인벤토리가 같이 쓴다
     },
-    async engineFor(args, log) {
-      const { deviceId, label } = await node.prepare(args, log);
+    async engineFor(runArgs, log) {
+      const prep = await node.prepare(runArgs, log);
+      const { deviceId, label } = prep;
+      const args = withPlatformApp(runArgs, prep.platform);
       const engine = createMobileEngine(rpcOverDispatcher(dispatcher), { deviceId, ...(args.app ? { appId: args.app } : {}) });
       return {
         engine, deviceId, deviceLabel: label,
@@ -190,10 +204,24 @@ export async function openAndroidNode(args: Pick<RunArgs, 'helperApk' | 'helperC
     },
     async close() {
       if (rpcServer) await (await rpcServer).close().catch(() => undefined);
-      await backend.close();
+      await android.close();
+      await ios?.close();
     },
   };
   return node;
+}
+
+function openIos(log: (line: string) => void): DeviceBackend & { close(): Promise<void> } {
+  const { launcher, xctestrun } = iosLauncherFromEnv(process.env, { log });
+  if (xctestrun) log(`iOS 러너 빌드: ${xctestrun}`);
+  return createIosBackend({ launcher, appInstalled: devicectlAppInstalled(), onStep: (udid, text) => log(`iOS 러너(…${udid.slice(-4)}): ${text}`) });
+}
+
+/** 그 기기 플랫폼의 세션 앱으로: iOS 기기는 iosApp(없으면 앱 없음), Android 기기는 app */
+export function withPlatformApp(args: RunArgs, platform: 'android' | 'ios'): RunArgs {
+  if (platform !== 'ios') return args;
+  const { app: _android, ...rest } = args;
+  return { ...rest, ...(args.iosApp ? { app: args.iosApp } : {}) };
 }
 
 export async function createEngine(args: RunArgs, log: (line: string) => void, overrides: EngineOverrides = {}): Promise<EngineHandle> {

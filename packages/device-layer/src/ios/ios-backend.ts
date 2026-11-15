@@ -9,13 +9,18 @@ import { createUsbmuxClient, forwardPort, readLockdownValues, type UsbmuxClient 
 import { IosRunnerClient, IOS_RUNNER_PORT, type IosRunnerPing } from './runner-client.ts';
 
 /** 기기 안 러너를 띄운다. token 은 러너가 요청을 받을 Bearer 토큰(러너에 환경변수로 전한다) */
-export interface IosRunnerLauncher { start(udid: string, token: string): Promise<{ stop(): Promise<void> }> }
+export interface IosRunnerLauncher {
+  /** hooks.onExit: 러너 프로세스가 스스로 끝났을 때(stop 으로 끝낸 것은 제외) 사람이 읽을 사유 */
+  start(udid: string, token: string, hooks?: { onExit(detail: string): void }): Promise<{ stop(): Promise<void> }>;
+}
 export interface IosBackendOptions {
   usbmux?: UsbmuxClient;
   launcher?: IosRunnerLauncher;
   /** 러너가 /ping 에 답하기까지 기다리는 상한(xcodebuild 기동은 수십 초) */
   readyTimeoutMs?: number;
   onStep?: (udid: string, text: string) => void;
+  /** 앱 설치 여부(true·false·모름 undefined). false 인 앱은 러너에 보내지 않는다 — 설치되지 않은 앱의 activate 는 러너를 1분 넘게 붙잡는다. 기본: 확인 안 함(앱은 devicectlAppInstalled 를 넘긴다) */
+  appInstalled?: (udid: string, bundleId: string) => Promise<boolean | undefined>;
 }
 
 const KEYS: Record<string, string> = {
@@ -26,7 +31,8 @@ const KEYS: Record<string, string> = {
 interface Tracked {
   deviceId: number;
   info?: { model?: string; osVersion?: string };
-  helper: HelperInfo;
+  /** 없음 = 아직 띄우지 않음(필요할 때 띄운다). Fleet 후보를 막지 않는다 */
+  helper?: HelperInfo;
   client?: IosRunnerClient;
   ping?: IosRunnerPing;
   forward?: { port: number; close(): Promise<void> };
@@ -35,7 +41,8 @@ interface Tracked {
 }
 
 /** 실행기 없음: 러너 빌드(.xctestrun)를 지정하라는 안내로 실패 */
-export const noLauncher: IosRunnerLauncher = { async start() { throw new Error('iOS 러너 실행기가 없음 — Xcode 로 packages/device-layer/ios-runner 를 build-for-testing 하고 SINCLAIR_IOS_XCTESTRUN 에 .xctestrun 경로를 지정'); } };
+const NO_LAUNCHER = 'iOS 러너 실행기가 없음 — Xcode 로 packages/device-layer/ios-runner 를 build-for-testing(build.sh)하고 SINCLAIR_IOS_XCTESTRUN 에 .xctestrun 경로를 지정';
+export const noLauncher: IosRunnerLauncher = { async start() { throw new Error(NO_LAUNCHER); } };
 
 export function createIosBackend(opts: IosBackendOptions = {}): DeviceBackend & { foregroundApp(id: string): Promise<string | undefined>; close(): Promise<void> } {
   const usbmux = opts.usbmux ?? createUsbmuxClient();
@@ -47,7 +54,7 @@ export function createIosBackend(opts: IosBackendOptions = {}): DeviceBackend & 
     const list = (await usbmux.listDevices().catch(() => [])).filter((d) => d.connection === 'USB');
     for (const d of list) {
       let t = tracked.get(d.udid);
-      if (!t) { t = { deviceId: d.deviceId, helper: { state: 'pending' } }; tracked.set(d.udid, t); }
+      if (!t) { t = launcher === noLauncher ? { deviceId: d.deviceId, helper: { state: 'unreachable', detail: NO_LAUNCHER } } : { deviceId: d.deviceId }; tracked.set(d.udid, t); }
       t.deviceId = d.deviceId;
       if (!t.info) {
         const v = await readLockdownValues(usbmux, d.deviceId).catch(() => ({} as { productType?: string; productVersion?: string }));
@@ -63,7 +70,7 @@ export function createIosBackend(opts: IosBackendOptions = {}): DeviceBackend & 
     await t?.forward?.close().catch(() => {});
     await t?.runner?.stop().catch(() => {});
   };
-  const toInfo = (udid: string, t: Tracked): DeviceInfo => ({ id: udid, platform: 'ios', model: t.ping?.model ?? t.info?.model ?? 'iPhone', osVersion: t.ping?.iosVersion ?? t.info?.osVersion ?? '', state: 'device', helper: t.helper });
+  const toInfo = (udid: string, t: Tracked): DeviceInfo => ({ id: udid, platform: 'ios', model: t.ping?.model ?? t.info?.model ?? 'iPhone', osVersion: t.ping?.iosVersion ?? t.info?.osVersion ?? '', state: 'device', ...(t.helper ? { helper: t.helper } : {}) });
 
   const find = async (udid: string): Promise<Tracked> => {
     if (!tracked.has(udid)) await refresh();
@@ -75,13 +82,23 @@ export function createIosBackend(opts: IosBackendOptions = {}): DeviceBackend & 
   /** 러너가 답할 때까지(필요하면 띄워서). 동시에 불려도 한 번만 띄운다 */
   const runner = async (udid: string): Promise<IosRunnerClient> => {
     const t = await find(udid);
-    if (t.client && t.helper.state === 'ready') return t.client;
+    if (t.client && t.helper?.state === 'ready') return t.client;
     t.starting ??= (async () => {
+      t.helper = { state: 'pending' };
       t.forward ??= await forwardPort(usbmux, t.deviceId, IOS_RUNNER_PORT);
       const token = randomBytes(16).toString('hex');
       step(udid, '러너 실행');
+      let exited: string | undefined;
       try {
-        t.runner = await launcher.start(udid, token);
+        t.runner = await launcher.start(udid, token, {
+          onExit: (detail) => {
+            exited = detail;
+            if (tracked.get(udid) !== t) return;
+            delete t.client; delete t.runner;
+            t.helper = { state: 'unreachable', detail };
+            step(udid, detail);
+          },
+        });
       } catch (err) {
         t.helper = { state: 'unreachable', detail: err instanceof Error ? err.message : String(err) };
         throw new RpcError(RPC_ERRORS.helperUnavailable, `iOS 러너를 띄우지 못함: ${t.helper.detail}`);
@@ -97,6 +114,8 @@ export function createIosBackend(opts: IosBackendOptions = {}): DeviceBackend & 
           step(udid, `러너 준비됨 v${t.ping.version}`);
           return client;
         } catch (err) { last = err instanceof Error ? err.message : String(err); }
+        // 기다리는 중에 러너 프로세스가 끝났으면(잠김·신뢰 안 됨 등) 기한까지 기다리지 않는다
+        if (exited) throw new RpcError(RPC_ERRORS.helperUnavailable, `iOS 러너 사용 불가: ${exited}`);
         if (Date.now() >= deadline) {
           t.helper = { state: 'unreachable', detail: `러너가 ${opts.readyTimeoutMs ?? 120_000}ms 안에 답하지 않음: ${last}` };
           await t.runner?.stop().catch(() => {});
@@ -147,8 +166,14 @@ export function createIosBackend(opts: IosBackendOptions = {}): DeviceBackend & 
       if (name === 'power') throw new RpcError(RPC_ERRORS.invalidParams, 'iOS 에서 전원 버튼은 누를 수 없음');
       await (await runner(udid)).button(name);
     },
-    async launchApp(udid, appId) { await (await runner(udid)).app('launch', appId); },
-    async terminateApp(udid, appId) { await (await runner(udid)).app('terminate', appId); },
+    async launchApp(udid, appId) {
+      if ((await opts.appInstalled?.(udid, appId)) === false) throw new RpcError(RPC_ERRORS.invalidParams, `설치되지 않은 앱: ${appId}`);
+      await (await runner(udid)).app('launch', appId);
+    },
+    async terminateApp(udid, appId) {
+      if ((await opts.appInstalled?.(udid, appId)) === false) return; // 없는 앱은 이미 종료된 것과 같다
+      await (await runner(udid)).app('terminate', appId);
+    },
     async openUrl() { throw new RpcError(RPC_ERRORS.invalidParams, 'iOS 의 URL 열기는 아직 지원하지 않음'); },
     async foregroundApp(udid) { return (await (await runner(udid)).foreground()) ?? undefined; },
     async close() { for (const udid of tracked.keys()) await drop(udid); },

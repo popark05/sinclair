@@ -4,7 +4,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import * as http from 'node:http';
 import type * as net from 'node:net';
 import { createUsbmuxClient } from '../../src/ios/usbmux.ts';
-import { createIosBackend, type IosRunnerLauncher } from '../../src/ios/ios-backend.ts';
+import { createIosBackend, noLauncher, type IosRunnerLauncher } from '../../src/ios/ios-backend.ts';
 import { startFakeUsbmuxd, fakeLockdownd } from './fake-usbmuxd.ts';
 
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -83,4 +83,60 @@ describe('createIosBackend', () => {
     await expect(backend.dumpUi(UDID)).rejects.toThrow(/xcodebuild 없음/);
     expect((await backend.info(UDID)).helper).toMatchObject({ state: 'unreachable', detail: expect.stringMatching(/xcodebuild 없음/) });
   });
+
+  it('러너를 아직 띄우지 않은 기기는 helper 없음(필요할 때 띄운다 — Fleet 후보를 막지 않는다); 실행기가 없으면 처음부터 unreachable(빌드 안내)', async () => {
+    const { backend, starts } = await setup();
+    const [d] = await backend.listDevices();
+    expect(d!.helper).toBeUndefined();
+    expect(starts).toEqual([]);
+    const fake = await startFakeUsbmuxd([{ deviceId: 1, udid: UDID, connection: 'USB', ports: { 62078: fakeLockdownd({ ProductType: 'iPhone11,6', ProductVersion: '17.6.1' }) } }]);
+    cleanups.push(() => fake.close());
+    const none = createIosBackend({ usbmux: createUsbmuxClient({ socketPath: fake.socketPath }), launcher: noLauncher });
+    cleanups.push(() => none.close());
+    expect((await none.listDevices())[0]!.helper).toMatchObject({ state: 'unreachable', detail: expect.stringMatching(/SINCLAIR_IOS_XCTESTRUN/) });
+  });
+
+  it('러너 프로세스가 끝나면 unreachable(사유), 다음 호출에서 다시 띄운다', async () => {
+    const runner = fakeRunner();
+    const fake = await startFakeUsbmuxd([{ deviceId: 1, udid: UDID, connection: 'USB', ports: { 62078: fakeLockdownd({ ProductType: 'iPhone11,6', ProductVersion: '17.6.1' }), 22087: runner.handler } }]);
+    cleanups.push(() => fake.close());
+    const exits: Array<(d: string) => void> = [];
+    const launcher: IosRunnerLauncher = { async start(_u, token, hooks) { runner.state.token = token; if (hooks) exits.push(hooks.onExit); return { stop: async () => {} }; } };
+    const backend = createIosBackend({ usbmux: createUsbmuxClient({ socketPath: fake.socketPath }), launcher, readyTimeoutMs: 2_000 });
+    cleanups.push(() => backend.close());
+    await backend.dumpUi(UDID);
+    runner.state.token = '';
+    exits[0]!('xcodebuild 종료(코드 65): 기기 잠금을 풀어야 함');
+    expect((await backend.info(UDID)).helper).toMatchObject({ state: 'unreachable', detail: expect.stringMatching(/잠금/) });
+    await backend.dumpUi(UDID);
+    expect(exits).toHaveLength(2);
+    expect((await backend.info(UDID)).helper).toMatchObject({ state: 'ready' });
+  });
+
+  it('기다리는 중에 러너 프로세스가 끝나면 기한을 기다리지 않고 그 사유로 실패', async () => {
+    const fake = await startFakeUsbmuxd([{ deviceId: 1, udid: UDID, connection: 'USB', ports: { 62078: fakeLockdownd({ ProductType: 'iPhone11,6', ProductVersion: '17.6.1' }) } }]);
+    cleanups.push(() => fake.close());
+    const launcher: IosRunnerLauncher = { async start(_u, _t, hooks) { setTimeout(() => hooks?.onExit('xcodebuild 종료(코드 65): 기기 잠금을 풀어야 함'), 50); return { stop: async () => {} }; } };
+    const backend = createIosBackend({ usbmux: createUsbmuxClient({ socketPath: fake.socketPath }), launcher, readyTimeoutMs: 60_000 });
+    cleanups.push(() => backend.close());
+    const t0 = Date.now();
+    await expect(backend.dumpUi(UDID)).rejects.toThrow(/잠금을 풀어야/);
+    expect(Date.now() - t0).toBeLessThan(5_000);
+  });
+
+  it('설치 확인(appInstalled): 없는 앱 실행은 러너에 보내지 않고 바로 실패(러너가 1분 넘게 붙잡히지 않게), 없는 앱 종료는 무시, 모르면 그대로 보낸다', async () => {
+    const runner = fakeRunner();
+    const fake = await startFakeUsbmuxd([{ deviceId: 1, udid: UDID, connection: 'USB', ports: { 62078: fakeLockdownd({ ProductType: 'iPhone11,6', ProductVersion: '17.6.1' }), 22087: runner.handler } }]);
+    cleanups.push(() => fake.close());
+    const launcher: IosRunnerLauncher = { async start(_u, token) { runner.state.token = token; return { stop: async () => {} }; } };
+    const known: Record<string, boolean | undefined> = { 'com.apple.Preferences': true, 'com.google.android.youtube': false };
+    const backend = createIosBackend({ usbmux: createUsbmuxClient({ socketPath: fake.socketPath }), launcher, readyTimeoutMs: 2_000, appInstalled: async (udid, id) => { expect(udid).toBe(UDID); return known[id]; } });
+    cleanups.push(() => backend.close());
+    await expect(backend.launchApp(UDID, 'com.google.android.youtube')).rejects.toThrow(/설치되지 않은 앱: com.google.android.youtube/);
+    await backend.terminateApp(UDID, 'com.google.android.youtube');
+    await backend.launchApp(UDID, 'com.apple.Preferences');
+    await backend.launchApp(UDID, 'com.unknown.app');
+    expect(runner.state.apps).toEqual([{ action: 'launch', bundleId: 'com.apple.Preferences' }, { action: 'launch', bundleId: 'com.unknown.app' }]);
+  });
 });
+
