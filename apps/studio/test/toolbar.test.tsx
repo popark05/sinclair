@@ -35,6 +35,29 @@ describe('Toolbar', () => {
     expect((screen.getByRole('textbox', { name: '앱 id' }) as HTMLInputElement).value).toBe('com.google.android.youtube');
   });
 
+  it('플랫폼이 다른 기기로 바꾸면 앱 id 를 비운다 — iPhone 의 번들 id 로 Android 세션·내보내기가 시작되지 않게', async () => {
+    const apps: string[] = [];
+    let selected = '';
+    render(<Toolbar api={api({ listDevices: async () => [{ id: 'IPHONE0000002E', platform: 'ios', model: 'iPhone11,6', osVersion: '17.6.1', state: 'device' }, { id: 'R3CN30ABCDXLZW', platform: 'android', model: 'SM-N981N', osVersion: '13', state: 'device' }, { id: 'R3CN30ABCD0002', platform: 'android', model: 'SM-F936N', osVersion: '14', state: 'device' }] } as never)} onDeviceChange={(id) => { selected = id; }} onAppChange={(a) => { apps.push(a); }} />);
+    await screen.findByText('데몬');
+    expect(selected).toBe('IPHONE0000002E');
+    const box = screen.getByRole('textbox', { name: '앱 id' }) as HTMLInputElement;
+    fireEvent.change(box, { target: { value: 'com.apple.Preferences' } });
+    const pick = async (label: RegExp): Promise<void> => {
+      await act(async () => { fireEvent.click(screen.getByRole('combobox', { name: '기기' })); });
+      await act(async () => { fireEvent.click(await screen.findByRole('option', { name: label })); });
+    };
+    await pick(/SM-N981N/);
+    expect(selected).toBe('R3CN30ABCDXLZW');
+    expect(box.value).toBe('');
+    expect(apps.at(-1)).toBe('');
+    expect(screen.getByRole('status', { name: '툴바 상태' }).textContent).toMatch(/앱 id 를 비움/);
+    // 같은 플랫폼 기기끼리는 그대로
+    fireEvent.change(box, { target: { value: 'com.android.settings' } });
+    await pick(/SM-F936N/);
+    expect(box.value).toBe('com.android.settings');
+  });
+
   it('현재 앱을 알 수 없으면 버튼 옆에 사유, 새로 고침은 결과(기기 수)를 버튼 옆에 보인다', async () => {
     render(<Toolbar api={api({ foregroundApp: async () => null })} onDeviceChange={() => {}} onAppChange={() => {}} />);
     await screen.findByText('데몬'); // 기기 목록을 불러와 기기가 골라진 뒤

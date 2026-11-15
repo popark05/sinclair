@@ -49,6 +49,14 @@ describe('현재 앱', () => {
     const c = await open({ ...fakeBackend('OWN0000002', 'Pixel 7'), foregroundApp: async () => 'com.google.android.apps.maps', dumpUi: async () => ({ ref: '@e0', role: 'root' }) } as unknown as DeviceBackend);
     expect(await c.foregroundApp('OWN0000002')).toBe('com.google.android.apps.maps');
   });
+  it('홈 화면(런처)은 앱이 아니다 — 기기가 런처를 알려 줘도 null(실기: 홈에서 현재 앱 → com.sec.android.app.launcher 가 세션·내보내기·Cycle 의 앱이 돼 monkey 실행 실패)', async () => {
+    const c = await open({ ...fakeBackend('OWN0000002', 'SM-N981N'), foregroundApp: async () => 'com.sec.android.app.launcher', dumpUi: async () => ({ ref: '@e0', role: 'root', children: [{ ref: '@e1', role: 'button', testId: 'com.sec.android.app.launcher:id/icon' }] }) } as unknown as DeviceBackend);
+    expect(await c.foregroundApp('OWN0000002')).toBeNull();
+  });
+  it('기기 목록에 플랫폼을 싣는다(툴바가 플랫폼이 바뀐 기기 전환을 안다)', async () => {
+    const c = await open(fakeBackend('OWN0000002', 'Pixel 7'));
+    expect(await c.listDevices()).toEqual([expect.objectContaining({ id: 'OWN0000002', platform: 'android' })]);
+  });
   it('기기 목록에 inUse(Run 이 쓰는 중)를 싣는다', async () => {
     const c = await open({ ...fakeBackend('OWN0000002', 'Pixel 7'), listDevices: async () => [{ id: 'OWN0000002', platform: 'android', model: 'Pixel 7', osVersion: '13', state: 'device', inUse: true }] } as unknown as DeviceBackend);
     expect(await c.listDevices()).toEqual([expect.objectContaining({ id: 'OWN0000002', inUse: true })]);
