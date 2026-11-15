@@ -96,6 +96,7 @@ Plan(`intent/`) → Design(`specs/`, `/architect`로 타입 먼저) → Build(`t
 - **Electron 메인 ↔ plain Node 자식의 IPC 는 `serialization: 'json'`.** 둘의 V8 버전이 달라 `'advanced'`(V8 직렬화) 메시지를 풀지 못한다("Unable to deserialize cloned data") — 같은 Node 로 도는 테스트에서는 드러나지 않는다(Studio 작업 프로세스, 2026-11-14).
 
 - **iOS 러너에 설치되지 않은 앱을 activate 하지 않는다.** XCUITest 가 1분 넘게 붙잡아 러너의 모든 요청이 밀렸다(데몬 `--app` 의 Android 패키지가 iPhone 세션 앱으로 쓰여, 실기 iOS 17, 2026-11-15). 기기 안 LSApplicationWorkspace 는 샌드박스로 설정 앱조차 없다고 하고 `state` 는 없는 앱도 notRunning 이라 못 가른다 — 호스트가 `devicectl` 로 거르고(`devicectlAppInstalled`), 데몬은 iOS 기기에 `--ios-app` 만 쓴다.
+- **잠긴 채 연결된 Android 기기의 헬퍼는 실패 상태로 굳는다.** 온보딩 때 헬퍼 서버가 못 떠 disabled 가 됐고, Fleet 이 준비 안 된 기기를 후보에서 빼 기기 호출이 없으니 잠금을 풀어도 다시 시도하지 않았다(실기 SM-N981N, 2026-11-15). 기기 목록을 읽을 때 준비 안 된 헬퍼는 백오프 뒤 다시 온보딩한다.
 - **XCUITest 러너의 화면 크기는 `UIScreen.main.bounds` 가 아니다.** 런치 스크린 없는 테스트 러너 앱은 호환 모드라 320x480 이 나온다 — springboard 프레임을 쓴다.
 
 ## 참고 프로젝트에서 가져올 것 (2026-11-07 분석 요약)
