@@ -24,6 +24,9 @@ export function ExportPanel({ api, record, appId, deviceId, deviceLabel }: { api
   const app = appId || record.result?.startApp || '';
   const code = useMemo(() => exportTest(record, { style, testName: name.trim() || 'Studio 세션', ...(app ? { appId: app } : {}) }), [record, style, name, app]);
   const recording = record.result?.recording;
+  // 녹화 키의 앱: 러너와 같은 값이어야 재생된다 — 러너는 act 시작 화면의 트리에서 앱을 알아낸다(appPackageOf, 모르면 빈 값). 세션의 startApp 이 같은 값이다.
+  // 툴바 앱 id 를 쓰면 iOS(트리에 패키지 없음)에서 키가 어긋났다
+  const recordingApp = record.result?.startApp ?? '';
   // Cycle 로 실행(studio-console 04): 등록한 Cycle 과 그 상태(끝날 때까지 3초마다)
   const [cycle, setCycle] = useState<{ cycleId: string; consoleUrl: string }>();
   const [cycleState, setCycleState] = useState<{ state: string; verdict: string; runState?: string }>();
@@ -69,7 +72,7 @@ export function ExportPanel({ api, record, appId, deviceId, deviceLabel }: { api
             <Button label="녹화 캐시에 저장" size="sm" variant="secondary" onClick={() => void run('녹화 저장', async () => {
               const cp = controlPlane || (await api.getSettings()).controlPlane; // 설정을 아직 못 읽었으면 지금
               if (!cp) throw new Error('control-plane 주소가 없음 — 툴바의 설정에서 넣으세요');
-              await api.saveRecording({ controlPlane: cp, testId: name.trim() || 'Studio 세션', goal: record.goal, app, recording });
+              await api.saveRecording({ controlPlane: cp, testId: name.trim() || 'Studio 세션', goal: record.goal, app: recordingApp, recording });
               return '녹화 캐시에 저장함 — 이 테스트의 첫 실행부터 모델 없이 재생된다';
             })} />
           </>
@@ -82,7 +85,7 @@ export function ExportPanel({ api, record, appId, deviceId, deviceLabel }: { api
           // 자연어: 녹화를 먼저 저장해 첫 실행부터 모델 없이 재생되게
           if (style === 'natural' && recording) {
             const cp = controlPlane || (await api.getSettings()).controlPlane;
-            await api.saveRecording({ controlPlane: cp, testId: testName, goal: record.goal, app, recording });
+            await api.saveRecording({ controlPlane: cp, testId: testName, goal: record.goal, app: recordingApp, recording });
           }
           const r = await api.runAsCycle({ deviceId: deviceId!, deviceLabel: deviceLabel ?? deviceId!, testName, code });
           setCycleState(undefined);
