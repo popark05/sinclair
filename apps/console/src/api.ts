@@ -25,6 +25,8 @@ export interface Api {
   triage(id: string, patch: TriagePatch): Promise<object>;
   /** Console → Studio 열기 요청(studio-console 05): 그 기기가 연결된 Studio 가 기기를 고르고 목표를 채운다 */
   openInStudio(req: StudioOpenRequest): Promise<{ id: string }>;
+  /** sinclair:// 링크 열기(설치본 Studio 를 앞으로, studio-packaging 03). 설치돼 있지 않으면 브라우저가 무시하거나 묻는다 — 요청은 중계로도 닿는다 */
+  launchStudio(url: string): void;
   /** 아티팩트(스크린샷·화면 트리) 주소 — 그림·링크로 바로 쓴다 */
   artifactUrl(runId: string, key: string): string;
 }
@@ -55,6 +57,7 @@ export function createApi(baseUrl = '', fetchImpl: typeof fetch = (...a) => fetc
     usage: (cycleId) => get(`/cycles/${id(cycleId)}/usage`),
     issues: (limit) => get(`/issues?limit=${limit}`),
     openInStudio: (r) => get('/studio/open-requests', { method: 'POST', body: JSON.stringify(r) }),
+    launchStudio: (url) => { window.location.assign(url); },
     triage: (issueId, patch) => get(`/issues/${id(issueId)}`, { method: 'PUT', body: JSON.stringify(patch) }),
     artifactUrl: (runId, key) => `${baseUrl}/artifacts/${id(runId)}/${id(key)}`,
     history: ({ limit, testId }) => get(`/tests/history?limit=${limit}${testId ? `&testId=${id(testId)}` : ''}`),

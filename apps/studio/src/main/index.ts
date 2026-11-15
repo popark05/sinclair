@@ -9,6 +9,7 @@ import { workerLaunch } from './worker-launch.ts';
 import { ENV_FILE_DEFAULT, workerEnv } from './env-file.ts';
 import { createSettingsStore } from './settings-store.ts';
 import { isConsoleUrl } from '../shared/console-link.ts';
+import { parseStudioLink, STUDIO_URL_SCHEME } from '../shared/studio-link.ts';
 import * as os from 'node:os';
 
 let win: BrowserWindow | undefined;
@@ -61,12 +62,41 @@ ipcMain.handle(STUDIO_CHANNELS.saveTestFile, async (_e, suggested: unknown, cont
   return r.filePath;
 });
 
+// URL 스킴(studio-packaging 03): sinclair://open?request=<id>. mac 은 open-url(앱이 꺼져 있었으면 ready 전에 온다), 그 밖은 두 번째 인스턴스의 argv.
+// 창을 앞으로 가져오고 렌더러에 요청 id 를 알린다(렌더러가 곧바로 열기 요청을 받는다). 창이 아직 없거나 그리는 중이면 그린 뒤에 보낸다
+let pendingLink: string | undefined;
+let rendererReady = false;
+const deliverLink = (raw: string): void => {
+  const link = parseStudioLink(raw);
+  if (!link) return;
+  pendingLink = link.requestId;
+  if (!app.isReady()) return;
+  if (!win) createWindow();
+  if (win!.isMinimized()) win!.restore();
+  win!.show();
+  win!.focus();
+  app.focus({ steal: true });
+  if (rendererReady) { win!.webContents.send(STUDIO_CHANNELS.openLink, pendingLink); pendingLink = undefined; }
+};
+app.on('open-url', (e, url) => { e.preventDefault(); deliverLink(url); });
+// 검증(verify)은 여러 Studio 를 동시에 띄우므로 잠금은 설치본에서만
+if (app.isPackaged && !process.env.SINCLAIR_STUDIO_USER_DATA) {
+  if (!app.requestSingleInstanceLock()) app.quit();
+  app.on('second-instance', (_e, argv) => { const url = argv.find((a) => a.startsWith(`${STUDIO_URL_SCHEME}://`)); if (url) deliverLink(url); else win?.focus(); });
+}
+if (app.isPackaged) app.setAsDefaultProtocolClient(STUDIO_URL_SCHEME);
+
 function createWindow(): void {
   win = new BrowserWindow({
     width: 1440, height: 900, minWidth: 960, minHeight: 600, title: 'Sinclair Studio',
     webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false },
   });
-  win.on('closed', () => { win = undefined; });
+  win.on('closed', () => { win = undefined; rendererReady = false; });
+  rendererReady = false;
+  win.webContents.on('did-finish-load', () => {
+    rendererReady = true;
+    if (pendingLink) { win?.webContents.send(STUDIO_CHANNELS.openLink, pendingLink); pendingLink = undefined; }
+  });
   // 검증 훅(verify-studio): SINCLAIR_STUDIO_SCREENSHOT=<png> 면 그려진 뒤(작업 프로세스 준비까지) 창을 캡처해 저장하고 끝낸다
   const shot = process.env.SINCLAIR_STUDIO_SCREENSHOT;
   if (shot) {
@@ -85,6 +115,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   createWindow();
+  if (pendingLink) deliverLink(`${STUDIO_URL_SCHEME}://open?request=${pendingLink}`);
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

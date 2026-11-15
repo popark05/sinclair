@@ -28,6 +28,11 @@ const api: StudioApi = {
   cycleStatus: (cycleId) => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'cycle-status', cycleId }),
   openRequests: (devices) => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'open-requests', devices }),
   openAck: (id) => ipcRenderer.invoke(STUDIO_CHANNELS.request, { kind: 'open-ack', id }),
+  onOpenLink: (cb) => {
+    const listener = (_e: unknown, id: string) => cb(id);
+    ipcRenderer.on(STUDIO_CHANNELS.openLink, listener);
+    return () => { ipcRenderer.removeListener(STUDIO_CHANNELS.openLink, listener); };
+  },
   openConsole: (url) => ipcRenderer.invoke(STUDIO_CHANNELS.openConsole, url),
   getSettings: () => ipcRenderer.invoke(STUDIO_CHANNELS.getSettings),
   setSettings: (settings) => ipcRenderer.invoke(STUDIO_CHANNELS.setSettings, settings),

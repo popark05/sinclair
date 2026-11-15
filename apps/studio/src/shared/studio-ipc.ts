@@ -22,6 +22,8 @@ export const STUDIO_CHANNELS = {
   setSettings: 'studio:set-settings',
   /** 기본 브라우저로 Console 열기(설정의 control-plane 아래 /console/ 만) */
   openConsole: 'studio:open-console',
+  /** 메인 → 렌더러: sinclair://open?request=<id> 가 열렸다(studio-packaging 03) */
+  openLink: 'studio:open-link',
 } as const;
 
 /** 내보낸 코드 상한(파일 저장 요청 검사) */
@@ -204,6 +206,8 @@ export interface StudioApi {
   /** Console → Studio 열기 요청(studio-console 06) */
   openRequests(devices: string[]): Promise<OpenRequestView[]>;
   openAck(id: string): Promise<void>;
+  /** sinclair://open 링크가 열릴 때마다(요청 id). 선택 — 없으면 폴링만. 돌려준 함수로 구독 해제(studio-packaging 03) */
+  onOpenLink?(cb: (requestId: string) => void): () => void;
   getSettings(): Promise<StudioSettings>;
   setSettings(s: StudioSettings): Promise<StudioSettings>;
   getWorkerStatus(): Promise<WorkerStatus>;

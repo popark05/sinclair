@@ -124,8 +124,10 @@ function OpenInStudio({ api, attempts, cycleId, testId, targetId }: { api: Api; 
   const goal = [...attempts].reverse().flatMap((a) => a.steps.filter((s) => s.kind === 'act').map((s) => actGoal(s.instruction ?? ''))).find((g) => g);
   const send = async (): Promise<void> => {
     try {
-      await api.openInStudio({ deviceId: last.deviceId!, ...(goal ? { goal } : {}), from: { cycleId, testId, targetId } });
-      setNote(`Studio 에 보냄 — 기기 …${last.deviceId!.slice(-4)} 가 연결된 Studio 에서 열린다(10분 안)`);
+      const { id } = await api.openInStudio({ deviceId: last.deviceId!, ...(goal ? { goal } : {}), from: { cycleId, testId, targetId } });
+      setNote(`Studio 에 보냄 — 기기 …${last.deviceId!.slice(-4)} 가 연결된 Studio 에서 열린다(설치본은 바로, 아니면 10분 안)`);
+      // 설치본 Studio 를 앞으로(URL 에는 요청 id 만 — 데이터는 위 중계). 설치돼 있지 않아도 요청은 폴링으로 닿는다
+      try { api.launchStudio(`sinclair://open?request=${encodeURIComponent(id)}`); } catch { /* 스킴 처리기가 없음 */ }
     } catch (err) { setNote(`보내지 못함: ${err instanceof Error ? err.message : String(err)}`); }
   };
   return <> <button type="button" className="button" onClick={() => void send()}>Studio 에서 열기</button>{note ? <span className="muted"> {note}</span> : null}</>;

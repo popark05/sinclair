@@ -78,6 +78,14 @@ describe('CaseView · Studio 에서 열기(studio-console 05)', () => {
     expect(await screen.findByText(/Studio 에 보냄/)).toBeTruthy();
     expect(sent).toEqual([{ deviceId: 'R3CN30ABCDXLZW', goal: '로그인', from: { cycleId: 'c1', testId: T, targetId: 'android' } }]);
   });
+
+  it('요청을 남긴 뒤 sinclair://open?request=<id> 를 연다 — 설치본 Studio 가 바로 앞으로 와서 받는다(studio-packaging 03)', async () => {
+    const launched: string[] = [];
+    render(<CaseView api={{ ...api, openInStudio: async () => ({ id: '3f2b6c1e-8a4d-4f7e-9b1a-2c3d4e5f6a7b' }), launchStudio: (u) => { launched.push(u); } }} cycleId="c1" testId={T} targetId="android" />);
+    (await screen.findByRole('button', { name: 'Studio 에서 열기' })).click();
+    expect(await screen.findByText(/Studio 에 보냄/)).toBeTruthy();
+    expect(launched).toEqual(['sinclair://open?request=3f2b6c1e-8a4d-4f7e-9b1a-2c3d4e5f6a7b']);
+  });
 });
 
 describe('CaseView · 리뷰 반영', () => {

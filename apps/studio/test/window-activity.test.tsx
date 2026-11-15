@@ -72,4 +72,25 @@ describe('useOpenRequests(studio-console 06)', () => {
     expect(got).toHaveLength(1);
     vi.useRealTimers();
   });
+
+  it('Console 이 연 sinclair:// 링크(onOpenLink)가 오면 폴링 차례를 기다리지 않고 곧바로 묻는다(studio-packaging 03)', async () => {
+    vi.useFakeTimers();
+    const got: unknown[] = [];
+    let link: ((id: string) => void) | undefined;
+    let pending: unknown[] = [];
+    const api = {
+      listDevices: async () => [{ id: 'D1', model: 'M', osVersion: '13', state: 'device' }],
+      openRequests: async () => { const r = pending; pending = []; return r; },
+      openAck: async () => {},
+      onOpenLink: (cb: (id: string) => void) => { link = cb; return () => { link = undefined; }; },
+    } as unknown as StudioApi;
+    renderHook(() => useOpenRequests(api, (r) => got.push(r)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    expect(got).toEqual([]);
+    pending = [{ id: 'q2', deviceId: 'D1', createdAt: 'x' }];
+    await act(async () => { link!('q2'); await vi.advanceTimersByTimeAsync(10); });
+    expect(got).toEqual([expect.objectContaining({ id: 'q2' })]);
+    vi.useRealTimers();
+  });
 });
+

@@ -120,6 +120,8 @@ export function useOpenRequests(api: StudioApi, onRequest: (r: OpenRequestView) 
     };
     void check();
     const timer = setInterval(() => void check(), OPEN_REQUEST_POLL_MS);
-    return () => { alive = false; clearInterval(timer); };
+    // Console 이 연 sinclair:// 링크: 폴링 차례를 기다리지 않고 곧바로(studio-packaging 03)
+    const off = api.onOpenLink?.(() => void check());
+    return () => { alive = false; clearInterval(timer); off?.(); };
   }, [api]);
 }
