@@ -4,7 +4,7 @@ import type { Engine, NodeDevice } from '@sinclair/protocol';
 // testing/index 는 vitest 계약 스위트를 끌어오므로(vitest 밖에서 import 불가) 파일 단위 export 를 쓴다
 import { FakeEngine } from '@sinclair/protocol/testing/fake-engine';
 import { HOME_SCREEN, LOGIN_SCREEN } from '@sinclair/protocol/testing/login-scenario';
-import { createAndroidBackend, createDeviceServer, createIosBackend, devicectlAppInstalled, iosLauncherFromEnv, routeBackends, serveHttp, type DeviceBackend, type ScreenState } from '@sinclair/device-layer';
+import { createAndroidBackend, createDeviceServer, createIosBackend, devicectlAppInstalled, iosLauncherFromEnv, REBUILD_HINT, routeBackends, serveHttp, type DeviceBackend, type ScreenState } from '@sinclair/device-layer';
 import { createMobileEngine, rpcOverDispatcher } from '@sinclair/engine-mobile';
 import type { RunArgs } from './args.ts';
 import { resolveHelperApk } from './helper-apk.ts';
@@ -212,8 +212,13 @@ export async function openAndroidNode(args: Pick<RunArgs, 'helperApk' | 'helperC
 }
 
 function openIos(log: (line: string) => void): DeviceBackend & { close(): Promise<void> } {
-  const { launcher, xctestrun } = iosLauncherFromEnv(process.env, { log });
-  if (xctestrun) log(`iOS 러너 빌드: ${xctestrun}`);
+  const { launcher, xctestrun, expiresAt } = iosLauncherFromEnv(process.env, { log });
+  if (xctestrun) {
+    // 무료 팀 서명은 7일: 만료일을 알리고, 하루 안이면 경고(만료됐으면 실행기가 다시 빌드 안내로 실패한다)
+    const left = expiresAt ? (expiresAt.getTime() - Date.now()) / 86_400_000 : undefined;
+    log(`iOS 러너 빌드: ${xctestrun}${expiresAt ? ` (서명 만료 ${expiresAt.toISOString().slice(0, 16).replace('T', ' ')}Z, ${left! > 0 ? `${left!.toFixed(1)}일 남음` : '만료됨'})` : ''}`);
+    if (left !== undefined && left < 1) log(`경고: iOS 러너 서명이 ${left > 0 ? '하루 안에 만료됨' : '만료됨'} — ${REBUILD_HINT}`);
+  }
   return createIosBackend({ launcher, appInstalled: devicectlAppInstalled(), onStep: (udid, text) => log(`iOS 러너(…${udid.slice(-4)}): ${text}`) });
 }
 

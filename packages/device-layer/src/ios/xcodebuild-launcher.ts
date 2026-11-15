@@ -15,6 +15,7 @@ export function xcodebuildArgs(xctestrun: string, udid: string): string[] {
 export function exitReason(lines: readonly string[]): string | undefined {
   const all = lines.join('\n');
   if (/Unlock .* to Continue|device is locked/i.test(all)) return '기기 잠금을 풀어야 함(러너 설치·실행은 잠금 해제 상태에서만)';
+  if (/profile has expired|provisioning profile.*expired|certificate has expired|invalid code signature/i.test(all)) return 'iOS 러너 서명(프로비저닝 프로필)이 만료됐거나 맞지 않음 — packages/device-layer/ios-runner/build.sh --team <TEAM_ID> --device <UDID> 로 다시 빌드(무료 팀 서명은 7일)';
   if (/Developer App Certificate is not trusted|not trusted/i.test(all)) return 'iPhone 이 개발자 앱 인증서를 신뢰하지 않음 — 설정 → 일반 → VPN 및 기기 관리에서 신뢰';
   if (/Unable to find a destination/i.test(all)) return 'xcodebuild 가 기기를 찾지 못함(개발자 모드·이 Mac 신뢰·케이블 확인)';
   if (/Developer Mode/i.test(all) && /disabled|not enabled|off/i.test(all)) return 'iPhone 의 개발자 모드가 꺼져 있음';
