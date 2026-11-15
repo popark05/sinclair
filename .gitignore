@@ -14,3 +14,6 @@ release/
 # iOS 러너 생성물(XcodeGen·xcodebuild)
 packages/device-layer/ios-runner/build/
 packages/device-layer/ios-runner/*.xcodeproj/
+
+# Studio 작업 프로세스 번들(설치본)
+apps/studio/dist-worker/

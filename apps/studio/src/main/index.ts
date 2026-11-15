@@ -1,17 +1,27 @@
 // Studio 메인 프로세스: 창 하나와 작업 프로세스 하나(ADR 0005). 기기·러너·에이전트는 작업 프로세스가 맡고, 메인은 중계만 한다.
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { MAX_EXPORT_BYTES, parseStudioRequest, STUDIO_CHANNELS } from '../shared/studio-ipc.ts';
-import { createWorkerHost, resolveWorkerNode } from './worker-host.ts';
+import { createWorkerHost } from './worker-host.ts';
+import { workerLaunch } from './worker-launch.ts';
+import { ENV_FILE_DEFAULT, workerEnv } from './env-file.ts';
 import { createSettingsStore } from './settings-store.ts';
 import { isConsoleUrl } from '../shared/console-link.ts';
 import * as os from 'node:os';
 
 let win: BrowserWindow | undefined;
+// 작업 프로세스(studio-packaging 01): 리포는 시스템 node + TS 원본, 설치본은 동봉 Node + 단일 번들. 환경은 ~/.config/sinclair/env 의 허용한 이름 위에 프로세스 환경
+const envFile = process.env.SINCLAIR_ENV_FILE || ENV_FILE_DEFAULT(os.homedir());
+const helperDir = path.join(process.resourcesPath ?? '', 'helper');
+const bundledApk = app.isPackaged && existsSync(helperDir) ? readdirSync(helperDir).find((f) => f.endsWith('.apk')) : undefined;
+const launch = workerLaunch({ packaged: app.isPackaged, mainDir: import.meta.dirname, resourcesPath: process.resourcesPath ?? '', env: process.env, ...(bundledApk ? { helperApk: bundledApk } : {}) });
 const worker = createWorkerHost({
-  node: resolveWorkerNode(process.env),
-  script: path.join(import.meta.dirname, 'worker.js'),
+  node: launch.node,
+  script: launch.script,
+  execArgv: launch.execArgv,
+  env: { ...workerEnv(process.env, existsSync(envFile) ? readFileSync(envFile, 'utf8') : undefined), ...launch.env },
   onStatus: (s) => win?.webContents.send(STUDIO_CHANNELS.workerStatusChanged, s),
   onEvent: (e) => win?.webContents.send(STUDIO_CHANNELS.event, e),
 });
