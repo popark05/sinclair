@@ -31,7 +31,7 @@ node --experimental-transform-types packages/device-layer/scripts/ios-runner-che
 ## 제약
 
 - 설치되지 않은 앱을 activate 하면 XCUITest 가 1분 넘게 붙잡아 그동안 모든 요청이 밀립니다. 기기 안에서는 설치 여부를 알 수 없어(샌드박스) 호스트가 `xcrun devicectl device info apps` 로 먼저 거릅니다(`devicectlAppInstalled`).
-- iOS 앱은 다시 실행해도 마지막 화면을 복원할 수 있습니다(설정 앱). `app.restart` 가 처음 화면을 보장하지 않습니다.
+- 앱은 백그라운드로 갈 때 화면 상태를 저장해 다음 실행에 복원합니다(실기 iOS 17). `terminate` 는 앞 화면이 아니면 먼저 앞으로 가져와 앞 화면인 채로 종료해, terminate → launch 가 처음 화면이 되게 합니다(그래서 백그라운드 앱의 종료는 잠깐 앱을 띄웁니다).
 - 앞 화면 앱은 공개 API 로 물을 수 없어, 이 러너가 띄우거나 활성화한 앱 중 앞에 있는 것으로 셉니다(없으면 홈 = `null`).
 - `launch` 는 이미 떠 있으면 앞으로만 가져옵니다. 처음부터 시작하려면 호스트가 terminate 뒤 launch 합니다.
 - XCUITest 는 동작마다 앱이 잠잠해지길 기다려 Android 보다 느립니다(앱 실행 수 초, 입력 수 초).

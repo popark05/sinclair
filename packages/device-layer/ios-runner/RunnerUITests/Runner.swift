@@ -92,7 +92,11 @@ final class Runner {
     // 설치되지 않은 앱의 activate 는 XCUITest 가 1분 넘게 붙잡아 그동안 모든 요청이 밀린다. 기기 안에서는 설치 여부를 알 수 없어(샌드박스)
     // 호스트가 devicectl 로 먼저 거른다(ios-backend.ts appInstalled)
     case "launch", "activate": a.activate(); remember(id)
-    case "terminate": a.terminate(); known.removeAll { $0 == id }
+    // 백그라운드로 간 앱은 화면 상태를 저장해 두었다가 다음 실행에 복원한다(실기 iOS 17 설정 앱). 앞 화면에서 종료하면 복원하지 않는다 —
+    // 앞이 아니면 먼저 앞으로 가져와(저장된 상태를 여기서 써 버린다) 앞 화면인 채로 종료한다. 그래야 terminate → launch 가 처음 화면이다
+    case "terminate":
+      if a.state != .runningForeground { a.activate() }
+      a.terminate(); known.removeAll { $0 == id }
     default: throw RunnerError("모르는 app action: \(b["action"] ?? "")")
     }
   }
