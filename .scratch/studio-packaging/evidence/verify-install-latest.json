@@ -1,0 +1,48 @@
+{
+  "at": "2026-11-15T02:32:06.648Z",
+  "arch": "x64",
+  "checks": [
+    {
+      "name": "LaunchServices 가 sinclair:// 처리기로 이 설치본을 고름(Info.plist CFBundleURLSchemes)",
+      "ok": true,
+      "detail": "<설치본>/Sinclair Studio.app"
+    },
+    {
+      "name": "설치본으로 뜸(app.isPackaged, 리포 밖 Resources)",
+      "ok": true,
+      "detail": "<tmp>/Sinclair Studio.app/Contents/Resources"
+    },
+    {
+      "name": "작업 프로세스가 동봉 Node 로 준비됨(PATH 에 node 없음)",
+      "ok": true,
+      "detail": "준비됨 · Node v24.13.0 · pid …, 기동 4363ms"
+    },
+    {
+      "name": "env 파일의 ANTHROPIC_API_KEY·BASE_URL 이 작업 프로세스에 닿음(가짜 API 가 그 키로 받음)",
+      "ok": true,
+      "detail": "요청 1건"
+    },
+    {
+      "name": "데몬 발견 파일로 기기 RPC 에 붙음(툴바 \"데몬\")",
+      "ok": true,
+      "detail": "기기 …XLZW"
+    },
+    {
+      "name": "macOS open sinclair:// 이 실행 중인 Studio 의 open-url 로 닿음(새 인스턴스 없음)",
+      "ok": true,
+      "detail": "1건"
+    },
+    {
+      "name": "링크로 열기 요청의 목표가 채워지고 \"Console 에서 열림\"(폴링 차례 전에)",
+      "ok": true,
+      "detail": "228ms"
+    },
+    {
+      "name": "콜드 스타트: 꺼진 Studio 를 링크가 띄우고 그 요청을 받음(ack)",
+      "ok": true,
+      "detail": "3214ms, 프로세스 1"
+    }
+  ],
+  "passed": 8,
+  "total": 8
+}

@@ -24,6 +24,18 @@ node --experimental-transform-types --no-warnings .claude/skills/verify-studio/s
 - **fake**: 스크립트가 가짜 기기 서버(로그인 → 환영 화면, 실제 PNG, 탭 좌표 hit-test)를 띄워 임시 발견 파일(`SINCLAIR_DEVICE_RPC_FILE`)로 Studio 에 붙이고, 가짜 Claude API(`ANTHROPIC_BASE_URL`: count_tokens, 화면을 보고 type→tap→done, 판정은 "환영합니다" 가 보이면 참)와 메모리 control-plane 을 띄운다. 내보낸 테스트는 `runTests` + engine-mobile(같은 가짜 기기) + HTTP 녹화 저장소로 돈다.
 - **--device**: 데몬의 디바이스 RPC·실제 모델. 내보낸 테스트를 `.e2e/verify-studio-suite/` 에 쓰고 Cycle 로 등록해 **그 데몬이** 돌린다. 데몬이 테스트 파일의 `@sinclair/runner` 를 자기 runner 로 넘긴다(리포 체크아웃도 resolve 훅 — studio-console 01).
 
+## 설치본(studio-packaging 04)
+
+`pnpm dist:studio` 로 만든 .app 을 **리포 밖**(`~/Library/Caches/sinclair-verify-install/run-*` — LaunchServices 는 /private/tmp·/var/folders 아래 앱을 URL 처리기로 고르지 않는다)으로 복사해, PATH 에 node 가 없는 환경에서 Playwright `executablePath` 로 띄운다. 약 1분(빌드 포함 약 2분).
+
+```bash
+node --experimental-transform-types --no-warnings .claude/skills/verify-studio/scripts/verify-install.ts [--no-build] [--control-plane URL]
+```
+
+검사: LaunchServices 가 `sinclair://` 처리기로 그 복사본을 고름 → `app.isPackaged`·리포 밖 Resources → 작업 프로세스 "준비됨 · Node v<dist.mjs NODE_VERSION>" → 임시 env 파일(`SINCLAIR_ENV_FILE`)의 `ANTHROPIC_API_KEY`·`ANTHROPIC_BASE_URL` 이 작업 프로세스까지(가짜 API 가 그 키로 count_tokens 를 받음, `PATH=` 줄은 무시돼야) → 데몬이 있으면: 툴바 "데몬", 열기 요청 + `open sinclair://open?request=<id>` 가 실행 중 인스턴스의 open-url(새 인스턴스 없음)·목표 칸이 2초 안(폴링 3초 전)에 채워짐 → Studio 를 끄고 링크로 **콜드 스타트**(`open --env` 로 임시 userData) 해 그 요청을 ack. 끝나면 LaunchServices 등록·프로세스·임시 폴더를 지운다. 증거: `.scratch/studio-packaging/evidence/verify-install-latest.json`. 스크린샷 없음(실기 화면).
+
+함정: 리포의 `release/studio/*/Sinclair Studio.app` 이 등록돼 있으면 `open` 이 그쪽을 새로 띄운다 — 스크립트가 검증 전에 등록을 해제한다. open-url 리스너는 링크를 열기 **전에** 걸어야 한다(먼저 열면 이벤트를 놓친다).
+
 ## Drive (검사 순서)
 
 1. 툴바 연결 방식 "데몬"(발견 파일로 붙음), 기기 화면 `<img>` 가 원본 크기로 로드.
