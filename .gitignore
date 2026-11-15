@@ -10,3 +10,7 @@ release/
 .DS_Store
 .env
 .env.*
+
+# iOS 러너 생성물(XcodeGen·xcodebuild)
+packages/device-layer/ios-runner/build/
+packages/device-layer/ios-runner/*.xcodeproj/

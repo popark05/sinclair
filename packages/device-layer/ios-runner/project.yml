@@ -1,0 +1,45 @@
+# Sinclair iOS 러너(ios-backend 04): XcodeGen 정의. `./build.sh` 가 SinclairRunner.xcodeproj 를 만들고 build-for-testing 한다(생성물은 커밋하지 않음).
+# 호스트 앱은 비어 있고, UI 테스트 번들의 testRun 이 기기 안에서 HTTP 서버(포트 22087)를 띄워 호스트(device-layer ios-backend)의 요청을 XCUITest 로 수행한다.
+name: SinclairRunner
+options:
+  bundleIdPrefix: dev.sinclair
+  deploymentTarget:
+    iOS: "15.0"
+settings:
+  base:
+    # 개인(무료) 팀은 번들 id 가 팀마다 달라야 해서 접두를 바꿀 수 있게 둔다(build.sh --bundle-prefix)
+    SINCLAIR_BUNDLE_PREFIX: dev.sinclair
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  SinclairRunner:
+    type: application
+    platform: iOS
+    sources: [RunnerApp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(SINCLAIR_BUNDLE_PREFIX).runner
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Sinclair Runner
+  SinclairRunnerUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [RunnerUITests]
+    dependencies:
+      - target: SinclairRunner
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(SINCLAIR_BUNDLE_PREFIX).runner.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: SinclairRunner
+schemes:
+  SinclairRunner:
+    build:
+      targets:
+        SinclairRunner: all
+        SinclairRunnerUITests: [test]
+    test:
+      targets: [SinclairRunnerUITests]

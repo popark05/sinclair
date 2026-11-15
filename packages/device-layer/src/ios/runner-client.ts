@@ -6,7 +6,8 @@ import { toSemanticTree, type IosElement } from './ios-tree.ts';
 
 export interface IosRunnerPing { ok: boolean; version: string; iosVersion: string; model: string; screen: { width: number; height: number }; scale: number }
 export const IOS_RUNNER_PORT = 22087;
-const TIMEOUT_MS: Record<string, number> = { '/snapshot': 15_000 };
+// XCUITest 는 동작마다 앱이 잠잠해지길 기다려 느리다: 앱 실행은 수십 초(첫 실행·스플래시), 입력·트리는 십수 초까지
+const TIMEOUT_MS: Record<string, number> = { '/snapshot': 20_000, '/dump': 20_000, '/action': 30_000, '/app': 60_000 };
 const round2 = (v: number): number => Math.round(v * 100) / 100;
 
 export class IosRunnerClient {
@@ -48,7 +49,7 @@ export class IosRunnerClient {
 
   private request(method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
     const payload = body === undefined ? undefined : Buffer.from(JSON.stringify(body), 'utf8');
-    const timeout = TIMEOUT_MS[path] ?? 5_000;
+    const timeout = TIMEOUT_MS[path.split('?')[0]!] ?? 5_000;
     return new Promise((resolve, reject) => {
       const req = http.request({ host: '127.0.0.1', port: this.port, path, method, timeout, headers: { authorization: `Bearer ${this.token}`, ...(payload ? { 'content-type': 'application/json', 'content-length': payload.length } : {}) } }, (res) => {
         const chunks: Buffer[] = [];
