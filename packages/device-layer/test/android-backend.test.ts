@@ -375,6 +375,19 @@ describe('AndroidBackend 헬퍼 온보딩과 device.dump.ui', () => {
     expect(await backend.dumpUi('PHONE1')).toMatchObject({ ref: '@e0' });
   });
 
+  it('준비 안 된 헬퍼는 기기 목록만 읽혀도(Fleet 보고) 백오프 뒤 다시 온보딩한다 — 잠긴 채 연결돼 disabled 로 남은 기기가 잠금을 풀어도 후보로 돌아오지 않았다(실기 SM-N981N)', async () => {
+    const { backend, phone } = helperSetup((p) => { p.helper.token = 'stale-token-from-another-session'; p.helper.dropToken = true; }, { listCacheMs: 0 });
+    const [device] = await backend.listDevices();
+    expect(device?.helper?.state).toBe('unreachable');
+    phone.helper.dropToken = false; // 사람이 잠금을 풀었다 등으로 이제는 될 수 있다
+    let state: string | undefined;
+    for (let i = 0; i < 40 && state !== 'ready'; i++) {
+      state = (await backend.listDevices())[0]?.helper?.state; // dump·info 없이 목록만
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(state).toBe('ready');
+  });
+
   it('복구될 수 없는 상태에서는 매 호출마다 온보딩을 다시 돌리지 않는다(백오프)', async () => {
     const { backend, phone } = helperSetup((p) => { p.failInstall = 'INSTALL_FAILED_INSUFFICIENT_STORAGE'; }, 10_000);
     await backend.listDevices();
