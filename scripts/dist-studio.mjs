@@ -6,7 +6,10 @@
  *   node/node, node/LICENSE                          고정 버전 Node(scripts/dist.mjs 의 NODE_VERSION·fetchNode, SHASUMS256 검증)
  *   worker/worker.mjs                                작업 프로세스 단일 번들(scripts/build-studio-worker.mjs)
  *   worker/node_modules/usb, @node-usb/usb-<플랫폼>   네이티브 USB(번들에서 external)
- *   helper/sinclair-helper-<V>.apk(+.sha256)         Android 헬퍼 APK(리포 빌드)
+ *   helper/sinclair-helper-<V>.apk(+.sha256)         Android 헬퍼 APK(리포 빌드) — 작업 프로세스와 CLI 가 함께 쓴다
+ *   cli/bin/sinclair-agent, cli/bin/sinclair-control-plane   CLI 런처(studio-packaging 05): 위 node 로 cli/dist/*.mjs, SINCLAIR_RESOURCES_DIR=Resources
+ *   cli/dist/*.mjs, cli/node_modules/usb…              CLI 번들(scripts/build-bundles.mjs — zip 설치본과 같은 번들)
+ *   console/                                         Console 정적 빌드(CLI control-plane 이 /console 에서 서빙)
  * URL 스킴 sinclair:// 를 Info.plist 에 등록한다(studio-packaging 03). 서명·공증 없음(identity null).
  *
  * 사용: node scripts/dist-studio.mjs [--targets mac-arm64,mac-x64] [--out release/studio] [--dir]  (--dir: dmg·zip 대신 .app 폴더만, 빠른 확인용)
@@ -18,7 +21,8 @@ import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fetchNode, NODE_VERSION } from './dist.mjs';
+import { fetchNode, NODE_VERSION, buildConsole } from './dist.mjs';
+import { buildBundles } from './build-bundles.mjs';
 import { ensureUsbPackage, USB_PACKAGE_DIR, USB_PLATFORM_PACKAGES } from './fetch-usb-binaries.mjs';
 import { buildStudioWorker } from './build-studio-worker.mjs';
 import { HELPER_APK_VERSION, helperApkFileName, DEFAULT_REPO_BUILD } from '../apps/runner-agent/src/helper-apk.ts';
@@ -58,6 +62,24 @@ export function builderConfig({ version, appDir, outDir, resDir, electronVersion
   };
 }
 
+/**
+ * Studio 안 CLI 런처(sh). 심링크(/usr/local/bin 등)로 불려도 진짜 위치를 따라가 Contents/Resources 를 찾는다.
+ * 앱 이름에 공백이 있어 모든 경로를 따옴표로 감싼다. SINCLAIR_RESOURCES_DIR 를 사용자가 주면 그것이 이긴다.
+ */
+export function studioCliLauncher(app) {
+  return `#!/bin/sh
+# Sinclair ${app} 런처(Sinclair Studio.app 동봉). Contents/Resources/{node,cli,helper,console} 구조를 전제한다.
+SELF="$0"
+while [ -L "$SELF" ]; do
+  LINK=$(readlink "$SELF")
+  case "$LINK" in /*) SELF="$LINK" ;; *) SELF="$(dirname "$SELF")/$LINK" ;; esac
+done
+RES=$(cd "$(dirname "$SELF")/../.." && pwd)
+SINCLAIR_RESOURCES_DIR="\${SINCLAIR_RESOURCES_DIR:-$RES}" exec "$RES/node/node" --no-warnings=ExperimentalWarning "$RES/cli/dist/${app}.mjs" "$@"
+`;
+}
+export const STUDIO_CLI_BINS = { 'sinclair-agent': 'runner-agent', 'sinclair-control-plane': 'control-plane' };
+
 /** 스테이징: 앱 폴더(out + package.json)와 타깃별 Resources 원본 */
 export async function stageStudio({ targets, stageDir, version, log = console.log, helperApk = DEFAULT_REPO_BUILD }) {
   if (!existsSync(helperApk)) throw new Error(`헬퍼 APK 가 없음: ${helperApk} — packages/device-layer/android-helper 에서 ./gradlew assembleDebug`);
@@ -70,6 +92,9 @@ export async function stageStudio({ targets, stageDir, version, log = console.lo
   const workerDir = path.join(stageDir, 'worker-common');
   await buildStudioWorker(workerDir);
   log('[worker] esbuild 단일 번들');
+  const cliDist = (await buildBundles(path.join(stageDir, 'cli-dist'))).outdir;
+  log('[cli] control-plane·runner-agent 번들');
+  const consoleDir = buildConsole(log);
   const apk = readFileSync(helperApk);
   const apkName = helperApkFileName();
 
@@ -86,10 +111,16 @@ export async function stageStudio({ targets, stageDir, version, log = console.lo
     const platformDir = await ensureUsbPackage(target);
     cpSync(USB_PACKAGE_DIR, path.join(dir, 'worker', 'node_modules', 'usb'), { recursive: true, dereference: true });
     cpSync(platformDir, path.join(dir, 'worker', 'node_modules', '@node-usb', USB_PLATFORM_PACKAGES[target]), { recursive: true, dereference: true });
+    cpSync(cliDist, path.join(dir, 'cli', 'dist'), { recursive: true });
+    cpSync(USB_PACKAGE_DIR, path.join(dir, 'cli', 'node_modules', 'usb'), { recursive: true, dereference: true });
+    cpSync(platformDir, path.join(dir, 'cli', 'node_modules', '@node-usb', USB_PLATFORM_PACKAGES[target]), { recursive: true, dereference: true });
+    mkdirSync(path.join(dir, 'cli', 'bin'), { recursive: true });
+    for (const [bin, app] of Object.entries(STUDIO_CLI_BINS)) { const p = path.join(dir, 'cli', 'bin', bin); writeFileSync(p, studioCliLauncher(app)); chmodSync(p, 0o755); }
+    cpSync(consoleDir, path.join(dir, 'console'), { recursive: true });
     mkdirSync(path.join(dir, 'helper'), { recursive: true });
     writeFileSync(path.join(dir, 'helper', apkName), apk);
     writeFileSync(path.join(dir, 'helper', `${apkName}.sha256`), `${sha256(apk)}  ${apkName}\n`);
-    writeFileSync(path.join(dir, 'VERSION'), `${version}\nnode ${NODE_VERSION}\nhelper ${HELPER_APK_VERSION}\ntarget ${target}\n`);
+    writeFileSync(path.join(dir, 'VERSION'), `${version}\nnode ${NODE_VERSION}\nhelper ${HELPER_APK_VERSION}\ncli control-plane runner-agent\ntarget ${target}\n`);
     res[target] = dir;
   }
   return { appDir, res };

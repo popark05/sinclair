@@ -2,6 +2,7 @@
 //   - 리포·시스템 node 없이(PATH=/usr/bin:/bin) 작업 프로세스가 동봉 Node(dist.mjs NODE_VERSION)로 준비됨
 //   - ~/.config/sinclair/env 형식 파일(SINCLAIR_ENV_FILE, 임시)의 ANTHROPIC_* 가 작업 프로세스까지 닿음(가짜 Claude API 가 그 키로 count_tokens 를 받음)
 //   - 데몬이 떠 있으면 발견 파일로 기기 목록이 보임(없으면 건너뜀)
+//   - 동봉 CLI: PATH 에 건 심링크로 control-plane(동봉 Console)·에이전트 FakeEngine run(리포 밖 테스트 폴더)
 //   - URL 스킴: macOS `open sinclair://open?request=<id>` 가 실행 중인 Studio 의 open-url 로 닿고, 열기 요청의 기기·목표가 채워짐(폴링 차례 전에)
 // 화면에 개인정보가 보일 수 있어 스크린샷을 남기지 않는다. 증거: .scratch/studio-packaging/evidence/verify-install-latest.json
 // 사용: node --experimental-transform-types --no-warnings .claude/skills/verify-studio/scripts/verify-install.ts [--no-build] [--control-plane http://127.0.0.1:4780]
@@ -46,6 +47,7 @@ async function main(): Promise<void> {
   check('LaunchServices 가 sinclair:// 처리기로 이 설치본을 고름(Info.plist CFBundleURLSchemes)', fs.existsSync(handler) && fs.realpathSync(handler) === app, handler.replace(tmp, '<설치본>') || '처리기 없음');
   cleanups.push(() => { try { execFileSync(LSREGISTER, ['-u', app]); } catch { /* 이미 없음 */ } });
   const nodeVersion = (await import(path.join(repo, 'scripts/dist.mjs'))).NODE_VERSION as string;
+  await cliChecks(app, nodeVersion);
 
   // 가짜 Claude API: env 파일의 키가 작업 프로세스까지 닿는지(헤더) 본다
   const seenKeys: string[] = [];
@@ -124,6 +126,34 @@ async function main(): Promise<void> {
     for (const pid of pids) { try { process.kill(Number(pid), 'SIGTERM'); } catch { /* 이미 끝남 */ } }
     await new Promise((res) => setTimeout(res, 1500));
   }
+}
+
+/** 동봉 CLI(studio-packaging 05): PATH 에 건 심링크로 리포·시스템 node 없이 control-plane(동봉 Console)·에이전트 FakeEngine run 이 verified */
+async function cliChecks(app: string, nodeVersion: string): Promise<void> {
+  const binDir = path.join(tmp, 'path-bin');
+  fs.mkdirSync(binDir);
+  for (const b of ['sinclair-agent', 'sinclair-control-plane']) fs.symlinkSync(path.join(app, 'Contents/Resources/cli/bin', b), path.join(binDir, b));
+  const env = { HOME: os.homedir(), PATH: `${binDir}:/usr/bin:/bin` };
+  const version = spawnSync('sinclair-agent', ['--help'], { cwd: tmp, env, encoding: 'utf8' });
+  check('CLI: PATH 의 심링크 sinclair-agent --help(시스템 node 없음)', version.status === 0 && /daemon/.test(version.stdout + version.stderr), `종료 ${version.status}`);
+  const port = await new Promise<number>((r) => { const s = http.createServer().listen(0, '127.0.0.1', () => { const p = (s.address() as AddressInfo).port; s.close(() => r(p)); }); });
+  const { spawn } = await import('node:child_process');
+  const cp = spawn('sinclair-control-plane', ['--store', 'memory', '--port', String(port)], { cwd: tmp, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  cleanups.push(() => { cp.kill('SIGTERM'); });
+  let log = ''; cp.stdout.on('data', (d) => { log += d; }); cp.stderr.on('data', (d) => { log += d; });
+  const url = `http://127.0.0.1:${port}`;
+  let consoleOk = false;
+  for (let i = 0; i < 50 && !consoleOk; i++) { try { const r = await fetch(`${url}/console/`); consoleOk = r.status === 200 && (await r.text()).includes('<div id="root"'); } catch { await new Promise((r) => setTimeout(r, 200)); } }
+  check('CLI: control-plane 이 동봉 Console(Resources/console)을 /console 에서 서빙', consoleOk, consoleOk ? `Node v${nodeVersion}` : log.slice(-300));
+  const tests = path.join(tmp, 'cli-tests');
+  fs.mkdirSync(tests);
+  fs.writeFileSync(path.join(tests, 'login.sinclair.ts'), "import { test } from '@sinclair/runner';\ntest('로그인', async ({ screen, expect }) => { await screen.getByRole('button', { name: '로그인' }).tap(); await expect(screen.getByText('환영합니다')).toBeVisible(); });\n");
+  const cycle = `studio-cli-${Date.now()}`;
+  await fetch(`${url}/cycles`, { method: 'POST', body: JSON.stringify({ cycleId: cycle, build: 'verify', targets: ['android'] }) });
+  const run = spawnSync('sinclair-agent', ['run', '--control-plane', url, '--cycle', cycle, '--target', 'android', '--tests', tests, '--engine', 'fake', '--spool', path.join(tmp, 'cli-spool')], { cwd: tmp, env, encoding: 'utf8', timeout: 60_000 });
+  const view = await (await fetch(`${url}/cycles/${cycle}`)).json() as { verdict?: string; state?: string };
+  check('CLI: 리포 밖 테스트 폴더의 @sinclair/runner 를 풀어 FakeEngine run → Cycle verified', run.status === 0 && view.verdict === 'verified', `종료 ${run.status}, ${view.state}/${view.verdict}${run.status === 0 ? '' : ` ${(run.stderr || run.stdout).slice(-300)}`}`);
+  cp.kill('SIGTERM');
 }
 
 try { await main(); } catch (err) { check('예외 없이 끝남', false, err instanceof Error ? err.message : String(err)); }

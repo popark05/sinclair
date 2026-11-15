@@ -14,6 +14,20 @@
 
 Node·Android 헬퍼 APK 를 함께 넣어 두었으므로 따로 설치할 것은 없습니다.
 
+## CLI(control-plane·에이전트)
+
+Studio 안에 CLI 가 들어 있어 따로 설치하지 않아도 됩니다. PATH 에 링크를 걸어 씁니다.
+
+```bash
+mkdir -p ~/.local/bin   # PATH 에 있는 폴더(예: /usr/local/bin)면 어디든
+ln -sf "/Applications/Sinclair Studio.app/Contents/Resources/cli/bin/sinclair-agent" ~/.local/bin/
+ln -sf "/Applications/Sinclair Studio.app/Contents/Resources/cli/bin/sinclair-control-plane" ~/.local/bin/
+sinclair-control-plane --port 4780          # Console: http://127.0.0.1:4780/console/
+sinclair-agent daemon --control-plane http://127.0.0.1:4780 --targets android --tests <테스트 폴더>
+```
+
+Studio 와 같은 Node·헬퍼 APK 를 쓰고, 버전도 Studio 와 같습니다. Studio 를 업데이트하면 CLI 도 함께 바뀝니다. 기기 노드 서버나 Windows 처럼 Studio 가 없는 머신은 CLI zip 설치본(`pnpm dist`)을 씁니다.
+
 ## 설정
 
 - **Claude API 키·사내망 CA**: Finder 로 띄운 앱은 터미널 환경변수를 받지 못합니다. `~/.config/sinclair/env` 에 적어 두면 읽습니다(권한 600 권장). 받는 이름은 `ANTHROPIC_*`, `SINCLAIR_*`, `NODE_EXTRA_CA_CERTS` 뿐입니다.
@@ -25,7 +39,7 @@ Node·Android 헬퍼 APK 를 함께 넣어 두었으므로 따로 설치할 것�
 
 ## 기기
 
-- **데몬이 떠 있으면**(`sinclair-agent daemon`, CLI 설치본) Studio 는 데몬이 가진 기기에 붙습니다(툴바 "데몬"). 데몬이 그 기기로 Run 을 돌리는 동안은 화면을 10초마다만 받고 세션을 막습니다.
+- **데몬이 떠 있으면**(`sinclair-agent daemon`, 위 CLI) Studio 는 데몬이 가진 기기에 붙습니다(툴바 "데몬"). 데몬이 그 기기로 Run 을 돌리는 동안은 화면을 10초마다만 받고 세션을 막습니다.
 - **데몬이 없으면** Studio 가 USB 기기를 직접 엽니다. Android 는 USB 디버깅 허용, 데몬·adb 서버와 동시에 같은 기기를 잡지 않습니다.
 - **iPhone**: Xcode, Apple ID 로그인, iPhone 개발자 모드가 필요하고, `packages/device-layer/ios-runner/build.sh` 로 러너를 빌드해 `SINCLAIR_IOS_XCTESTRUN`(env 파일)에 경로를 줍니다. 무료 팀 서명은 7일마다 다시 빌드합니다.
 

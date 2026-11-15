@@ -13,4 +13,4 @@
 
 ## 티켓
 
-01 작업 프로세스 번들·설치본 자산 해석(Node·usb·헬퍼 APK·env 파일) / 02 electron-builder 조립(`pnpm dist:studio`) / 03 URL 스킴 / 04 설치본 검증(리포 밖 복사본, Playwright executablePath, 실기)
+01 작업 프로세스 번들·설치본 자산 해석(Node·usb·헬퍼 APK·env 파일) / 02 electron-builder 조립(`pnpm dist:studio`) / 03 URL 스킴 / 04 설치본 검증(리포 밖 복사본, Playwright executablePath, 실기) / 05 Studio 안 CLI(`Resources/cli/bin`, 동봉 Node·헬퍼 APK·Console 공유)
