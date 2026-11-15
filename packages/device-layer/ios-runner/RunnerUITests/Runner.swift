@@ -42,8 +42,15 @@ final class Runner {
     case ("GET", "/ping"): return .json(ping())
     case ("GET", "/dump"): return .json(["root": try tree(r.query["bundleId"].map(app) ?? foreground())])
     case ("GET", "/snapshot"):
-      let root = try tree(foreground())
+      let t0 = Date()
+      let fgId = foregroundId()
+      let fg = app(fgId)
+      let t1 = Date()
+      let root = try tree(fg)
+      let t2 = Date()
       let png = XCUIScreen.main.screenshot().pngRepresentation
+      let t3 = Date()
+      if t3.timeIntervalSince(t0) > 3 { NSLog("sinclair-runner: 느린 snapshot 앞화면판정 %.1fs 트리 %.1fs 스크린샷 %.1fs (%@)", t1.timeIntervalSince(t0), t2.timeIntervalSince(t1), t3.timeIntervalSince(t2), fgId) }
       return .json(["root": root, "screenshot": png.base64EncodedString()])
     case ("GET", "/app/foreground"):
       let id = foregroundId()
@@ -132,7 +139,8 @@ final class Runner {
       foreground().typeText(s)
     case "button":
       switch b["button"] as? String {
-      case "home": XCUIDevice.shared.press(.home)
+      // 홈 직후(앱이 닫히는 애니메이션 중) springboard 스냅샷이 20초 넘게 붙잡히는 일이 있어(실기 iOS 17) 애니메이션이 끝날 만큼 기다린다
+      case "home": XCUIDevice.shared.press(.home); _ = RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 1.0))
       #if !targetEnvironment(simulator)
       case "volume_up": XCUIDevice.shared.press(.volumeUp)
       case "volume_down": XCUIDevice.shared.press(.volumeDown)

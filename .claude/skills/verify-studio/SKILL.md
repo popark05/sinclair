@@ -18,7 +18,8 @@ node --experimental-transform-types --no-warnings .claude/skills/verify-studio/s
 
 # 실기기: 데몬이 떠 있어야 한다(발견 파일로 디바이스 RPC 공개). 실제 모델 키는 ~/.config/sinclair/env. 약 1분, 모델 약 6회
 node apps/runner-agent/bin/sinclair-agent.mjs daemon --control-plane http://127.0.0.1:4780 --tests <아무 디렉터리> --engine mobile --app com.google.android.youtube --agent real-node &   # control-plane 도 4780 에
-node --experimental-transform-types --no-warnings .claude/skills/verify-studio/scripts/verify.ts --no-build --device [--control-plane URL] [--app ID] [--goal 문장] [--judge 문장]
+node --experimental-transform-types --no-warnings .claude/skills/verify-studio/scripts/verify.ts --no-build --device [--platform ios|android] [--control-plane URL] [--app ID] [--goal 문장] [--judge 문장] [--element 트리 검색어]
+# iPhone 예: --platform ios --app com.apple.Preferences --goal '설정 앱에서 "일반" 안의 "키보드" 설정 화면을 연다' --judge '"키보드" 설정 화면이 열려 있다' --element '텍스트 대치'
 ```
 
 - **fake**: 스크립트가 가짜 기기 서버(로그인 → 환영 화면, 실제 PNG, 탭 좌표 hit-test)를 띄워 임시 발견 파일(`SINCLAIR_DEVICE_RPC_FILE`)로 Studio 에 붙이고, 가짜 Claude API(`ANTHROPIC_BASE_URL`: count_tokens, 화면을 보고 type→tap→done, 판정은 "환영합니다" 가 보이면 참)와 메모리 control-plane 을 띄운다. 내보낸 테스트는 `runTests` + engine-mobile(같은 가짜 기기) + HTTP 녹화 저장소로 돈다.

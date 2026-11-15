@@ -216,7 +216,9 @@ async function main(): Promise<void> {
     delete env.ANTHROPIC_AUTH_TOKEN; delete env.ANTHROPIC_PROFILE;
   }
   const rpc = rpcOverHttp({ port: discovery.port, token: discovery.token });
-  const deviceId = ((await rpc.call('devices.list', {})) as DeviceInfo[]).find((d) => d.state === 'device')?.id;
+  // --platform ios|android: 그 플랫폼의 첫 기기(실기에서 Android·iPhone 이 함께 꽂혀 있을 때)
+  const platform = opt('--platform');
+  const deviceId = ((await rpc.call('devices.list', {})) as DeviceInfo[]).find((d) => d.state === 'device' && (!platform || d.platform === platform))?.id;
   if (!deviceId) throw new Error('쓸 수 있는 기기가 없음');
   if (DEVICE) { await rpc.call('device.apps.terminate', { deviceId, appId: app }); await rpc.call('device.apps.launch', { deviceId, appId: app }); await sleep(3_000); }
 
@@ -232,7 +234,13 @@ async function main(): Promise<void> {
   const shot = async (name: string) => { if (!DEVICE) await win.screenshot({ path: path.join(shotDir, `${name}.png`) }); };
   await win.getByText('데몬', { exact: true }).waitFor({ timeout: 30_000 });
   check('작업 프로세스가 발견 파일로 디바이스 RPC 에 붙음(툴바 "데몬")', true);
-  const screen = win.getByRole('img', { name: /^기기 화면/ });
+  if (platform) {
+    // 툴바 기본은 목록의 첫 기기 — 그 플랫폼 기기를 고른다(라벨은 모델·마스킹 시리얼)
+    await win.getByRole('combobox', { name: '기기' }).click();
+    await win.getByRole('option', { name: new RegExp(`…${deviceId.slice(-4)}`) }).click();
+  }
+  // 고른 기기의 화면(alt 에 마스킹 시리얼): --platform 으로 바꿨으면 바뀐 뒤의 화면을 잰다
+  const screen = win.getByRole('img', { name: new RegExp(`^기기 화면.*…${deviceId.slice(-4)}`) });
   await screen.waitFor({ timeout: 30_000 });
   const natural = await screen.evaluate((el: HTMLImageElement) => ({ w: el.naturalWidth, h: el.naturalHeight }));
   check('기기 화면 스냅샷을 그림', natural.w > 0 && natural.h > 0, `${natural.w}×${natural.h}, 기동 ${Date.now() - t0}ms`);
@@ -317,8 +325,12 @@ async function main(): Promise<void> {
 
   // 요소 판정(studio 09): 트리 검색으로 노드를 고르고(화면 탭 없이) "보인다" 를 모델 없이 판정
   await win.getByText('화면 트리', { exact: true }).first().click();
-  await win.getByPlaceholder('역할·이름·testId').fill(DEVICE ? 'search_query' : '환영');
-  await win.getByText(DEVICE ? /· search_query/ : /text "환영합니다"/).first().click();
+  // 요소 판정 대상: --element 가 있으면 트리 검색어(그 글자를 담은 첫 줄), 없으면 YouTube 검색어 노드(실기)·환영 글자(fake)
+  const element = opt('--element');
+  await win.getByPlaceholder('역할·이름·testId').fill(element ?? (DEVICE ? 'search_query' : '환영'));
+  // Inspector 안에서만(판정 결과 문장도 같은 글자를 담을 수 있다)
+  const hit = win.locator('section[aria-label="Inspector"]').getByText(element ? new RegExp(`"${element.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`) : DEVICE ? /· search_query/ : /text "환영합니다"/).first();
+  await hit.click();
   const fakeJudgeBefore = fakeApi?.judgeCalls ?? 0;
   await win.getByRole('button', { name: '요소 판정' }).click();
   const elementItem = win.getByRole('list', { name: '판정' }).getByRole('listitem').nth(1);
@@ -406,8 +418,8 @@ async function main(): Promise<void> {
     const cycleId = `verify-studio-${Date.now()}`;
     const post = (p: string, body: unknown) => fetch(`${controlPlane}${p}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     await rpc.call('device.apps.terminate', { deviceId, appId: app });
-    await post('/cycles', { cycleId, build: 'verify-studio', targets: [{ id: 'android-real', platform: 'android' }], suite: { tests: suite } });
-    await post(`/cycles/${cycleId}/runs`, { targetId: 'android-real' });
+    await post('/cycles', { cycleId, build: 'verify-studio', targets: [{ id: 'device-real', platform: (platform as 'android' | 'ios' | undefined) ?? 'android', deviceId }], suite: { tests: suite } });
+    await post(`/cycles/${cycleId}/runs`, { targetId: 'device-real' });
     let cycle: { state: string; verdict: string; runs: Array<{ runId: string }> } | undefined;
     for (let i = 0; i < 200; i++) { cycle = await (await fetch(`${controlPlane}/cycles/${cycleId}`)).json() as typeof cycle; if (cycle?.state === 'finished') break; await sleep(3_000); }
     const run = await (await fetch(`${controlPlane}/runs/${cycle!.runs[0]!.runId}`)).json() as { attempts: Array<{ testId: string; result: string; steps: Array<{ kind: string; cache?: string; modelCalls: number }> }> };

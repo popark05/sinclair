@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-15T02:32:06.648Z",
+  "at": "2026-11-15T02:47:25.483Z",
   "arch": "x64",
   "checks": [
     {
@@ -15,7 +15,7 @@
     {
       "name": "작업 프로세스가 동봉 Node 로 준비됨(PATH 에 node 없음)",
       "ok": true,
-      "detail": "준비됨 · Node v24.13.0 · pid …, 기동 4363ms"
+      "detail": "준비됨 · Node v24.13.0 · pid …, 기동 4265ms"
     },
     {
       "name": "env 파일의 ANTHROPIC_API_KEY·BASE_URL 이 작업 프로세스에 닿음(가짜 API 가 그 키로 받음)",
@@ -35,12 +35,12 @@
     {
       "name": "링크로 열기 요청의 목표가 채워지고 \"Console 에서 열림\"(폴링 차례 전에)",
       "ok": true,
-      "detail": "228ms"
+      "detail": "195ms"
     },
     {
       "name": "콜드 스타트: 꺼진 Studio 를 링크가 띄우고 그 요청을 받음(ack)",
       "ok": true,
-      "detail": "3214ms, 프로세스 1"
+      "detail": "3356ms, 프로세스 1"
     }
   ],
   "passed": 8,
