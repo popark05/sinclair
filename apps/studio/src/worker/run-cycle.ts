@@ -4,7 +4,11 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
 
-export interface RunCycleInput { controlPlane: string; testsDir: string; testName: string; code: string; deviceId: string; deviceLabel: string }
+export interface RunCycleInput {
+  controlPlane: string; testsDir: string; testName: string; code: string; deviceId: string; deviceLabel: string;
+  /** 그 기기의 플랫폼(타깃 조건). 없으면 android(예전 동작) */
+  platform?: 'android' | 'ios';
+}
 export interface CycleStatusView { state: string; verdict: string; runState?: string }
 
 /** 파일·폴더 이름으로 안전하게: 경로 구분자·예약 문자를 공백으로, 상위 경로(.. 등 앞쪽 점) 제거 */
@@ -33,7 +37,7 @@ export async function runAsCycle(input: RunCycleInput): Promise<{ cycleId: strin
   const now = new Date();
   const stamp = now.toISOString().slice(0, 19).replace(/[-:T]/g, '');
   const cycleId = `studio-${stamp}-${randomBytes(2).toString('hex')}`;
-  const target = { id: input.deviceLabel || input.deviceId, platform: 'android', deviceId: input.deviceId };
+  const target = { id: input.deviceLabel || input.deviceId, platform: input.platform ?? 'android', deviceId: input.deviceId };
   await call(input.controlPlane, '/cycles', { method: 'POST', body: JSON.stringify({ cycleId, build: 'studio', targets: [target], suite: { tests: dir } }) });
   await call(input.controlPlane, `/cycles/${encodeURIComponent(cycleId)}/runs`, { method: 'POST', body: JSON.stringify({ targetId: target.id }) });
   return { cycleId, consoleUrl: `${input.controlPlane.replace(/\/+$/, '')}/console/cycles/${encodeURIComponent(cycleId)}`, file };

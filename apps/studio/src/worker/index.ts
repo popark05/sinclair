@@ -74,7 +74,11 @@ async function handle(req: StudioRequest): Promise<StudioResponses[StudioRequest
   if (req.kind === 'expect-check') return sessions.expectCheck(req.deviceId, req.query, req.matcher, req.expected);
   if (req.kind === 'run-cycle') {
     if (!req.controlPlane || !req.testsDir) throw new Error('설정(control-plane·테스트 폴더)이 없음');
-    return runAsCycle({ controlPlane: req.controlPlane, testsDir: req.testsDir, testName: req.testName, code: req.code, deviceId: req.deviceId, deviceLabel: req.deviceLabel });
+    // 타깃 플랫폼은 그 기기의 것(기기 목록에서) — iPhone Cycle 이 Android 조건으로 등록되지 않게
+    const c = await devices();
+    const listed = c.rpc ? ((await c.rpc.call('devices.list', {}).catch(() => [])) as Array<{ id: string; platform?: string }>) : [];
+    const platform = listed.find((d) => d.id === req.deviceId)?.platform;
+    return runAsCycle({ controlPlane: req.controlPlane, testsDir: req.testsDir, testName: req.testName, code: req.code, deviceId: req.deviceId, deviceLabel: req.deviceLabel, ...(platform === 'ios' || platform === 'android' ? { platform } : {}) });
   }
   if (req.kind === 'open-requests') return req.controlPlane ? fetchOpenRequests({ controlPlane: req.controlPlane, devices: req.devices }) : [];
   if (req.kind === 'open-ack') { if (req.controlPlane) await ackOpenRequest({ controlPlane: req.controlPlane, id: req.id }); return null; }
