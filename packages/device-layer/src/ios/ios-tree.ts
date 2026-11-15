@@ -36,7 +36,8 @@ export function toSemanticTree(root: IosElement, scale: number): SemanticNode {
   const conv = (e: IosElement): SemanticNode | undefined => {
     const children = e.children.map(conv).filter((c): c is SemanticNode => !!c);
     if (e.type !== 'Application' && e.frame.width <= 0 && e.frame.height <= 0 && !children.length) return undefined;
-    const role = ROLE[e.type] ?? 'view';
+    // 이름 있는 셀(목록 행)은 탭하는 단위 — Android 의 클릭 가능한 행처럼 button. 스냅샷에 탭 가능 여부가 없어 이름으로 가른다
+    const role = e.type === 'Cell' && e.label?.trim() ? 'button' : ROLE[e.type] ?? 'view';
     const secure = e.type === 'SecureTextField';
     const label = e.label?.trim() || undefined;
     const states: NonNullable<SemanticNode['states']> = {};

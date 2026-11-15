@@ -29,11 +29,19 @@ describe('toSemanticTree', () => {
     expect(kids[3]!.value).toBeUndefined(); // secure 값은 싣지 않는다
     expect(kids[4]).toMatchObject({ role: 'switch', name: '자동 로그인', states: { checked: true } });
     expect(kids[5]).toMatchObject({ role: 'button', states: { disabled: true, selected: true } });
-    expect(kids[6]).toMatchObject({ role: 'list', children: [{ role: 'group', name: '항목' }] });
+    expect(kids[6]).toMatchObject({ role: 'list', children: [{ role: 'button', name: '항목' }] });
     expect(kids[7]).toMatchObject({ role: 'group' });
     // ref 는 DFS 순서
     const refs: string[] = []; const walk = (n: { ref: string; children?: unknown[] }) => { refs.push(n.ref); for (const c of (n.children ?? []) as typeof n[]) walk(c); }; walk(root);
     expect(refs).toEqual(refs.map((_, i) => `@e${i}`));
+  });
+
+  it('이름 있는 셀(목록 행)은 button — 탭하는 단위라 Android 의 클릭 가능한 행과 같은 역할; 이름 없는 셀은 group(설정 앱 행이 group 이라 getByRole(button) 에 안 걸렸다, 실기)', () => {
+    const t = toSemanticTree(el('Application', {}, [el('Table', {}, [el('Cell', { label: '일반', identifier: 'General' }, [el('StaticText', { label: '일반' })]), el('Cell', {}, [el('StaticText', { label: '머리말' })])])]), 1);
+    const [row, plain] = t.children![0]!.children!;
+    expect(row).toMatchObject({ role: 'button', name: '일반', testId: 'General', children: [{ role: 'text', text: '일반' }] });
+    expect(plain).toMatchObject({ role: 'group' });
+    expect(plain!.name).toBeUndefined();
   });
 
   it('크기 0 이고 자식도 없는 노드(화면 밖 자리표시)는 뺀다', () => {
