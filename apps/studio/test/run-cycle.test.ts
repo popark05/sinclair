@@ -29,6 +29,12 @@ describe('runAsCycle', () => {
     expect(await cycleStatus({ controlPlane: url, cycleId: r.cycleId })).toMatchObject({ state: 'running', verdict: 'incomplete', runState: 'queued' });
   });
 
+  it('타깃 플랫폼은 그 기기의 것 — iPhone 을 고르면 ios(늘 android 라 iPhone Cycle 이 어떤 기기와도 맞지 않아 대기에 머물렀다, 실기)', async () => {
+    const r = await runAsCycle({ controlPlane: url, testsDir, testName: '설정 키보드', code, deviceId: '00008020-000B289011E2002E', deviceLabel: 'iPhone11,6 (…002E)', platform: 'ios' });
+    const view = await (await fetch(`${url}/cycles/${r.cycleId}`)).json() as { targetSelectors: Record<string, { platform: string }> };
+    expect(Object.values(view.targetSelectors)).toEqual([{ id: 'iPhone11,6 (…002E)', platform: 'ios', deviceId: '00008020-000B289011E2002E' }]);
+  });
+
   it('이름은 파일 이름으로 안전하게(경로 구분자·상위 경로 없음), 결과 경로는 늘 테스트 폴더 안', () => {
     expect(testSlug('a/b\\\\c:d')).toBe('a b c d');
     expect(testSlug('../../etc')).toBe('etc');
