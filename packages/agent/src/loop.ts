@@ -30,6 +30,8 @@ const SAME_CALL_FAILS_NOTE = 2;
 /** 같은 호출이 성공했지만 화면을 바꾸지 않음(진척 없음): 이만큼 연달아면 모델에게 알리고, NO_CHANGE_STOP 이면 act 를 멈춘다.
  *  실기기 지도 앱에서 13px 카드 손잡이를 17번 스크롤해 턴 한도까지 갔다(2026-11-14) — 끝까지 내린 목록처럼 정당한 반복도 있어 바로 멈추지 않는다 */
 const NO_CHANGE_NOTE = 2;
+/** 화면을 바꾸지 못했으면 녹화에서 빼는 동작(입력·확정·비밀값은 값이 바뀌므로 남긴다) */
+const NO_EFFECT_DROPPABLE = new Set(['tap', 'long_press', 'scroll']);
 const NO_CHANGE_STOP = 4;
 /** 반복 고리: 묶음 길이 상한과 알림·멈춤 횟수 */
 const CYCLE_MAX_LEN = 4;
@@ -176,6 +178,8 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
   // 녹화: 실행에 성공한 툴 호출. 기술자가 가림에 걸리면 이 act 의 녹화는 버린다
   const recorded: CacheAction[] = [];
   let recordable = true;
+  /** 바로 앞 턴이 녹화에 넣은 액션(그 턴 번호와 자리) — 다음 관찰에서 화면이 안 바뀌었으면 뺀다 */
+  let lastRecorded: { turn: number; index: number } | undefined;
   let startRoot: SemanticNode | undefined;
   const record = (kind: IncidentKind, rawAction: string, countAttempt = true): void => {
     const action = hide(rawAction);
@@ -266,6 +270,9 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
         // 진척 없음: 성공한 같은 호출이 연달아 화면을 바꾸지 않으면(복구가 끼지 않은 턴만) 모델에게 알리고, 계속되면 멈춘다
         const ref = (prevTurn.call.input as { ref?: unknown } | null)?.ref;
         const key = `${prevTurn.call.name}${typeof ref === 'string' ? ` ${ref}` : ''}`;
+        // 녹화에서 헛동작 빼기: 앞 턴이 녹화에 넣은 탭·길게 누르기·스크롤이 화면을 바꾸지 못했으면 재생할 이유가 없다(재생 땐 그 대상을 못 찾아 이어받게 된다)
+        if (lastRecorded && lastRecorded.turn === history.length - 1 && change === '없음' && !recoveredThisTurn && NO_EFFECT_DROPPABLE.has(recorded[lastRecorded.index]?.tool ?? '')) recorded.splice(lastRecorded.index, 1);
+        lastRecorded = undefined;
         if (prevTurn.result === 'ok' && change === '없음' && !recoveredThisTurn) { noChangeInRow = key === lastNoChangeCall ? noChangeInRow + 1 : 1; lastNoChangeCall = key; }
         else { noChangeInRow = 0; lastNoChangeCall = undefined; }
         if (noChangeInRow >= NO_CHANGE_STOP) return fail(`Incident: 같은 호출(${hide(key)})이 네 번 연달아 화면을 바꾸지 않음 — 진척 없음`);
@@ -425,6 +432,7 @@ export async function runAct(engine: Engine, goal: string, opts: ActOptions): Pr
           const direction = name === 'scroll' ? (checked.call.input.direction as 'up' | 'down') : undefined;
           const a = { tool: name, ...(t ? { target: t } : {}), ...(text !== undefined ? { text } : {}), ...(direction ? { direction } : {}) };
           recorded.push({ ...a, summary: actionSummary(a) });
+          lastRecorded = { turn: history.length - 1, index: recorded.length - 1 };
         }
       }
     }
